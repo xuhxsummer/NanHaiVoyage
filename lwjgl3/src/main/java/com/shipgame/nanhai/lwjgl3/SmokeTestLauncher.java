@@ -265,8 +265,22 @@ public class SmokeTestLauncher {
                                 "full map not open, got " + voyageOverlay());
                         require(!stageVisible(), "HUD stage must be hidden under the full-map modal");
                         require(noStageHitAtRail(), "rail/accel must not be clickable under the modal");
+                        // 0.25.3 sea chart: 广州 (NE) and 佛逝 (SW) must project to
+                        // clearly different points, and the chart pixels (sea, land,
+                        // player marker) must actually be visible in the frame.
+                        float[] gz = mapPortToScreen(0);
+                        int fos = -1;
+                        for (int i = 0; i < Catalog.PORTS.length; i++) {
+                            if (Catalog.PORTS[i].equals("佛逝")) fos = i;
+                        }
+                        float[] fs = mapPortToScreen(fos);
+                        float pdist = (float) Math.hypot(gz[0] - fs[0], gz[1] - fs[1]);
+                        require(pdist > 100f, "广州/佛逝 project too close on the chart (dist=" + (int) pdist + ")");
+                        System.out.println("SMOKE: chart ports distinct: 广州(" + (int) gz[0] + "," + (int) gz[1]
+                                + ") vs 佛逝(" + (int) fs[0] + "," + (int) fs[1] + ") dist=" + (int) pdist);
                         System.out.println("SMOKE: full-map modal covers the HUD (stage hidden)");
                         saveShot("map-modal");
+                        verifyMapShot();
                         step = 22;
                         nextStepFrame = frame + 6;
                         break;
@@ -357,6 +371,30 @@ public class SmokeTestLauncher {
                     }
                 }
                 return true;
+            }
+
+            /** 0.25.3 chart visibility: the saved full-map frame must contain deep
+             * sea pixels, khaki land pixels and the bright-yellow player marker. */
+            private void verifyMapShot() throws Exception {
+                java.io.File f = new java.io.File("/tmp/shots/map-modal.png");
+                require(f.exists(), "map-modal.png missing");
+                javax.imageio.ImageIO.setUseCache(false);
+                java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(f);
+                require(img != null, "map-modal.png unreadable");
+                int sea = 0, land = 0, ship = 0;
+                for (int y = 0; y < img.getHeight(); y++) {
+                    for (int x = 0; x < img.getWidth(); x++) {
+                        int rgb = img.getRGB(x, y);
+                        int r = (rgb >> 16) & 0xff, g2 = (rgb >> 8) & 0xff, b = rgb & 0xff;
+                        if (Math.abs(r - 13) <= 8 && Math.abs(g2 - 38) <= 8 && Math.abs(b - 61) <= 8) sea++;
+                        else if (Math.abs(r - 148) <= 10 && Math.abs(g2 - 125) <= 10 && Math.abs(b - 82) <= 10) land++;
+                        else if (r > 235 && g2 > 190 && g2 < 235 && b < 60) ship++;
+                    }
+                }
+                require(sea > 2000, "full map has no sea (sea=" + sea + ")");
+                require(land > 300, "full map has no land (land=" + land + ")");
+                require(ship > 40, "full map player marker missing (ship=" + ship + ")");
+                System.out.println("SMOKE: sea chart visible: sea=" + sea + " land=" + land + " ship(yellow)=" + ship);
             }
 
             private void saveShot(String name) {

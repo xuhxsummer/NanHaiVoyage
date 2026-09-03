@@ -1047,21 +1047,68 @@ public class VoyageScreen extends ScreenAdapter {
 
     /** Fullscreen modal full map: a dim veil covers the whole HUD (the stage is
      * hidden while overlay == Overlay.MAP, so no other control is visible or
-     * clickable). 关闭 sits top-right inside the map; blank taps keep it open. */
+     * clickable). 关闭 sits top-right inside the map; blank taps keep it open.
+     * 0.25.3: rendered as a top-down pixel sea chart — deep sea + wave flecks,
+     * simplified mainland/Indochina/Hainan/Xisha land blocks aligned to Catalog
+     * world coords (广州/潮州 NE, 佛逝/真腊/占城 SW, 琼州/崖州 on Hainan), golden
+     * town icons with names, green island blobs, bright yellow player marker. */
     private void drawFullMap() {
+        float ix = FM_X + 10f, iy = FM_Y + 10f, iw = FM_W - 20f, ih = FM_H - 20f;
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         // fullscreen dim veil over the entire screen
-        shapes.setColor(0.02f, 0.04f, 0.07f, 0.94f);
+        shapes.setColor(0.02f, 0.04f, 0.07f, 0.96f);
         shapes.rect(0f, 0f, HUD_W, HUD_H);
-        // map frame + content area
+        // map frame + deep sea base
         shapes.setColor(0.02f, 0.08f, 0.13f, 1f);
         shapes.rect(FM_X, FM_Y, FM_W, FM_H);
-        shapes.setColor(0.05f, 0.14f, 0.20f, 1f);
-        shapes.rect(FM_X + 10f, FM_Y + 10f, FM_W - 20f, FM_H - 20f);
-        drawMapContents(FM_X + 10f, FM_Y + 10f, FM_W - 20f, FM_H - 20f, true);
+        shapes.setColor(0.05f, 0.15f, 0.24f, 1f);
+        shapes.rect(ix, iy, iw, ih);
+        // wave flecks: deterministic pseudo-random lighter dots across the sea
+        shapes.setColor(0.11f, 0.29f, 0.40f, 0.85f);
+        long s = 0x9E3779B97F4A7C15L;
+        for (int k = 0; k < 130; k++) {
+            s = s * 6364136223846793005L + 1442695040888963407L;
+            double rx = ((s >>> 33) & 0x7fffffffL) / (double) 0x7fffffffL;
+            s = s * 6364136223846793005L + 1442695040888963407L;
+            double ry = ((s >>> 33) & 0x7fffffffL) / (double) 0x7fffffffL;
+            float wx = (float) (ix + rx * iw);
+            float wy = (float) (iy + ry * ih);
+            float sz = k % 3 == 0 ? 4.2f : 2.8f;
+            shapes.rect(wx, wy, sz, sz);
+        }
+        // simplified land blocks (world coords -> chart, so ports stay put)
+        drawChartLand(ix, iy, iw, ih);
+        // island blobs + golden town icons (drawn over land/sea, under labels)
+        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ix, iy, iw, ih);
+            shapes.setColor(0f, 0f, 0f, 0.4f);
+            shapes.circle(xy[0] + 1.5f, xy[1] - 1.5f, 9f);
+            shapes.setColor(ISLE_C);
+            shapes.circle(xy[0], xy[1], 9f);
+            shapes.setColor(0.16f, 0.38f, 0.20f, 1f);
+            shapes.circle(xy[0], xy[1], 5f);
+        }
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], ix, iy, iw, ih);
+            shapes.setColor(0.20f, 0.12f, 0.05f, 1f);
+            shapes.rect(xy[0] - 5f, xy[1] - 5f, 10f, 10f);
+            shapes.setColor(0.93f, 0.80f, 0.30f, 1f);
+            shapes.rect(xy[0] - 3f, xy[1] - 3f, 6f, 6f);
+        }
+        // Player ship: white ring + bright yellow dot + heading tick, drawn last
+        // so it can never hide under a port/island marker or land block.
+        float[] me = mapToUi(g.x, g.y, ix, iy, iw, ih);
+        float rad = g.headingDeg * MathUtils.degreesToRadians;
+        shapes.setColor(1f, 1f, 1f, 0.95f);
+        shapes.circle(me[0], me[1], 8f);
+        shapes.setColor(1f, 0.84f, 0.15f, 1f);
+        shapes.circle(me[0], me[1], 6f);
+        shapes.setColor(0.25f, 0.18f, 0.03f, 1f);
+        shapes.rectLine(me[0], me[1],
+                me[0] + MathUtils.cos(rad) * 14f, me[1] + MathUtils.sin(rad) * 14f, 3.2f);
         if (g.weather != GameState.WeatherKind.CLEAR) {
             shapes.setColor(0.7f, 0.75f, 0.8f, g.weather == GameState.WeatherKind.FOG ? 0.45f : 0.28f);
-            shapes.rect(FM_X + 10f, FM_Y + 10f, FM_W - 20f, FM_H - 20f);
+            shapes.rect(ix, iy, iw, ih);
         }
         // 关闭 button (top-right corner inside the map)
         shapes.setColor(0.45f, 0.16f, 0.14f, 0.98f);
@@ -1072,62 +1119,67 @@ public class VoyageScreen extends ScreenAdapter {
         shapes.rect(FM_X, FM_Y, FM_W, FM_H);
         shapes.rect(FM_CLOSE_X, FM_CLOSE_Y, FM_CLOSE_W, FM_CLOSE_H);
         shapes.end();
+        // labels: title, 关闭, port names beside their icons, island names, 本船
         game.batch.begin();
-        layout.setText(game.font, "全图：点港口/岛屿自动驶向");
-        game.font.draw(game.batch, "全图：点港口/岛屿自动驶向", FM_X + 16f, FM_Y + FM_H - 14f);
+        layout.setText(game.font, "南海海图：点港口/岛屿自动驶向");
+        game.font.draw(game.batch, "南海海图：点港口/岛屿自动驶向", FM_X + 16f, FM_Y + FM_H - 14f);
         layout.setText(game.fontSmall, "关闭");
         game.fontSmall.draw(game.batch, "关闭",
                 FM_CLOSE_X + (FM_CLOSE_W - layout.width) / 2f,
                 FM_CLOSE_Y + (FM_CLOSE_H + layout.height) / 2f);
-        // Ports/islands/ship are always labelled: the full map must never be blank.
-        float cxp = FM_X + 10f, cyp = FM_Y + 10f, cwp = FM_W - 20f, chp = FM_H - 20f;
         for (int i = 0; i < Catalog.PORTS.length; i++) {
-            float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], cxp, cyp, cwp, chp);
-            game.fontSmall.draw(game.batch, Catalog.PORTS[i], xy[0] + 12, xy[1] + 12);
+            float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], ix, iy, iw, ih);
+            game.fontSmall.draw(game.batch, Catalog.PORTS[i], xy[0] + 8, xy[1] + 4);
         }
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], cxp, cyp, cwp, chp);
-            game.fontSmall.draw(game.batch, Catalog.ISLANDS[i], xy[0] + 14, xy[1] - 10);
+            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ix, iy, iw, ih);
+            game.fontSmall.draw(game.batch, Catalog.ISLANDS[i], xy[0] + 11, xy[1] - 12);
         }
-        float[] me = mapToUi(g.x, g.y, cxp, cyp, cwp, chp);
-        game.fontSmall.draw(game.batch, "本船", me[0] + 12, me[1] - 10);
+        game.fontSmall.draw(game.batch, "本船", me[0] + 10, me[1] - 12);
         game.batch.end();
     }
 
-    private void drawMapContents(float x, float y, float w, float h, boolean full) {
-        float islandR = full ? 12f : 5.5f;
-        float portR = full ? 10f : 5f;
-        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], x, y, w, h);
-            shapes.setColor(0f, 0f, 0f, 0.35f);
-            shapes.circle(xy[0] + 1.5f, xy[1] - 1.5f, islandR);
-            shapes.setColor(ISLE_C);
-            shapes.circle(xy[0], xy[1], islandR);
+    /** Simplified land blocks: mainland China band + Indochina coast + Leizhou
+     * peninsula + Hainan island + Xisha reef dots, projected from Catalog world
+     * coords so ports/islands keep their relative positions (广州/潮州 NE on the
+     * mainland, 琼州/崖州 on Hainan, 佛逝/真腊/占城 SW on Indochina). */
+    private void drawChartLand(float ix, float iy, float iw, float ih) {
+        shapes.setColor(0.58f, 0.49f, 0.32f, 1f); // khaki land
+        // mainland China band across the top
+        rectFromWorld(0f, 2350f, 4800f, 3600f, ix, iy, iw, ih);
+        // Indochina block (west) + 占城 coast finger + southern Mekong bulge
+        rectFromWorld(0f, 700f, 1500f, 2350f, ix, iy, iw, ih);
+        rectFromWorld(1150f, 900f, 1500f, 1300f, ix, iy, iw, ih);
+        rectFromWorld(0f, 500f, 1150f, 800f, ix, iy, iw, ih);
+        // Hainan island (between the Leizhou peninsula and the open sea)
+        rectFromWorld(2150f, 1300f, 2550f, 2050f, ix, iy, iw, ih);
+        // rounded coast: Guangxi shore (合浦), Leizhou peninsula (雷州), Chaozhou
+        // shore (潮州), Indochina south tip, Hainan blobs
+        float[] a;
+        a = mapToUi(1800f, 2250f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 46f);
+        a = mapToUi(2550f, 2440f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 38f);
+        a = mapToUi(4300f, 2520f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 38f);
+        a = mapToUi(900f, 650f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 44f);
+        a = mapToUi(2350f, 1700f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 62f);
+        a = mapToUi(2350f, 1420f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 56f);
+        // Xisha reef dots (southeast of Hainan)
+        shapes.setColor(0.54f, 0.45f, 0.30f, 1f);
+        float[][] xisha = {{2050f, 1100f}, {2150f, 1000f}, {2250f, 1080f},
+                {2100f, 1180f}, {2190f, 1140f}};
+        for (float[] d : xisha) {
+            float[] xy = mapToUi(d[0], d[1], ix, iy, iw, ih);
+            shapes.circle(xy[0], xy[1], 9f);
         }
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], x, y, w, h);
-            shapes.setColor(0f, 0f, 0f, 0.35f);
-            shapes.circle(xy[0] + 1.5f, xy[1] - 1.5f, portR);
-            shapes.setColor(PORT_C);
-            shapes.circle(xy[0], xy[1], portR);
-            if (full) {
-                shapes.setColor(0.25f, 0.16f, 0.05f, 1f);
-                shapes.circle(xy[0], xy[1], portR * 0.42f);
-            }
-        }
-        // Player: white-outlined hull dot + heading tick, drawn last so it can
-        // never be hidden under a port/island marker.
-        float[] me = mapToUi(g.x, g.y, x, y, w, h);
-        float r = full ? 7f : 4f;
-        float rad = g.headingDeg * MathUtils.degreesToRadians;
-        shapes.setColor(1f, 1f, 1f, 0.9f);
-        shapes.circle(me[0], me[1], r + 2f);
-        shapes.setColor(HULL);
-        shapes.circle(me[0], me[1], r);
-        shapes.setColor(1f, 0.95f, 0.55f, 1f);
-        shapes.rectLine(me[0], me[1],
-                me[0] + MathUtils.cos(rad) * (r + (full ? 9f : 7f)),
-                me[1] + MathUtils.sin(rad) * (r + (full ? 9f : 7f)), full ? 3f : 2f);
+    }
+
+    /** Axis-aligned world rect -> screen rect (the projection is linear and
+     * axis-aligned, so mapping the two corners is exact). */
+    private void rectFromWorld(float wx1, float wy1, float wx2, float wy2,
+                               float ix, float iy, float iw, float ih) {
+        float[] p1 = mapToUi(wx1, wy1, ix, iy, iw, ih);
+        float[] p2 = mapToUi(wx2, wy2, ix, iy, iw, ih);
+        shapes.rect(Math.min(p1[0], p2[0]), Math.min(p1[1], p2[1]),
+                Math.abs(p2[0] - p1[0]), Math.abs(p2[1] - p1[1]));
     }
 
     private float[] mapToUi(float wx, float wy, float x, float y, float w, float h) {
@@ -1232,11 +1284,11 @@ public class VoyageScreen extends ScreenAdapter {
             return true;
         }
         float ix = FM_X + 10f, iy = FM_Y + 10f, iw = FM_W - 20f, ih = FM_H - 20f;
-        // Tap a port -> auto-sail to it.
+        // Tap a port -> auto-sail to it (radius covers the icon + name label).
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], ix, iy, iw, ih);
             float ddx = hx - xy[0], ddy = hy - xy[1];
-            if (ddx * ddx + ddy * ddy < 22 * 22) {
+            if (ddx * ddx + ddy * ddy < 34 * 34) {
                 overlay = Overlay.NONE;
                 undockIfNeeded(); // full-map tap also sails from a closed-menu dock
                 g.startAutoSail(i);
@@ -1248,7 +1300,7 @@ public class VoyageScreen extends ScreenAdapter {
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
             float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ix, iy, iw, ih);
             float ddx = hx - xy[0], ddy = hy - xy[1];
-            if (ddx * ddx + ddy * ddy < 24 * 24) {
+            if (ddx * ddx + ddy * ddy < 28 * 28) {
                 overlay = Overlay.NONE;
                 undockIfNeeded();
                 g.startAutoSailIsle(i);
