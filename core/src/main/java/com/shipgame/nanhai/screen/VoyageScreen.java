@@ -117,6 +117,7 @@ public class VoyageScreen extends ScreenAdapter {
     private int dismissedPort = -1;
     private int dismissedIsland = -1;
     private boolean dismissedFail;
+    private int selectedQuest = -1;
 
     // 0.26.0 市场 pagination: rows per page in each market column, plus the two
     // independent page cursors (buy column pages over goods, sell column pages
@@ -132,6 +133,7 @@ public class VoyageScreen extends ScreenAdapter {
     private TextButton btnCtx;      // 港口 / 岛屿 contextual reopen
     private TextButton btnIntel;    // 情报 market-intel overlay
     private TextButton btnQuests;   // 任务 quest overlay
+    private TextButton btnQuestState; // active-quest pill under the round 任务 button
     private TextButton btnCancelAuto;
     private TextButton btnLockPirate;
     private TextButton btnCancelLock;
@@ -270,15 +272,15 @@ public class VoyageScreen extends ScreenAdapter {
 
         // Right-side vertical quest button (任务). Opens the quest overlay.
         btnQuests = new TextButton("任务", game.skin, "circ");
-        btnQuests.addListener(click(() -> {
-            if (overlay == Overlay.QUESTS) {
-                closePopup();
-            } else if (overlay != Overlay.MAP) {
-                overlay = Overlay.QUESTS;
-                rebuildMenu();
-            }
-        }));
+        btnQuests.addListener(click(this::toggleQuestOverlay));
         stage.addActor(btnQuests);
+        // Compact pill under the round button: the single current active quest
+        // (first incomplete/unclaimed) with its progress — never a list on the HUD.
+        btnQuestState = new TextButton("", game.skin);
+        btnQuestState.getLabel().setFontScale(0.8f);
+        btnQuestState.addListener(click(this::toggleQuestOverlay));
+        btnQuestState.setVisible(false);
+        stage.addActor(btnQuestState);
         placeQuestButton();
 
         // Far-left circular rail: 货物 / 图鉴 / 港口 on the very left edge. They are
@@ -326,6 +328,7 @@ public class VoyageScreen extends ScreenAdapter {
                 closePopup();
             } else if (overlay != Overlay.MAP) {
                 overlay = Overlay.INTEL;
+                markIntelViewed();
                 rebuildMenu();
             }
         }));
@@ -383,10 +386,30 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float QB_TOP = 460f;        // center y of the top
     private static final float QB_GAP = 76f;         // center-to-center spacing
     private int questBtnIndex = 0;
+    // Active-quest pill parked below the round button, flush to the right edge.
+    private static final float QP_W = 212f;
+    private static final float QP_H = 40f;
 
     private void placeQuestButton() {
         float cy = QB_TOP - questBtnIndex * QB_GAP;
         btnQuests.setBounds(QB_X - QB_SIZE / 2f, cy - QB_SIZE / 2f, QB_SIZE, QB_SIZE);
+        if (btnQuestState != null) {
+            btnQuestState.setBounds(HUD_W - 16f - QP_W, cy - QB_SIZE / 2f - QP_H - 8f, QP_W, QP_H);
+        }
+    }
+
+    /** Round 任务 button and the active-quest pill both open/close the quest popup. */
+    private void toggleQuestOverlay() {
+        if (overlay == Overlay.QUESTS) {
+            closePopup();
+        } else if (overlay != Overlay.MAP) {
+            overlay = Overlay.QUESTS;
+            // Show the current task's detail by default, not the empty pane.
+            if (selectedQuest < 0 || selectedQuest >= QUESTS.length) {
+                selectedQuest = getActiveQuestIndex();
+            }
+            rebuildMenu();
+        }
     }
 
     /** Hold-to-keep listeners for 加速/减速. Press state is tracked directly (not
@@ -499,6 +522,7 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void rebuildMenu() {
+        updateQuestButtonLabel();
         menuRoot.clear();
         refreshBaseCtx();
         if (overlay == Overlay.NONE || overlay == Overlay.MAP) {
@@ -533,7 +557,8 @@ public class VoyageScreen extends ScreenAdapter {
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
         boolean wide = overlay == Overlay.PORT || overlay == Overlay.MARKET;
-        menuRoot.add(sp).width(wide ? PORT_MENU_W + 24f : 520f).maxHeight(560);
+        float pw = wide ? PORT_MENU_W + 24f : (overlay == Overlay.QUESTS ? 560f : 520f);
+        menuRoot.add(sp).width(pw).maxHeight(560);
     }
 
     /** Left-rail context label: 港口 always; becomes 岛屿 while pausing on an island. */
@@ -665,6 +690,7 @@ public class VoyageScreen extends ScreenAdapter {
                 selectedGood = good;
                 priceReturnOverlay = Overlay.MARKET;
                 overlay = Overlay.PRICE;
+                markIntelViewed();
                 rebuildMenu();
             })).width(78).height(36);
             buy.add(row).width(430).left().padBottom(2).row();
@@ -1012,113 +1038,327 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     // ---- 任务 system (0.26.1) ----
-    private static abstract class Quest {
+    private static class QuestDef {
         public final int id;
         public final String title;
-        public final String goal;
-        public final String reward;
-        protected Quest(int id, String title, String goal, String reward) {
-            this.id = id; this.title = title; this.goal = goal; this.reward = reward;
+        public final String description;
+        public final int progressType;
+        public final int targetAmount;
+        public final int targetGood;
+        public final int targetPort;
+        public final int targetIsland;
+        public final int silverReward;
+        public final int supplyReward;
+        public final int hullReward;
+        public final int unlockAfter;
+        public final String claimField;
+        public QuestDef(int id, String title, String desc, int progType, int target,
+                        int good, int port, int island, int silver, int supply, int hull,
+                        int unlockAfter, String claimField) {
+            this.id = id; this.title = title; this.description = desc;
+            this.progressType = progType; this.targetAmount = target;
+            this.targetGood = good; this.targetPort = port; this.targetIsland = island;
+            this.silverReward = silver; this.supplyReward = supply; this.hullReward = hull;
+            this.unlockAfter = unlockAfter; this.claimField = claimField;
         }
-        public abstract int getProgress(GameState g);
-        public abstract boolean isComplete(GameState g);
-        public abstract boolean isClaimed(GameState g);
-        public abstract String claim(GameState g);
     }
-    private static final Quest[] QUESTS = new Quest[] {
-        new Quest(0, "卖 50 丝绸", "卖出 50 丝绸到港口", "奖励：银 200") {
-            public int getProgress(GameState g) { return g.questSellSilk; }
-            public boolean isComplete(GameState g) { return g.questSellSilk >= 50; }
-            public boolean isClaimed(GameState g) { return g.questClaimSellSilk; }
-            public String claim(GameState g) { return g.claimSellSilk(); }
-        },
-        new Quest(1, "去 5 个港口", "靠岸去过 5 个不同港口", "奖励：银 300") {
-            public int getProgress(GameState g) { return g.questVisitPorts; }
-            public boolean isComplete(GameState g) { return g.questVisitPorts >= 5; }
-            public boolean isClaimed(GameState g) { return g.questClaimVisitPorts; }
-            public String claim(GameState g) { return g.claimVisitPorts(); }
-        },
-        new Quest(2, "打 3 条海盗", "在海上打败 3 艘海盗船", "奖励：银 150 + 补给 100") {
-            public int getProgress(GameState g) { return g.questDefeatedPirates; }
-            public boolean isComplete(GameState g) { return g.questDefeatedPirates >= 3; }
-            public boolean isClaimed(GameState g) { return g.questClaimDefeatedPirates; }
-            public String claim(GameState g) { return g.claimDefeatedPirates(); }
-        },
-        new Quest(3, "找 5 种异兽", "上岛找出 5 种异兽", "奖励：银 250") {
-            public int getProgress(GameState g) { return g.questBeastsFound; }
-            public boolean isComplete(GameState g) { return g.questBeastsFound >= 5; }
-            public boolean isClaimed(GameState g) { return g.questClaimBeastsFound; }
-            public String claim(GameState g) { return g.claimBeastsFound(); }
-        },
-        new Quest(4, "还完欠钱", "把欠的钱全还了", "奖励：银 400") {
-            public int getProgress(GameState g) { return g.debt; }
-            public boolean isComplete(GameState g) { return g.questDebtPaid; }
-            public boolean isClaimed(GameState g) { return g.questClaimDebtPaid; }
-            public String claim(GameState g) { return g.claimDebtPaid(); }
-        },
-        new Quest(5, "银到 5000", "帐上银子达到 5000 两", "奖励：补给 200 + 耐久 100") {
-            public int getProgress(GameState g) { return g.questSilverPeak; }
-            public boolean isComplete(GameState g) { return g.questSilverPeak >= 5000; }
-            public boolean isClaimed(GameState g) { return g.questClaimSilverPeak; }
-            public String claim(GameState g) { return g.claimSilverPeak(); }
-        },
-        new Quest(6, "升仓 3 次", "把共用货舱仓库升 3 次", "奖励：银 150") {
-            public int getProgress(GameState g) { return g.questWarehouseUps; }
-            public boolean isComplete(GameState g) { return g.questWarehouseUps >= 3; }
-            public boolean isClaimed(GameState g) { return g.questClaimWarehouseUps; }
-            public String claim(GameState g) { return g.claimWarehouseUps(); }
-        },
-        new Quest(7, "雇 5 个人", "总共雇了 5 人上船", "奖励：银 100") {
-            public int getProgress(GameState g) { return g.questHiredCrew; }
-            public boolean isComplete(GameState g) { return g.questHiredCrew >= 5; }
-            public boolean isClaimed(GameState g) { return g.questClaimHiredCrew; }
-            public String claim(GameState g) { return g.claimHiredCrew(); }
-        },
+    private static final QuestDef[] QUESTS = new QuestDef[] {
+        new QuestDef(0, "首次登岛", "靠近一个岛屿，点菜单搜采一次，找出异兽或草药。",
+                8, 1, -1, -1, 0, 30, 0, 0, -1, "claimIslandVisit"),
+        new QuestDef(1, "第一次补给", "回港口点「补补给」，把补给补满。",
+                9, 1, -1, 0, -1, 20, 0, 0, 0, "claimRefill"),
+        new QuestDef(2, "修一次船", "回港口点「修理」，把耐久修好。",
+                10, 1, -1, 0, -1, 20, 0, 0, 1, "claimRepair"),
+        new QuestDef(3, "买点货", "回港口点「市场」买进任意一种货物至少 1 件。",
+                11, 1, -1, 0, -1, 40, 0, 0, 2, "claimBuy"),
+        new QuestDef(4, "赚个差价", "把买进的货卖出去，赚到比买时更多的银两（任意货、任意港）。",
+                12, 1, -1, 0, -1, 80, 0, 0, 3, "claimProfitableSell"),
+        new QuestDef(5, "打赢海盗", "在海上遇到海盗，点船锁定自动开火，打沉它。",
+                2, 1, -1, -1, -1, 100, 50, 0, 4, "claimWinCombat"),
+        new QuestDef(6, "看看行情", "打开「情报」或「行情」看看各港价格，了解差价。",
+                13, 1, -1, -1, -1, 30, 0, 0, 5, "claimIntelViewed"),
+        new QuestDef(7, "升级一项", "回港口升级仓库、炮火或编制中的任意一项。",
+                14, 1, -1, 0, -1, 80, 0, 0, 6, "claimUpgradeAny"),
+        // Volume/trade quests (8+)
+        new QuestDef(8, "卖 50 丝绸", "把丝绸卖到港口，卖出 50 件即可（货物仍留在货舱，可继续卖）。",
+                0, 50, 0, -1, -1, 200, 0, 0, 7, "claimSellSilk"),
+        new QuestDef(9, "去 5 个港口", "靠岸去过 5 个不同的港口。",
+                1, 5, -1, -1, -1, 300, 0, 0, 8, "claimVisitPorts"),
+        new QuestDef(10, "买 10 茶叶", "在港口买进茶叶 10 件（可分次买，货物留在仓内）。",
+                17, 10, 2, -1, -1, 50, 0, 0, 9, "claimBuyTea"),
+        new QuestDef(11, "卖 30 瓷器", "把瓷器卖出 30 件（可在不同港口分次卖）。",
+                16, 30, 1, -1, -1, 250, 0, 0, 10, "claimSellPorcelain"),
+        new QuestDef(12, "探 3 个岛", "上岛搜采 3 次（可找不同岛，每次算 1）。",
+                8, 3, -1, -1, -1, 120, 0, 0, 11, "claimIslandExplore"),
+        new QuestDef(13, "打 3 条海盗", "在海上把 3 艘海盗船打沉。",
+                2, 3, -1, -1, -1, 150, 100, 0, 12, "claimDefeatedPirates"),
+        new QuestDef(14, "找 5 种异兽", "上岛找出 5 种不同的《山海经》异兽（每种第一次算）。",
+                15, 5, -1, -1, -1, 250, 0, 0, 13, "claimBeastsFound"),
+        new QuestDef(15, "还完欠钱", "把欠的钱全部还清（欠款归零）。",
+                4, 0, -1, -1, -1, 400, 0, 0, 14, "claimDebtPaid"),
+        new QuestDef(16, "银到 5000", "帐上银两超过 5000 两（峰值算）。",
+                5, 5000, -1, -1, -1, 0, 200, 100, 15, "claimSilverPeak"),
+        new QuestDef(17, "升仓 3 次", "把共用货舱仓库升级 3 次。",
+                6, 3, -1, -1, -1, 150, 0, 0, 16, "claimWarehouseUps"),
+        new QuestDef(18, "雇 5 个人", "花钱雇了 5 个船员上船。",
+                7, 5, -1, -1, -1, 100, 0, 0, 17, "claimHiredCrew"),
     };
 
-    private void questsTable(Table box) {
-        menuHeader(box, "任务（8 条，完就拿奖）");
-        int completed = 0;
-        for (Quest q : QUESTS) {
-            if (q.isComplete(g)) completed++;
-        }
-        box.add(infoRow("做完 " + completed + "/" + QUESTS.length + " 条")).width(MENU_W).left().padBottom(4).row();
-        box.add(new Label("—— 任务表 ——", game.skin, "small")).width(MENU_W).left().padTop(2).padBottom(2).row();
-        for (Quest q : QUESTS) {
-            int prog = q.getProgress(g);
-            boolean done = q.isComplete(g);
-            boolean claimed = q.isClaimed(g);
-            int target = questTarget(q.id);
-            String line;
-            if (claimed) {
-                line = "✓ [拿过了] " + q.title + " —— " + q.goal + " （" + q.reward + "）」";
-            } else if (done) {
-                line = "✓ [没拿] " + q.title + " —— " + q.goal + " （" + q.reward + "）」";
-            } else {
-                line = "▶ " + q.title + " —— " + q.goal + "  走了 " + prog + "/" + target + "  「" + q.reward + "」";
-            }
-            box.add(infoRow(line)).width(MENU_W).left().padBottom(1).row();
-            if (!claimed && done) {
-                box.add(btn("拿奖励", () -> {
-                    g.toast(q.claim(g));
-                    persist();
-                    rebuildMenu();
-                })).width(MENU_W).height(40).left().padBottom(4).row();
-            }
+    private int getQuestProgress(GameState g, int type) {
+        switch (type) {
+            case 0: return g.questSellSilk;
+            case 1: return g.questVisitPorts;
+            case 2: return g.questDefeatedPirates;
+            case 3: return g.questBeastsFound;
+            case 4: return g.debt;
+            case 5: return g.questSilverPeak;
+            case 6: return g.questWarehouseUps;
+            case 7: return g.questHiredCrew;
+            case 8: return g.questIslandVisits;
+            case 9: return g.questRefillCount;
+            case 10: return g.questRepairCount;
+            case 11: return g.questBuyCount;
+            case 12: return g.questProfitableSell ? 1 : 0;
+            case 13: return g.questIntelViewed ? 1 : 0;
+            case 14: return g.questUpgradeCount;
+            case 15: return g.questBeastsFound;
+            case 16: return g.questSellPorcelain;
+            case 17: return g.questBuyTea;
+            default: return 0;
         }
     }
 
-    private int questTarget(int id) {
-        switch (id) {
-            case 0: return 50;
-            case 1: return 5;
-            case 2: return 3;
-            case 3: return 5;
-            case 5: return 5000;
-            case 6: return 3;
-            case 7: return 5;
-            default: return -1;
+    private boolean isQuestComplete(GameState g, QuestDef q) {
+        int prog = getQuestProgress(g, q.progressType);
+        if (q.progressType == 4) return g.questDebtPaid; // debt paid is boolean
+        if (q.progressType == 13) return g.questIntelViewed;
+        if (q.targetAmount == 0) return prog >= 0; // just needs to happen once
+        return prog >= q.targetAmount;
+    }
+
+    private boolean isQuestClaimed(GameState g, QuestDef q) {
+        switch (q.id) {
+            case 0: return g.questClaimIslandVisit;
+            case 1: return g.questClaimRefill;
+            case 2: return g.questClaimRepair;
+            case 3: return g.questClaimBuy;
+            case 4: return g.questClaimProfitableSell;
+            case 5: return g.questClaimWinCombat;
+            case 6: return g.questClaimIntelViewed;
+            case 7: return g.questClaimUpgradeAny;
+            case 8: return g.questClaimSellSilk;
+            case 9: return g.questClaimVisitPorts;
+            case 10: return g.questClaimBuyTea;
+            case 11: return g.questClaimSellPorcelain;
+            case 12: return g.questClaimIslandExplore;
+            case 13: return g.questClaimDefeatedPirates;
+            case 14: return g.questClaimBeastsFound;
+            case 15: return g.questClaimDebtPaid;
+            case 16: return g.questClaimSilverPeak;
+            case 17: return g.questClaimWarehouseUps;
+            case 18: return g.questClaimHiredCrew;
+            default: return false;
         }
+    }
+
+    private String claimQuest(GameState g, QuestDef q) {
+        if (isQuestClaimed(g, q)) return "这奖励拿过了。";
+        if (!isQuestComplete(g, q)) return "还没做完。";
+        g.silver += q.silverReward;
+        g.supply += q.supplyReward;
+        if (g.supply > g.supplyMax) g.supply = g.supplyMax;
+        g.hull += q.hullReward;
+        if (g.hull > g.hullMax) g.hull = g.hullMax;
+        setQuestClaimed(g, q);
+        String msg = "拿到";
+        if (q.silverReward > 0) msg += "银 +" + q.silverReward;
+        if (q.supplyReward > 0) msg += (msg.isEmpty() ? "补給 +" : ",補給 +") + q.supplyReward;
+        if (q.hullReward > 0) msg += (msg.isEmpty() ? "耐久 +" : ",耐久 +") + q.hullReward;
+        msg += "。";
+        return msg;
+    }
+
+    private void setQuestClaimed(GameState g, QuestDef q) {
+        switch (q.id) {
+            case 0: g.questClaimIslandVisit = true; break;
+            case 1: g.questClaimRefill = true; break;
+            case 2: g.questClaimRepair = true; break;
+            case 3: g.questClaimBuy = true; break;
+            case 4: g.questClaimProfitableSell = true; break;
+            case 5: g.questClaimWinCombat = true; break;
+            case 6: g.questClaimIntelViewed = true; break;
+            case 7: g.questClaimUpgradeAny = true; break;
+            case 8: g.questClaimSellSilk = true; break;
+            case 9: g.questClaimVisitPorts = true; break;
+            case 10: g.questClaimBuyTea = true; break;
+            case 11: g.questClaimSellPorcelain = true; break;
+            case 12: g.questClaimIslandExplore = true; break;
+            case 13: g.questClaimDefeatedPirates = true; break;
+            case 14: g.questClaimBeastsFound = true; break;
+            case 15: g.questClaimDebtPaid = true; break;
+            case 16: g.questClaimSilverPeak = true; break;
+            case 17: g.questClaimWarehouseUps = true; break;
+            case 18: g.questClaimHiredCrew = true; break;
+        }
+    }
+
+    private void questsTable(Table box) {
+        menuHeader(box, "任务（19 条，顺序解锁，先做手头的）");
+        Table panes = new Table();
+        panes.pad(4f);
+
+        // LEFT pane: scrollable quest list (all quests, progress + claim state).
+        Table leftPane = new Table();
+        leftPane.background(game.skin.getDrawable("panel"));
+        leftPane.pad(6f);
+        leftPane.add(new Label("任务列表", game.skin, "small")).width(196).left().padBottom(4).row();
+
+        int activeIdx = getActiveQuestIndex();
+        Table listTbl = new Table();
+        for (int i = 0; i < QUESTS.length; i++) {
+            final int qi = i;
+            QuestDef q = QUESTS[i];
+            int prog = getQuestProgress(g, q.progressType);
+            boolean done = isQuestComplete(g, q);
+            boolean claimed = isQuestClaimed(g, q);
+            String sub;
+            if (claimed) {
+                sub = "已完成 · 已领奖";
+            } else if (done) {
+                sub = "完成！点开领取奖励";
+            } else if (q.progressType == 4) { // 还债任务显示当前欠款
+                sub = "进行中 欠款 " + prog + " 两";
+            } else {
+                int t = q.targetAmount > 0 ? q.targetAmount : 1;
+                sub = "进行中 " + prog + "/" + t;
+            }
+            TextButton btn = btn(q.title + "\n" + sub, () -> {
+                selectedQuest = qi;
+                rebuildMenu();
+            });
+            btn.getLabel().setFontScale(0.82f);
+            if (qi == activeIdx) {
+                btn.getLabel().setColor(Color.YELLOW);
+            }
+            if (qi == selectedQuest) {
+                btn.setBackground(game.skin.getDrawable("window"));
+            }
+            listTbl.add(btn).width(186).height(44).left().padBottom(2).row();
+        }
+        ScrollPane listSp = new ScrollPane(listTbl, game.skin);
+        listSp.setFadeScrollBars(false);
+        leftPane.add(listSp).width(186).height(452).left();
+
+        // RIGHT pane: detail of the selected quest.
+        Table rightPane = new Table();
+        rightPane.background(game.skin.getDrawable("panel"));
+        rightPane.pad(8f);
+        Table detTbl = new Table();
+        if (selectedQuest >= 0 && selectedQuest < QUESTS.length) {
+            QuestDef q = QUESTS[selectedQuest];
+            detTbl.add(new Label("任务详情", game.skin, "small")).width(292).left().padBottom(6).row();
+            detTbl.add(wrapLbl(q.description)).width(292).left().padBottom(6).row();
+
+            String targetInfo;
+            if (q.targetGood >= 0) {
+                targetInfo = "目标货物：" + Catalog.GOODS[q.targetGood];
+                if (q.targetAmount > 0) targetInfo += "   需要 " + q.targetAmount + " 件";
+            } else if (q.targetPort >= 0) {
+                targetInfo = "目标港口：" + Catalog.PORTS[q.targetPort];
+            } else if (q.targetIsland >= 0) {
+                targetInfo = "目标岛屿：" + Catalog.ISLANDS[q.targetIsland];
+            } else {
+                targetInfo = "完成条件：见上方描述";
+            }
+            detTbl.add(infoRow(targetInfo)).width(292).left().padBottom(4).row();
+
+            int prog = getQuestProgress(g, q.progressType);
+            String progText;
+            if (q.progressType == 4) {
+                progText = "当前欠款：" + g.debt + " 两（归零即完成）";
+            } else if (q.progressType == 13) {
+                progText = "是否看过行情：" + (g.questIntelViewed ? "是" : "否");
+            } else if (q.targetAmount > 0) {
+                progText = "进度：" + prog + "/" + q.targetAmount;
+            } else {
+                progText = "进度：" + (prog > 0 ? "已完成" : "尚未");
+            }
+            detTbl.add(infoRow(progText)).width(292).left().padBottom(4).row();
+
+            detTbl.add(infoRow("—— 奖励明细 ——")).width(292).left().padTop(4).padBottom(2).row();
+            detTbl.add(infoRow("银：" + q.silverReward + " 两（纯奖励，净赚为正）")).width(292).left().padBottom(1).row();
+            if (q.supplyReward > 0) {
+                detTbl.add(infoRow("补给：+" + q.supplyReward)).width(292).left().padBottom(1).row();
+            }
+            if (q.hullReward > 0) {
+                detTbl.add(infoRow("耐久：+" + q.hullReward)).width(292).left().padBottom(1).row();
+            }
+
+            if (q.targetGood >= 0) {
+                String note = "怎么做：低买高卖赚差价（可在「情报」里找便宜买点与贵卖点），"
+                        + "奖励银 " + q.silverReward + " 两是差价之外的纯收益，不与成本相抵。";
+                detTbl.add(wrapLbl(note)).width(292).left().padTop(2).padBottom(4).row();
+            }
+
+            boolean done = isQuestComplete(g, q);
+            boolean claimed = isQuestClaimed(g, q);
+            if (done && !claimed) {
+                detTbl.add(btn("领取奖励", () -> {
+                    g.toast(claimQuest(g, q));
+                    persist();
+                    selectedQuest = getActiveQuestIndex();
+                    rebuildMenu();
+                })).width(292).height(48).left().padBottom(6).row();
+            } else if (claimed) {
+                detTbl.add(infoRow("奖励已领取 ✓")).width(292).left().padBottom(6).row();
+            } else {
+                detTbl.add(infoRow("未完成，无法领取")).width(292).left().padBottom(6).row();
+            }
+
+            boolean hasNav = q.targetPort >= 0 || q.targetIsland >= 0;
+            if (hasNav && g.dockedPort < 0 && !g.worldPaused()) {
+                final String dst = q.targetPort >= 0 ? Catalog.PORTS[q.targetPort]
+                        : Catalog.ISLANDS[q.targetIsland];
+                detTbl.add(btn("前往目标：" + dst, () -> {
+                    if (q.targetPort >= 0) {
+                        g.startAutoSail(q.targetPort);
+                    } else {
+                        g.startAutoSailIsle(q.targetIsland);
+                    }
+                    g.toast("自动驶向 " + dst + "。");
+                    closePopup();
+                    rebuildMenu();
+                })).width(292).height(48).left().padBottom(4).row();
+            } else if (hasNav && (g.dockedPort >= 0 || g.worldPaused())) {
+                detTbl.add(infoRow("（先离港再前往）")).width(292).left().padBottom(4).row();
+            }
+        } else if (getActiveQuestIndex() < 0) {
+            detTbl.add(wrapLbl("全部任务已完成、奖励已领。祝你在南海航程一路顺风！"))
+                    .width(292).left().padBottom(6).row();
+        } else {
+            detTbl.add(infoRow("点左边列表选一个任务，右侧看详情。")).width(292).left().padBottom(6).row();
+        }
+        ScrollPane detSp = new ScrollPane(detTbl, game.skin);
+        detSp.setFadeScrollBars(false);
+        rightPane.add(detSp).width(306).height(452).left();
+
+        panes.add(leftPane).width(202).height(488);
+        panes.add(rightPane).width(322).height(488).padLeft(8);
+        box.add(panes).width(536).row();
+    }
+
+    /** The HUD shows at most one quest: the first unclaimed quest in the chain
+     * that is unlocked (its predecessor claimed) — completed-but-unclaimed ones
+     * count too, so the HUD keeps prompting the player to claim rewards, which
+     * is what unlocks the next tutorial step. */
+    private int getActiveQuestIndex() {
+        for (int i = 0; i < QUESTS.length; i++) {
+            QuestDef q = QUESTS[i];
+            if (isQuestClaimed(g, q)) continue;
+            if (q.unlockAfter >= 0 && !isQuestClaimed(g, QUESTS[q.unlockAfter])) continue;
+            return i;
+        }
+        return -1;
     }
 
     /** 船长菜单 (opened by tapping the top-left avatar): save now / load save /
@@ -1184,6 +1424,7 @@ public class VoyageScreen extends ScreenAdapter {
                     if (trading && g.dockedPort >= 0) {
                         priceReturnOverlay = Overlay.CARGO;
                         overlay = Overlay.PRICE;
+                        markIntelViewed();
                     }
                     rebuildMenu();
                 });
@@ -1272,6 +1513,38 @@ public class VoyageScreen extends ScreenAdapter {
         return b;
     }
 
+    /** HUD quest entry: the round button reads 任务; the pill under it shows the
+     * ONE current active quest (first incomplete/unclaimed) with its progress.
+     * The pill hides while any popup is open so it never collides with overlays. */
+    private void updateQuestButtonLabel() {
+        if (g == null || btnQuests == null || btnQuestState == null) return;
+        int activeIdx = getActiveQuestIndex();
+        if (activeIdx >= 0 && activeIdx < QUESTS.length) {
+            QuestDef q = QUESTS[activeIdx];
+            int prog = getQuestProgress(g, q.progressType);
+            int target = q.targetAmount > 0 ? q.targetAmount : 1;
+            btnQuests.setText("任务");
+            if (isQuestComplete(g, q)) {
+                btnQuestState.setText(q.title + " 可领奖");
+            } else if (q.targetAmount <= 0) {
+                btnQuestState.setText(q.title + " 欠" + prog + "两");
+            } else {
+                btnQuestState.setText(q.title + " " + prog + "/" + target);
+            }
+        } else {
+            btnQuests.setText("任务 ✓");
+        }
+        btnQuestState.setVisible(activeIdx >= 0 && overlay == Overlay.NONE);
+    }
+
+    /** 任务追踪：看过一次「情报」或某货的「行情」即完成 tutorial quest 6. */
+    private void markIntelViewed() {
+        if (g != null && !g.questIntelViewed) {
+            g.questIntelViewed = true;
+            persist();
+        }
+    }
+
     private void persist() {
         if (game.currentUser != null) {
             game.accounts.save(game.currentUser, g.toSave());
@@ -1347,6 +1620,7 @@ public class VoyageScreen extends ScreenAdapter {
         btnLockPirate.setVisible(g.pirateAlive && !g.combatLock && overlay == Overlay.NONE);
         btnCancelLock.setVisible(g.combatLock && overlay != Overlay.MAP);
         hudLine.setText(statusText());
+        updateQuestButtonLabel(); // active-quest pill stays current while sailing
 
         Color bg = WATER;
         if (g.weather == GameState.WeatherKind.RAIN) bg = WATER_RAIN;

@@ -29,6 +29,28 @@ public class SaveData {
     public int questSilverPeak = 0;     // 达到的最高银两（用于银达X任务）
     public int questWarehouseUps = 0;   // 仓库升级次数
     public int questHiredCrew = 0;      // 雇佣总人数
+    // 0.26.1 quest v2 tutorial / per-good counters.
+    public int questIslandVisits = 0;   // 上岛搜采次数
+    public int questRefillCount = 0;    // 补给次数
+    public int questRepairCount = 0;    // 修船次数
+    public int questBuyCount = 0;       // 买入操作次数
+    public boolean questProfitableSell = false; // 是否曾有盈利卖出
+    public boolean questIntelViewed = false;    // 是否看过情报/行情
+    public int questUpgradeCount = 0;   // 任意升级次数
+    public int questBuyTea = 0;         // 买入茶叶件数
+    public int questSellPorcelain = 0;  // 卖出瓷器件数
+    // 0.26.1 quest v2 claim flags (id -> GameState field mapping in VoyageScreen).
+    public boolean questClaimIslandVisit = false;
+    public boolean questClaimRefill = false;
+    public boolean questClaimRepair = false;
+    public boolean questClaimBuy = false;
+    public boolean questClaimProfitableSell = false;
+    public boolean questClaimWinCombat = false;
+    public boolean questClaimIntelViewed = false;
+    public boolean questClaimUpgradeAny = false;
+    public boolean questClaimBuyTea = false;
+    public boolean questClaimSellPorcelain = false;
+    public boolean questClaimIslandExplore = false;
     // 任务奖励领取标记：每个任务是否已领取
     public boolean questClaimSellSilk = false;
     public boolean questClaimVisitPorts = false;
@@ -38,4 +60,6 @@ public class SaveData {
     public boolean questClaimSilverPeak = false;
     public boolean questClaimWarehouseUps = false;
     public boolean questClaimHiredCrew = false;
+    /** 每类商货累计买入支付银两（判断盈利卖出的成本基准）。 */
+    public int[] costPaid;
 }

@@ -69,7 +69,27 @@ public class GameState {
     public int questSilverPeak;
     public int questWarehouseUps;
     public int questHiredCrew;
+    // 0.26.1 tutorial quest tracking
+    public int questIslandVisits;      // 首次登岛：上岛搜采次数
+    public int questRefillCount;       // 第一次补给：补给次数
+    public int questRepairCount;       // 修一次船：修船次数
+    public int questBuyCount;          // 买点货：买入货物次数
+    public boolean questProfitableSell;// 赚个差价：是否曾有盈利卖出
+    public boolean questIntelViewed;  // 看看行情：是否查看过情报/行情
+    public int questUpgradeCount;     // 升级一项：升级次数
+    public int questBuyTea;           // 买 10 茶叶：累计买入茶叶件数
+    public int questSellPorcelain;    // 卖 30 瓷器：累计卖出的瓷器件数
+    /** 每类商货累计支付银两（买入成本基准），用于判断「赚个差价」与卖价利润。 */
+    public int[] costPaid = new int[Catalog.GOODS.length];
     // claim flags
+    public boolean questClaimIslandVisit;
+    public boolean questClaimRefill;
+    public boolean questClaimRepair;
+    public boolean questClaimBuy;
+    public boolean questClaimProfitableSell;
+    public boolean questClaimWinCombat;
+    public boolean questClaimIntelViewed;
+    public boolean questClaimUpgradeAny;
     public boolean questClaimSellSilk;
     public boolean questClaimVisitPorts;
     public boolean questClaimDefeatedPirates;
@@ -78,6 +98,9 @@ public class GameState {
     public boolean questClaimSilverPeak;
     public boolean questClaimWarehouseUps;
     public boolean questClaimHiredCrew;
+    public boolean questClaimBuyTea;
+    public boolean questClaimSellPorcelain;
+    public boolean questClaimIslandExplore;
 
     public static GameState newGame() {
         GameState g = new GameState();
@@ -137,6 +160,28 @@ public class GameState {
         s.questClaimSilverPeak = questClaimSilverPeak;
         s.questClaimWarehouseUps = questClaimWarehouseUps;
         s.questClaimHiredCrew = questClaimHiredCrew;
+        // 0.26.1 quest v2: tutorial + per-good counters + claim flags.
+        s.questIslandVisits = questIslandVisits;
+        s.questRefillCount = questRefillCount;
+        s.questRepairCount = questRepairCount;
+        s.questBuyCount = questBuyCount;
+        s.questProfitableSell = questProfitableSell;
+        s.questIntelViewed = questIntelViewed;
+        s.questUpgradeCount = questUpgradeCount;
+        s.questBuyTea = questBuyTea;
+        s.questSellPorcelain = questSellPorcelain;
+        s.questClaimIslandVisit = questClaimIslandVisit;
+        s.questClaimRefill = questClaimRefill;
+        s.questClaimRepair = questClaimRepair;
+        s.questClaimBuy = questClaimBuy;
+        s.questClaimProfitableSell = questClaimProfitableSell;
+        s.questClaimWinCombat = questClaimWinCombat;
+        s.questClaimIntelViewed = questClaimIntelViewed;
+        s.questClaimUpgradeAny = questClaimUpgradeAny;
+        s.questClaimBuyTea = questClaimBuyTea;
+        s.questClaimSellPorcelain = questClaimSellPorcelain;
+        s.questClaimIslandExplore = questClaimIslandExplore;
+        s.costPaid = costPaid.clone();
         return s;
     }
 
@@ -190,6 +235,28 @@ public class GameState {
             g.questClaimSilverPeak = s.questClaimSilverPeak;
             g.questClaimWarehouseUps = s.questClaimWarehouseUps;
             g.questClaimHiredCrew = s.questClaimHiredCrew;
+            // 0.26.1 quest v2 (missing fields on old saves default to 0/false).
+            g.questIslandVisits = s.questIslandVisits;
+            g.questRefillCount = s.questRefillCount;
+            g.questRepairCount = s.questRepairCount;
+            g.questBuyCount = s.questBuyCount;
+            g.questProfitableSell = s.questProfitableSell;
+            g.questIntelViewed = s.questIntelViewed;
+            g.questUpgradeCount = s.questUpgradeCount;
+            g.questBuyTea = s.questBuyTea;
+            g.questSellPorcelain = s.questSellPorcelain;
+            g.questClaimIslandVisit = s.questClaimIslandVisit;
+            g.questClaimRefill = s.questClaimRefill;
+            g.questClaimRepair = s.questClaimRepair;
+            g.questClaimBuy = s.questClaimBuy;
+            g.questClaimProfitableSell = s.questClaimProfitableSell;
+            g.questClaimWinCombat = s.questClaimWinCombat;
+            g.questClaimIntelViewed = s.questClaimIntelViewed;
+            g.questClaimUpgradeAny = s.questClaimUpgradeAny;
+            g.questClaimBuyTea = s.questClaimBuyTea;
+            g.questClaimSellPorcelain = s.questClaimSellPorcelain;
+            g.questClaimIslandExplore = s.questClaimIslandExplore;
+            copy(s.costPaid, g.costPaid);
             // Always respawn at the dock: any stale/NaN position is discarded.
             g.x = Catalog.PORT_X[lp] + 90f;
             g.y = Catalog.PORT_Y[lp];
@@ -433,6 +500,8 @@ public class GameState {
         if (cargoFree() <= 0) {
             return "货舱已满，搜到的也带不走。先卖掉或丢掉。";
         }
+        // 任务追踪：首次登岛 / 探N岛（搜采一次算 1）
+        questIslandVisits++;
         float r = MathUtils.random();
         if (r < 0.18f) {
             return "搜了一圈，没有新发现。";
@@ -465,6 +534,12 @@ public class GameState {
         }
         silver -= cost;
         trade[good] += qty;
+        costPaid[good] += cost;
+        // 任务追踪：买点货 / 买 10 茶叶
+        questBuyCount++;
+        if (good == 2) { // 茶叶 = GOODS[2]
+            questBuyTea += qty;
+        }
         return "买入 " + Catalog.GOODS[good] + " x" + qty + "。";
     }
 
@@ -473,11 +548,25 @@ public class GameState {
             return "没有这么多货。";
         }
         int gain = Catalog.goodPrice(port, good) * qty;
+        // 赚个差价：卖出价高于买入均价即为盈利（成本基准 costPaid 随买卖维护）。
+        if (trade[good] > 0) {
+            int avgCost = costPaid[good] / trade[good];
+            if (gain > avgCost * qty) {
+                questProfitableSell = true;
+            }
+            costPaid[good] -= avgCost * qty;
+            if (costPaid[good] < 0) {
+                costPaid[good] = 0;
+            }
+        }
         trade[good] -= qty;
         silver += gain;
-        // 任务追踪：卖出丝绸
-        if (good == 0) { // 丝绸 is GOODS[0]
+        // 任务追踪：卖出丝绸 / 卖 30 瓷器
+        if (good == 0) {
             questSellSilk += qty;
+        }
+        if (good == 1) { // 瓷器 = GOODS[1]
+            questSellPorcelain += qty;
         }
         return "卖出 " + Catalog.GOODS[good] + " x" + qty + "，得 " + gain + " 两。";
     }
@@ -532,16 +621,20 @@ public class GameState {
             return "补给已满。";
         }
         int cost = Math.max(1, Math.round(gap * Catalog.SUPPLY_UNIT_COST));
+        int paid = Math.min(cost, silver);
         if (silver >= cost) {
             silver -= cost;
-            supply = supplyMax;
+        } else {
+            debt += cost - silver;
+            silver = 0;
+        }
+        supply = supplyMax;
+        // 任务追踪：第一次补给
+        questRefillCount++;
+        if (paid >= cost) {
             return "按缺口补补给，花 " + cost + " 两。";
         }
-        int shortfall = cost - silver;
-        debt += shortfall;
-        silver = 0;
-        supply = supplyMax;
-        return "银两不够，借债 " + shortfall + " 两补满补给。现欠 " + debt + "。";
+        return "银两不够，借债 " + (cost - paid) + " 两补满补给。现欠 " + debt + "。";
     }
 
     public String repay(int amount) {
@@ -572,6 +665,8 @@ public class GameState {
         }
         silver -= cost;
         hull = hullMax;
+        // 任务追踪：修一次船
+        questRepairCount++;
         return "立刻修好，花 " + cost + " 两。";
     }
 
@@ -596,6 +691,7 @@ public class GameState {
         warehouseLevel++;
         cargoCap += 20;
         questWarehouseUps++;
+        questUpgradeCount++;
         return "仓库升级完成，共用货舱容量 " + cargoCap + "。";
     }
 
@@ -606,6 +702,7 @@ public class GameState {
         }
         silver -= c;
         cannonLevel++;
+        questUpgradeCount++;
         float secs = Math.round(fireInterval() * 100f) / 100f;
         return "炮火升级完成：每发固定伤 1 点，连发加快到约 " + secs + " 秒一发（船员越多也越快）。";
     }
@@ -618,6 +715,7 @@ public class GameState {
         silver -= c;
         crewCapLevel++;
         crewCap += 1;
+        questUpgradeCount++;
         return "人数上限升到 " + crewCap + "。再花钱雇人上船。";
     }
 
@@ -820,70 +918,6 @@ public class GameState {
         combatLock = false;
         pirateChase = false;
         muzzleFlash = 0f;
-    }
-
-    // 0.26.1 任务 reward claiming. Each returns a toast message; the screen
-    // calls the matching claim flag setter after.
-    public String claimSellSilk() {
-        if (questClaimSellSilk) return "这奖励拿过了。";
-        if (questSellSilk < 50) return "还没做完：要卖 50 丝绸。";
-        silver += 200;
-        questClaimSellSilk = true;
-        return "拿到银 +200。";
-    }
-    public String claimVisitPorts() {
-        if (questClaimVisitPorts) return "这奖励拿过了。";
-        if (questVisitPorts < 5) return "还没做完：要去 5 个港口。";
-        silver += 300;
-        questClaimVisitPorts = true;
-        return "拿到银 +300。";
-    }
-    public String claimDefeatedPirates() {
-        if (questClaimDefeatedPirates) return "这奖励拿过了。";
-        if (questDefeatedPirates < 3) return "还没做完：要打 3 条海盗。";
-        silver += 150;
-        supply += 100;
-        if (supply > supplyMax) supply = supplyMax;
-        questClaimDefeatedPirates = true;
-        return "拿到银 +150、补給 +100。";
-    }
-    public String claimBeastsFound() {
-        if (questClaimBeastsFound) return "这奖励拿过了。";
-        if (questBeastsFound < 5) return "还没做完：要找 5 种异兽。";
-        silver += 250;
-        questClaimBeastsFound = true;
-        return "拿到银 +250。";
-    }
-    public String claimDebtPaid() {
-        if (questClaimDebtPaid) return "这奖励拿过了。";
-        if (!questDebtPaid) return "还没做完：要把欠钱还了。";
-        silver += 400;
-        questClaimDebtPaid = true;
-        return "拿到银 +400。";
-    }
-    public String claimSilverPeak() {
-        if (questClaimSilverPeak) return "这奖励拿过了。";
-        if (questSilverPeak < 5000) return "还没做完：银要到 5000。";
-        supply += 200;
-        hull += 100;
-        if (supply > supplyMax) supply = supplyMax;
-        if (hull > hullMax) hull = hullMax;
-        questClaimSilverPeak = true;
-        return "拿到補給 +200、耐久 +100。";
-    }
-    public String claimWarehouseUps() {
-        if (questClaimWarehouseUps) return "这奖励拿过了。";
-        if (questWarehouseUps < 3) return "还没做完：要升仓 3 次。";
-        silver += 150;
-        questClaimWarehouseUps = true;
-        return "拿到银 +150。";
-    }
-    public String claimHiredCrew() {
-        if (questClaimHiredCrew) return "这奖励拿过了。";
-        if (questHiredCrew < 5) return "还没做完：要雇 5 人。";
-        silver += 100;
-        questClaimHiredCrew = true;
-        return "拿到银 +100。";
     }
 
     public void fail(String reason) {

@@ -74,7 +74,7 @@ public class NanHaiVoyage extends Game {
 
     private BitmapFont loadFont(int size) {
         try {
-            FreeTypeFontGenerator gen = new FreeTypeFontGenerator(Gdx.files.internal("fonts/NotoSansCJK-Sc.ttf"));
+            FreeTypeFontGenerator gen = new FreeTypeFontGenerator(Gdx.files.internal("fonts/nanhai-cjk.ttf"));
             FreeTypeFontGenerator.FreeTypeFontParameter p = new FreeTypeFontGenerator.FreeTypeFontParameter();
             p.size = size;
             p.color = Color.WHITE;
