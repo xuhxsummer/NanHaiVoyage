@@ -58,8 +58,14 @@ public class LoginScreen extends ScreenAdapter {
         user.setMessageText("用户名");
         final TextField pass = new TextField("summer", game.skin);
         pass.setMessageText("密码");
+        // 密码掩码必须用 nanhai-cjk.ttf 里真实存在的字形。默认掩码是 U+2022 '•'
+        // （libGDX TextField 默认值），该字形在 CJK 字体里缺失，会画成乱码方块；
+        // 且 libGDX 的 passwordBuffer 只在首次填充时写入掩码字符，之后再调
+        // setPasswordCharacter 不会改写已填充的缓存（长度不变时）。
+        // 所以顺序必须是：先设掩码字符（U+FF0A 全角＊，字体已含），再开密码模式，
+        // 这样 displayText 首次生成时用的就是 ＊。
+        pass.setPasswordCharacter('＊');
         pass.setPasswordMode(true);
-        pass.setPasswordCharacter('*');
 
         msg = new Label("注册一个本机账号，或登录已有账号。", game.skin, "small");
         msg.setWrap(true);
@@ -120,6 +126,7 @@ public class LoginScreen extends ScreenAdapter {
     }
 
     private void doLogin(String u, String p) {
+        Gdx.app.error("LoginScreen", "login click: user='" + (u == null ? "<null>" : u) + "'");
         if (u == null || p == null) {
             msg.setText("用户名或密码不对，或账号不存在。");
             return;
@@ -135,6 +142,9 @@ public class LoginScreen extends ScreenAdapter {
             if (s == null) {
                 game.accounts.save(game.currentUser, game.state.toSave());
             }
+            Gdx.app.error("LoginScreen", "login ok for '" + game.currentUser
+                    + "', state dockedPort=" + game.state.dockedPort
+                    + ", lastPort=" + game.state.lastPort);
             enterVoyage();
         } catch (Throwable t) { // Errors too: corrupt data must not kill the app
             Gdx.app.error("LoginScreen", "login failed", t);
@@ -153,11 +163,14 @@ public class LoginScreen extends ScreenAdapter {
         }
         switching = true;
         Gdx.input.setInputProcessor(null); // stop new input before the swap
+        Gdx.app.error("LoginScreen", "posting setScreen(VoyageScreen) for next frame");
         Gdx.app.postRunnable(new Runnable() {
             @Override
             public void run() {
+                Gdx.app.error("LoginScreen", "postRunnable fired, calling setScreen");
                 try {
                     game.setScreen(new VoyageScreen(game));
+                    Gdx.app.error("LoginScreen", "setScreen returned OK, current=" + game.getScreen().getClass().getSimpleName());
                 } catch (Throwable t) {
                     Gdx.app.error("LoginScreen", "enter voyage failed", t);
                     // Rebuild the login UI so the app stays usable.

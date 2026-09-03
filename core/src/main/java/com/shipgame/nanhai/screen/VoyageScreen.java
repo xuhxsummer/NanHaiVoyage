@@ -80,6 +80,7 @@ public class VoyageScreen extends ScreenAdapter {
     private float stickCX = 140f, stickCY = 140f, stickR = 70f;
     private float stickKX, stickKY;
     private int stickPointer = -1;
+    private boolean loggedFirstFrame;
 
     public VoyageScreen(NanHaiVoyage game) {
         this.game = game;
@@ -87,8 +88,13 @@ public class VoyageScreen extends ScreenAdapter {
 
     @Override
     public void show() {
+        // Error-level milestones: every step is visible in logcat on Android so
+        // a crash during the login transition can be pinned to the exact step
+        // instead of being swallowed by a blanket catch.
+        Gdx.app.error("VoyageEnter", "show() begin, game.state=" + (game.state == null ? "null" : "ok"));
         try {
             buildAll();
+            Gdx.app.error("VoyageEnter", "buildAll() completed");
         } catch (Throwable t) {
             // show() runs inside setScreen during the login transition; it must
             // never kill the process. Surface the error on the HUD instead.
@@ -110,16 +116,20 @@ public class VoyageScreen extends ScreenAdapter {
         if (game.state != null) {
             g = game.state;
         }
+        Gdx.app.error("VoyageEnter", "show() end");
     }
 
     private void buildAll() {
         g = game.state;
         worldCam = new OrthographicCamera();
         worldVp = new FitViewport(960, 540, worldCam);
+        Gdx.app.error("VoyageEnter", "world camera+viewport created");
         hudVp = new FitViewport(HUD_W, HUD_H);
         stage = new Stage(hudVp, game.batch);
+        Gdx.app.error("VoyageEnter", "hud viewport+stage created");
         shapes = new ShapeRenderer();
         pixelMap = new PixelMapRenderer();
+        Gdx.app.error("VoyageEnter", "shape renderer + pixel map textures created");
 
         buildHud();
         InputMultiplexer mux = new InputMultiplexer(stage, new WorldInput());
@@ -133,6 +143,7 @@ public class VoyageScreen extends ScreenAdapter {
             overlay = Overlay.ISLAND;
         }
         rebuildMenu();
+        Gdx.app.error("VoyageEnter", "hud + menu built, overlay=" + overlay);
     }
 
     private void disposeQuietly() {
@@ -508,6 +519,11 @@ public class VoyageScreen extends ScreenAdapter {
 
     @Override
     public void render(float delta) {
+        if (!loggedFirstFrame) {
+            loggedFirstFrame = true;
+            Gdx.app.error("VoyageEnter", "first render frame OK (world x=" + (g == null ? -1 : g.x)
+                    + " y=" + (g == null ? -1 : g.y) + ")");
+        }
         if (g == null || stage == null) {
             ScreenUtils.clear(WATER);
             return;
@@ -633,7 +649,12 @@ public class VoyageScreen extends ScreenAdapter {
         }
         // Vector silhouette under the sprite: even if the ship texture fails
         // to render on a device, the player ship is always visible at sea.
+        // Must run inside an active ShapeRenderer pass: without begin()/end()
+        // every render frame throws "begin must be called first" and the app
+        // dies on the first voyage frame (the 0.24.2/0.24.3 login crash).
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
         drawShipSilhouette(g.x, g.y, g.headingDeg);
+        shapes.end();
         if (pixelMap != null) {
             game.batch.begin();
             pixelMap.drawMarkers(game.batch, g);

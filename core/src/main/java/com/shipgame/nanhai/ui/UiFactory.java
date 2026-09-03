@@ -11,6 +11,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
 import com.badlogic.gdx.scenes.scene2d.ui.TextField;
 import com.badlogic.gdx.scenes.scene2d.ui.Window;
+import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
 import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 
@@ -28,7 +29,12 @@ public final class UiFactory {
         Texture tex = new Texture(pm);
         pm.dispose();
         skin.add("white", tex);
-        skin.add("panel", new TextureRegionDrawable(tex).tint(new Color(0.07f, 0.11f, 0.16f, 0.94f)));
+        // Skin keys resources by runtime class and getDrawable(name) only looks in
+        // the Drawable / TextureRegion / NinePatch / Sprite maps. tint() returns a
+        // SpriteDrawable, so without the explicit key this lookup always throws
+        // "No Drawable registered with name: panel" (the login->voyage crash).
+        skin.add("panel", new TextureRegionDrawable(tex).tint(new Color(0.07f, 0.11f, 0.16f, 0.94f)),
+                Drawable.class);
 
         NinePatch np = new NinePatch(tex, 1, 1, 1, 1);
         skin.add("patch", np);
