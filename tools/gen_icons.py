@@ -285,6 +285,145 @@ def i_betel():
     return m
 
 # ----------------------------------------------------------------------------
+# GOODS extra (0.26.0: 10 more, total 24)
+# ----------------------------------------------------------------------------
+def i_cotton():
+    m = icon()
+    rect(m, 16, 26, 46, 44, (238, 240, 242))     # folded cloth stack
+    rect(m, 16, 26, 46, 29, (206, 212, 222))
+    rect(m, 16, 36, 46, 39, (206, 212, 222))
+    for x in (20, 26, 32, 38, 44):               # blue stitch dashes
+        px(m, x, 33, (96, 130, 180)); px(m, x, 31, (150, 180, 220))
+    line(m, 22, 44, 22, 47, (206, 212, 222), 1)  # fold shading
+    line(m, 42, 44, 42, 47, (206, 212, 222), 1)
+    disk(m, 24, 18, 5, WHITE)                    # cotton bolls
+    disk(m, 32, 14, 6, WHITE)
+    disk(m, 40, 18, 4.5, WHITE)
+    px(m, 30, 13, (216, 222, 230)); px(m, 26, 16, (216, 222, 230))
+    outline(m)
+    return m
+
+def i_lacquer():
+    m = icon()
+    dome(m, 32, 24, 40, 16, (178, 48, 40))       # lacquer bowl
+    ellipse(m, 32, 40, 16, 5.5, (178, 48, 40))   # rim
+    ellipse(m, 32, 40, 12, 3.5, (70, 24, 22))    # inner dark
+    line(m, 17, 38, 47, 38, (222, 168, 60), 1)   # gold band
+    rect(m, 26, 20, 38, 24, (140, 36, 32))       # waist ring
+    rect(m, 22, 12, 42, 15, (120, 28, 26))       # foot + base
+    rect(m, 24, 10, 40, 12, (60, 18, 16))
+    line(m, 24, 36, 27, 28, (230, 120, 110), 2)  # gloss
+    outline(m)
+    return m
+
+def i_bronze():
+    m = icon()
+    ellipse(m, 32, 36, 14, 11, (172, 124, 66))   # bronze cauldron belly
+    rect(m, 18, 32, 46, 36, (172, 124, 66))
+    ellipse(m, 32, 46, 14, 3.5, (172, 124, 66))  # rim
+    ellipse(m, 32, 46, 10, 2.3, (84, 52, 28))     # opening
+    rect(m, 12, 41, 17, 46, (172, 124, 66))       # loop handles
+    rect(m, 47, 41, 52, 46, (172, 124, 66))
+    rect(m, 20, 18, 23, 32, (140, 98, 50))       # three legs
+    rect(m, 41, 18, 44, 32, (140, 98, 50))
+    rect(m, 30, 15, 34, 32, (140, 98, 50))
+    line(m, 20, 40, 44, 40, (120, 80, 44), 1)    # banding
+    px(m, 22, 28, (226, 190, 130)); px(m, 42, 28, (226, 190, 130))
+    outline(m)
+    return m
+
+def i_glass():
+    m = icon()
+    ellipse(m, 32, 42, 13, 12, (120, 200, 210))  # 琉璃 jar body
+    rect(m, 26, 30, 38, 34, (150, 215, 222))
+    rect(m, 27, 22, 37, 30, (170, 225, 230))     # neck
+    ellipse(m, 32, 22, 8, 2.5, (210, 240, 242))   # lip
+    ellipse(m, 32, 54, 12, 3, (170, 225, 230))    # rounded foot
+    line(m, 23, 40, 26, 30, (235, 250, 250), 2)   # gloss streaks
+    line(m, 41, 46, 41, 32, (200, 236, 240), 1)
+    px(m, 36, 26, (250, 255, 255))
+    outline(m)
+    return m
+
+def i_frankincense():
+    m = icon()
+    disk(m, 24, 36, 7, (240, 224, 178))          # pale resin tears
+    disk(m, 34, 31, 8, (247, 234, 200))
+    disk(m, 41, 39, 6, (236, 216, 168))
+    disk(m, 29, 21, 4.5, (243, 228, 188))
+    disk(m, 39, 23, 3.5, (245, 232, 196))
+    px(m, 33, 28, (255, 250, 225)); px(m, 23, 33, (255, 250, 225))
+    px(m, 40, 37, (255, 250, 225))
+    outline(m)
+    return m
+
+def i_myrrh():
+    m = icon()
+    disk(m, 23, 37, 7, (150, 80, 46))            # dark reddish resin
+    disk(m, 34, 33, 8, (172, 96, 56))
+    disk(m, 41, 41, 6, (140, 72, 42))
+    disk(m, 31, 23, 4.5, (168, 92, 52))
+    px(m, 36, 31, (216, 152, 100)); px(m, 21, 35, (204, 138, 88))
+    px(m, 40, 39, (196, 128, 82))
+    outline(m)
+    return m
+
+def i_cardamom():
+    m = icon()
+    ellipse(m, 21, 38, 6, 10, (128, 168, 84))    # green pods
+    ellipse(m, 33, 40, 7, 11, (108, 150, 72))
+    ellipse(m, 45, 36, 6, 10, (134, 174, 90))
+    line(m, 21, 30, 21, 46, (88, 128, 58), 1)    # pod ridges
+    line(m, 33, 31, 33, 49, (76, 116, 50), 1)
+    line(m, 45, 28, 45, 44, (94, 134, 62), 1)
+    px(m, 24, 31, (176, 210, 128)); px(m, 36, 33, (168, 202, 120))
+    px(m, 48, 29, (180, 214, 132))
+    outline(m)
+    return m
+
+def i_clove():
+    m = icon()
+    line(m, 20, 14, 17, 34, (122, 84, 62), 3)    # clove stems
+    line(m, 32, 14, 32, 30, (128, 88, 64), 3)
+    line(m, 44, 16, 46, 34, (122, 84, 62), 3)
+    disk(m, 16, 36, 5, (150, 96, 66))            # dried heads
+    disk(m, 32, 32, 5.5, (158, 102, 70))
+    disk(m, 47, 36, 5, (150, 96, 66))
+    px(m, 16, 38, (198, 140, 96)); px(m, 32, 34, (206, 148, 100))
+    px(m, 47, 38, (198, 140, 96))
+    line(m, 25, 16, 25, 22, (100, 70, 52), 1)
+    outline(m)
+    return m
+
+def i_coral():
+    m = icon()
+    rect(m, 26, 10, 38, 17, (156, 62, 52))       # base stump
+    line(m, 32, 17, 32, 38, (214, 72, 60), 4)    # trunk
+    line(m, 32, 32, 19, 24, (214, 72, 60), 3)    # branches
+    line(m, 32, 32, 45, 24, (214, 72, 60), 3)
+    line(m, 19, 24, 14, 17, (196, 62, 54), 2)
+    line(m, 45, 24, 50, 17, (196, 62, 54), 2)
+    line(m, 32, 38, 26, 48, (214, 72, 60), 2)    # top twigs
+    line(m, 32, 38, 39, 49, (214, 72, 60), 2)
+    px(m, 30, 35, (252, 140, 120)); px(m, 20, 25, (246, 128, 110))
+    px(m, 44, 25, (246, 128, 110))
+    outline(m)
+    return m
+
+def i_rhinohorn():
+    m = icon()
+    line(m, 29, 52, 29, 36, (188, 150, 100), 7)  # thick horn base
+    line(m, 29, 36, 31, 24, (200, 164, 112), 5)  # taper
+    line(m, 31, 24, 34, 14, (212, 178, 126), 3)  # curved tip
+    line(m, 24, 46, 34, 46, (150, 116, 76), 1)   # growth rings
+    line(m, 25, 39, 33, 39, (150, 116, 76), 1)
+    line(m, 26, 32, 34, 32, (150, 116, 76), 1)
+    line(m, 27, 25, 35, 25, (150, 116, 76), 1)
+    px(m, 32, 43, (240, 210, 160))
+    outline(m)
+    return m
+
+# ----------------------------------------------------------------------------
 # BEASTS (8)
 # ----------------------------------------------------------------------------
 def i_jingwei():
@@ -519,6 +658,10 @@ GOODS = {
     "agarwood": i_agarwood, "sappanwood": i_sappanwood, "pepper": i_pepper,
     "ivory": i_ivory, "pearl": i_pearl, "tortoiseshell": i_tortoiseshell,
     "betel": i_betel,
+    "cotton": i_cotton, "lacquer": i_lacquer, "bronze": i_bronze,
+    "glass": i_glass, "frankincense": i_frankincense, "myrrh": i_myrrh,
+    "cardamom": i_cardamom, "clove": i_clove, "coral": i_coral,
+    "rhinohorn": i_rhinohorn,
 }
 BEASTS = {
     "jingwei": i_jingwei, "nine-tail-fox": i_ninefox, "gu-diao": i_gudiao,

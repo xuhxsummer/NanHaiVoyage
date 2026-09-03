@@ -73,7 +73,26 @@ public class VoyageScreen extends ScreenAdapter {
     private static final Color PIRATE_C = new Color(0.72f, 0.16f, 0.14f, 1f);
     private static final Color PANEL = new Color(0f, 0f, 0f, 0.55f);
 
-    private enum Overlay { NONE, PORT, ISLAND, MAP, CODEX, CARGO, PRICE, FAIL }
+    private enum Overlay {
+        NONE, PORT, ISLAND, MAP, CODEX, CARGO, PRICE, FAIL,
+        // 0.26.0 sub-views: MARKET is the paged buy/sell screen reachable from
+        // the docked actions menu; AVATAR is the paused 船长菜单 (save/load);
+        // HOWTO is the first-run 玩法说明 popup shown once per install.
+        MARKET, AVATAR, HOWTO
+    }
+
+    /** 0.26.0 first-run gameplay help. Body is verbatim from howto_spec.txt:
+     * do not edit a single character or mark of punctuation here, or the
+     * popup and the 需求文档 appendix drift apart. */
+    private static final String HOWTO_BODY =
+            "你将驾驶商船探索南海，在港口贸易、岛屿寻宝，并躲避或击败海盗。\n\n"
+            + "1. 航行：左侧摇杆控制船头方向，右侧按钮控制加速和减速。补给耗尽或耐久降到 0，航程就会失败。\n"
+            + "2. 港口贸易：不同港口的货价不同。低价买入、高价卖出可以赚取银两；点击「行情」可查看各港价格。\n"
+            + "3. 岛屿探索：靠近岛屿后可以搜索草药和《山海经》异兽。发现后会收入货舱并加入图鉴，也可以带到港口出售。\n"
+            + "4. 海盗战斗：点击海盗船即可锁定并自动开炮。再次点击取消锁定，也可以驶出战斗范围逃跑。\n"
+            + "5. 船只成长：耐久代表船的生命；仓库升级可增加货舱容量；编制升级后可以雇佣更多船员；炮火和船员会提高开炮速度。\n"
+            + "6. 补给与存档：回港可补给、修船、升级和保存进度。没钱补给时可以借债，但每次靠港会增加 2% 利息。\n"
+            + "7. 地图：点击右上角小地图打开全图，再点港口或岛屿，船会自动驶向目标。";
 
     private final NanHaiVoyage game;
     private GameState g;
@@ -98,6 +117,13 @@ public class VoyageScreen extends ScreenAdapter {
     private int dismissedPort = -1;
     private int dismissedIsland = -1;
     private boolean dismissedFail;
+
+    // 0.26.0 市场 pagination: rows per page in each market column, plus the two
+    // independent page cursors (buy column pages over goods, sell column pages
+    // over the dynamic cargo list). Kept on the screen, not the model.
+    private static final int MARKET_PAGE_SIZE = 7;
+    private int marketBuyPage;
+    private int marketSellPage;
 
     private Table menuRoot;
     private Label hudLine;
@@ -182,7 +208,23 @@ public class VoyageScreen extends ScreenAdapter {
             overlay = Overlay.ISLAND;
         }
         rebuildMenu();
+        maybeShowHowto();
         Gdx.app.error("VoyageEnter", "hud + menu built, overlay=" + overlay);
+    }
+
+    /** 0.26.0 first-run tutorial: the 玩法说明 popup appears once per install
+     * after the first successful login (VoyageScreen only exists post-login).
+     * The persistent flag lives in libGDX Preferences under key howto_shown;
+     * both closing buttons record it, so the popup never nags again. */
+    private void maybeShowHowto() {
+        try {
+            if (!Gdx.app.getPreferences("nanhai-voyage").getBoolean("howto_shown", false)) {
+                overlay = Overlay.HOWTO;
+                rebuildMenu();
+            }
+        } catch (Throwable ignored) {
+            // Preferences failure must never block the voyage screen.
+        }
     }
 
     private void disposeQuietly() {
@@ -317,12 +359,21 @@ public class VoyageScreen extends ScreenAdapter {
         b.addListener(new ClickListener() {
             @Override
             public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
-                boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL;
+                boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL
+                        || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO;
                 if (modal) {
                     // A popup is open: the world pauses by design. The button still
                     // reacts (pressed feedback) and explains instead of silently
                     // doing nothing — never a dead control.
-                    g.toast("港口/岛屿菜单开着世界暂停：先「离港/离开岛屿」或「关闭」再开船。");
+                    if (overlay == Overlay.AVATAR) {
+                        g.toast("船长菜单开着，世界暂停：先点「关闭」再开船。");
+                    } else if (overlay == Overlay.MARKET) {
+                        g.toast("市场开着：点「返回」回港口菜单，再点「离港」开船。");
+                    } else if (overlay == Overlay.HOWTO) {
+                        g.toast("玩法说明开着：点「开始航行」或「以后不再提示」继续。");
+                    } else {
+                        g.toast("港口/岛屿菜单开着世界暂停：先「离港/离开岛屿」或「关闭」再开船。");
+                    }
                     return true;
                 }
                 // No popup open: not paused. If the ship is still flagged docked
@@ -418,6 +469,8 @@ public class VoyageScreen extends ScreenAdapter {
         box.background(game.skin.getDrawable("panel"));
         if (overlay == Overlay.PORT) {
             portTable(box);
+        } else if (overlay == Overlay.MARKET) {
+            marketTable(box);
         } else if (overlay == Overlay.ISLAND) {
             islandTable(box);
         } else if (overlay == Overlay.CODEX) {
@@ -428,10 +481,15 @@ public class VoyageScreen extends ScreenAdapter {
             priceTable(box);
         } else if (overlay == Overlay.FAIL) {
             failTable(box);
+        } else if (overlay == Overlay.AVATAR) {
+            avatarTable(box);
+        } else if (overlay == Overlay.HOWTO) {
+            howtoTable(box);
         }
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
-        menuRoot.add(sp).width(overlay == Overlay.PORT ? PORT_MENU_W + 24f : 520f).maxHeight(560);
+        boolean wide = overlay == Overlay.PORT || overlay == Overlay.MARKET;
+        menuRoot.add(sp).width(wide ? PORT_MENU_W + 24f : 520f).maxHeight(560);
     }
 
     /** Left-rail context label: 港口 always; becomes 岛屿 while pausing on an island. */
@@ -460,6 +518,9 @@ public class VoyageScreen extends ScreenAdapter {
         box.add(h).width(width).padBottom(6).row();
     }
 
+    /** Port dock popup — layer 1: 8 action buttons + 市场. The two-column buy/sell
+     * tables only appear after the player taps 市场 (layer 2 = Overlay.MARKET), so
+     * docking no longer shoves the cargo lists and every action onto one screen. */
     private void portTable(Table box) {
         IconLib.checkAgainstCatalog();
         int p = g.dockedPort;
@@ -467,11 +528,87 @@ public class VoyageScreen extends ScreenAdapter {
         box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.cargoCap))
                 .width(PORT_MENU_W).padBottom(6).row();
 
+        TextButton market = new TextButton("市场（买卖货物 · 行情）", game.skin, "go");
+        market.getLabel().setFontScale(1.0f);
+        market.addListener(click(() -> {
+            overlay = Overlay.MARKET;
+            marketBuyPage = 0;
+            marketSellPage = 0;
+            rebuildMenu();
+        }));
+        Table mrow = new Table();
+        mrow.add(market).width(PORT_MENU_W).height(56);
+        box.add(mrow).width(PORT_MENU_W).padBottom(10).row();
+
+        portPair(box,
+                "补补给", () -> { g.toast(g.refillSupply()); persist(); rebuildMenu(); },
+                "还债(全还)", () -> { g.toast(g.repay(g.debt)); persist(); rebuildMenu(); });
+        portPair(box,
+                "修理", () -> { g.toast(g.repair()); persist(); rebuildMenu(); },
+                "离港", () -> {
+                    g.leavePort();
+                    persist();
+                    dismissedPort = -1;
+                    overlay = Overlay.NONE;
+                    rebuildMenu();
+                });
+        portPair(box,
+                "升仓库 " + g.warehouseCost(), () -> { g.toast(g.upgradeWarehouse()); persist(); rebuildMenu(); },
+                "升炮火 " + g.cannonCost(), () -> { g.toast(g.upgradeCannon()); persist(); rebuildMenu(); });
+        portPair(box,
+                "升编制 " + g.crewCapCost(), () -> { g.toast(g.upgradeCrewCap()); persist(); rebuildMenu(); },
+                "雇人 " + Catalog.HIRE_COST, () -> { g.toast(g.hireCrew()); persist(); rebuildMenu(); });
+        float rate = Math.round(g.firepower() * 10f) / 10f;
+        box.add(infoRow("船员 " + g.crew + "/" + g.crewCap + "    每发伤 1 · 射速 " + rate
+                + " 发/秒    耐久 " + (int) g.hull)).width(PORT_MENU_W).padTop(6).padBottom(2).row();
+        box.add(infoRow("点「市场」看各港价差并买卖，点「离港」开船。")).width(PORT_MENU_W).left().row();
+    }
+
+    /** Wide pair row for the dock actions menu (content spans PORT_MENU_W). */
+    private void portPair(Table box, String a, Runnable ra, String b, Runnable rb) {
+        Table row = new Table();
+        row.add(btn(a, ra)).width((PORT_MENU_W - 12f) / 2f).height(48);
+        row.add(btn(b, rb)).width((PORT_MENU_W - 12f) / 2f).height(48).padLeft(12);
+        box.add(row).width(PORT_MENU_W).padBottom(7).row();
+    }
+
+    /** Port dock popup — layer 2 (市场): two independent paged columns. 本港可买 on
+     * the left pages over all goods; 船上可卖 on the right pages over the cargo the
+     * player actually carries (goods + beasts + herbs). Each column shows
+     * MARKET_PAGE_SIZE rows per page with 上一页/下一页 under it. The 返回 button goes
+     * back to the dock actions menu (Overlay.PORT), never straight to 离港. */
+    private void marketTable(Table box) {
+        if (g.dockedPort < 0) {
+            overlay = Overlay.PORT;
+            rebuildMenu();
+            return;
+        }
+        int p = g.dockedPort;
+        Table h = new Table();
+        Label t = new Label(Catalog.PORTS[p] + " · 市场（买卖）", game.skin);
+        t.setWrap(false);
+        TextButton back = new TextButton("返回", game.skin, "danger");
+        back.getLabel().setFontScale(0.9f);
+        back.addListener(click(() -> {
+            overlay = Overlay.PORT;
+            rebuildMenu();
+        }));
+        h.add(t).left().expandX().padLeft(2);
+        h.add(back).width(88).height(38);
+        box.add(h).width(PORT_MENU_W).padBottom(4).row();
+        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.cargoCap
+                + "    「行情」看该货各港价")).width(PORT_MENU_W).padBottom(6).row();
+
         Table market = new Table();
+        // --- left column: goods buyable at this port (24 goods, paged) ---
         Table buy = new Table();
         buy.top().left();
-        buy.add(infoRow("本港可买 · 点买入，行情看各港价格")).width(430).left().padBottom(4).row();
-        for (int i = 0; i < Catalog.GOODS.length; i++) {
+        buy.add(infoRow("本港可买 · 点买入，行情看各港价")).width(430).left().padBottom(4).row();
+        int buyPages = Math.max(1, (Catalog.GOODS.length + MARKET_PAGE_SIZE - 1) / MARKET_PAGE_SIZE);
+        marketBuyPage = Math.max(0, Math.min(marketBuyPage, buyPages - 1));
+        int bStart = marketBuyPage * MARKET_PAGE_SIZE;
+        int bEnd = Math.min(Catalog.GOODS.length, bStart + MARKET_PAGE_SIZE);
+        for (int i = bStart; i < bEnd; i++) {
             final int good = i;
             Table row = new Table();
             TextureRegionDrawable icon = IconLib.good(good);
@@ -482,79 +619,79 @@ public class VoyageScreen extends ScreenAdapter {
             })).width(78).height(36).padRight(4);
             row.add(btn("行情", () -> {
                 selectedGood = good;
-                priceReturnOverlay = Overlay.PORT;
+                priceReturnOverlay = Overlay.MARKET;
                 overlay = Overlay.PRICE;
                 rebuildMenu();
             })).width(78).height(36);
             buy.add(row).width(430).left().padBottom(2).row();
         }
+        pagerRow(buy, marketBuyPage, buyPages, true);
 
+        // --- right column: cargo the player can sell (goods/beasts/herbs, paged) ---
         Table sell = new Table();
         sell.top().left();
         sell.add(infoRow("船上可卖 · 点击卖出 1 件")).width(430).left().padBottom(4).row();
-        addPortSellRows(sell, p);
-        ScrollPane buyScroll = new ScrollPane(buy, game.skin);
-        ScrollPane sellScroll = new ScrollPane(sell, game.skin);
-        buyScroll.setFadeScrollBars(false);
-        sellScroll.setFadeScrollBars(false);
-        market.add(buyScroll).width(438).height(285).top();
-        market.add(sellScroll).width(438).height(285).top().padLeft(12);
-        box.add(market).width(PORT_MENU_W).padBottom(8).row();
-
-        // Port services stay below the market and never displace either column.
-        pairRow(box,
-                "补补给", () -> { g.toast(g.refillSupply()); persist(); rebuildMenu(); },
-                "还债(全还)", () -> { g.toast(g.repay(g.debt)); persist(); rebuildMenu(); });
-        pairRow(box,
-                "修理", () -> { g.toast(g.repair()); persist(); rebuildMenu(); },
-                "离港", () -> {
-                    g.leavePort();
-                    persist();
-                    dismissedPort = -1;
-                    overlay = Overlay.NONE;
-                    rebuildMenu();
-                });
-        pairRow(box,
-                "升仓库 " + g.warehouseCost(), () -> { g.toast(g.upgradeWarehouse()); persist(); rebuildMenu(); },
-                "升炮火 " + g.cannonCost(), () -> { g.toast(g.upgradeCannon()); persist(); rebuildMenu(); });
-        pairRow(box,
-                "升编制 " + g.crewCapCost(), () -> { g.toast(g.upgradeCrewCap()); persist(); rebuildMenu(); },
-                "雇人 " + Catalog.HIRE_COST, () -> { g.toast(g.hireCrew()); persist(); rebuildMenu(); });
-        float rate = Math.round(g.firepower() * 10f) / 10f;
-        box.add(infoRow("船员 " + g.crew + "/" + g.crewCap + "    每发伤 1 · 射速 " + rate
-                + " 发/秒    耐久 " + (int) g.hull)).width(PORT_MENU_W).padTop(5).padBottom(4).row();
+        int n = 0;
+        for (int i = 0; i < Catalog.GOODS.length; i++) if (g.trade[i] > 0) n++;
+        for (int i = 0; i < Catalog.BEASTS.length; i++) if (g.beasts[i] > 0) n++;
+        for (int i = 0; i < Catalog.HERBS.length; i++) if (g.herbs[i] > 0) n++;
+        if (n == 0) {
+            sell.add(infoRow("船上暂无可卖货物")).width(430).left().padBottom(6).row();
+        } else {
+            int[] kind = new int[n];  // 0 = goods, 1 = beasts, 2 = herbs
+            int[] idx = new int[n];
+            int k = 0;
+            for (int i = 0; i < Catalog.GOODS.length; i++) if (g.trade[i] > 0) { kind[k] = 0; idx[k] = i; k++; }
+            for (int i = 0; i < Catalog.BEASTS.length; i++) if (g.beasts[i] > 0) { kind[k] = 1; idx[k] = i; k++; }
+            for (int i = 0; i < Catalog.HERBS.length; i++) if (g.herbs[i] > 0) { kind[k] = 2; idx[k] = i; k++; }
+            int sellPages = Math.max(1, (n + MARKET_PAGE_SIZE - 1) / MARKET_PAGE_SIZE);
+            marketSellPage = Math.max(0, Math.min(marketSellPage, sellPages - 1));
+            int sStart = marketSellPage * MARKET_PAGE_SIZE;
+            int sEnd = Math.min(n, sStart + MARKET_PAGE_SIZE);
+            for (int j = sStart; j < sEnd; j++) {
+                final int kj = kind[j];
+                final int ij = idx[j];
+                String label;
+                Runnable sellOne;
+                if (kj == 0) {
+                    label = "商货 · " + Catalog.GOODS[ij] + " x" + g.trade[ij]
+                            + "  卖 " + Catalog.goodPrice(p, ij) + "两";
+                    sellOne = () -> { g.toast(g.sellGood(p, ij, 1)); persist(); rebuildMenu(); };
+                } else if (kj == 1) {
+                    label = "异兽 · " + Catalog.BEASTS[ij] + " x" + g.beasts[ij]
+                            + "  卖 " + Catalog.BEAST_PRICE[ij] + "两";
+                    sellOne = () -> { g.toast(g.sellBeast(ij, 1)); persist(); rebuildMenu(); };
+                } else {
+                    label = "草药 · " + Catalog.HERBS[ij] + " x" + g.herbs[ij]
+                            + "  卖 " + Catalog.HERB_PRICE[ij] + "两";
+                    sellOne = () -> { g.toast(g.sellHerb(ij, 1)); persist(); rebuildMenu(); };
+                }
+                sell.add(btn(label, sellOne)).width(430).height(36).left().padBottom(2).row();
+            }
+            pagerRow(sell, marketSellPage, sellPages, false);
+        }
+        market.add(buy).width(438).top();
+        market.add(sell).width(438).top().padLeft(12);
+        box.add(market).width(PORT_MENU_W).padBottom(4).row();
+        box.add(infoRow("返回后仍在港口菜单，点「离港」才开船。")).width(PORT_MENU_W).left().row();
     }
 
-    private void addPortSellRows(Table sell, int port) {
-        boolean any = false;
-        for (int i = 0; i < Catalog.GOODS.length; i++) {
-            if (g.trade[i] <= 0) continue;
-            any = true;
-            final int good = i;
-            sell.add(btn("商货 · " + Catalog.GOODS[i] + " x" + g.trade[i] + "  卖 "
-                    + Catalog.goodPrice(port, i) + "两", () -> {
-                g.toast(g.sellGood(port, good, 1)); persist(); rebuildMenu();
-            })).width(420).height(38).left().padBottom(2).row();
-        }
-        for (int i = 0; i < Catalog.BEASTS.length; i++) {
-            if (g.beasts[i] <= 0) continue;
-            any = true;
-            final int beast = i;
-            sell.add(btn("异兽 · " + Catalog.BEASTS[i] + " x" + g.beasts[i] + "  卖 "
-                    + Catalog.BEAST_PRICE[i] + "两", () -> {
-                g.toast(g.sellBeast(beast, 1)); persist(); rebuildMenu();
-            })).width(420).height(38).left().padBottom(2).row();
-        }
-        for (int i = 0; i < Catalog.HERBS.length; i++) {
-            if (g.herbs[i] <= 0) continue;
-            any = true;
-            final int herb = i;
-            sell.add(btn("草药 · " + Catalog.HERBS[i] + " x" + g.herbs[i] + "  卖 "
-                    + Catalog.HERB_PRICE[i] + "两", () -> {
-                g.toast(g.sellHerb(herb, 1)); persist(); rebuildMenu();
-            })).width(420).height(38).left().padBottom(2).row();
-        }
-        if (!any) sell.add(infoRow("船上暂无可卖货物")).width(420).left().row();
+    /** 上一页 / 页号 / 下一页 strip under a paged market column. Buttons no-op at
+     * the ends instead of flipping onto an empty page. */
+    private void pagerRow(Table col, int page, int pages, boolean isBuy) {
+        Table bar = new Table();
+        bar.add(btn("上一页", () -> {
+            if (isBuy) { if (marketBuyPage > 0) { marketBuyPage--; rebuildMenu(); } }
+            else { if (marketSellPage > 0) { marketSellPage--; rebuildMenu(); } }
+        })).width(120).height(32);
+        Label mid = new Label((page + 1) + " / " + pages, game.skin, "small");
+        mid.setAlignment(Align.center);
+        bar.add(mid).width(150);
+        bar.add(btn("下一页", () -> {
+            if (isBuy) { if (marketBuyPage < pages - 1) { marketBuyPage++; rebuildMenu(); } }
+            else { if (marketSellPage < pages - 1) { marketSellPage++; rebuildMenu(); } }
+        })).width(120).height(32);
+        col.add(bar).width(430).padTop(4).row();
     }
 
     private void islandTable(Table box) {
@@ -646,7 +783,27 @@ public class VoyageScreen extends ScreenAdapter {
         box.add(wrapLbl(causeLabel + "，航程失败。")).width(MENU_W - 10).left().padBottom(6).row();
         Table act = new Table();
         act.add(btn("读取存档", this::tryReloadLatestSave)).width(240).height(46);
-        box.add(act).width(MENU_W).row();
+        act.add(btn("重新开始", this::restartNewGame)).width(240).height(46).padLeft(10);
+        box.add(act).width(MENU_W).padTop(4).row();
+        box.add(wrapLbl("重新开始：以新商人起步（银 1000、补给 500、耐久 500、空货舱），\n"
+                + "进度会写回本账号存档，覆盖旧档。读取存档则回最近一次靠港。"))
+                .width(MENU_W - 10).left().padTop(6).row();
+    }
+
+    /** 重新开始: discard everything and start a brand-new game (银 1000 / 补给 500 /
+     * 耐久 500 / empty holds), write it back into the current account's local save
+     * (overwriting the old slot) and enter the voyage at the start port. */
+    private void restartNewGame() {
+        GameState fresh = GameState.newGame();
+        game.state = fresh;
+        g = fresh;
+        persist();
+        dismissedFail = false;
+        dismissedPort = -1;
+        dismissedIsland = -1;
+        overlay = fresh.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE;
+        rebuildMenu();
+        g.toast("重新开始：银 1000 / 补给 500 / 耐久 500，已写回本机存档。");
     }
 
     /** User-facing phrasing for the two failure reasons the model can set. */
@@ -677,6 +834,69 @@ public class VoyageScreen extends ScreenAdapter {
         dismissedFail = false;
         overlay = g.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE;
         rebuildMenu();
+    }
+
+    /** 0.26.0 first-run 玩法说明 popup (howto_spec.txt verbatim body). Header
+     * has the title left + optional 「以后不再提示」 top-right; the bottom main
+     * button 「开始航行」 closes. Both buttons write the persistent howto_shown
+     * flag (shown once per install). The body wraps and the whole popup rides
+     * in the ScrollPane that rebuildMenu() wraps every box in, so long content
+     * scrolls on small screens. */
+    private void howtoTable(Table box) {
+        Table h = new Table();
+        Label t = new Label("南海航程玩法", game.skin);
+        t.setWrap(false);
+        TextButton never = new TextButton("以后不再提示", game.skin, "danger");
+        never.getLabel().setFontScale(0.9f);
+        never.addListener(click(() -> {
+            Gdx.app.getPreferences("nanhai-voyage").putBoolean("howto_shown", true).flush();
+            overlay = Overlay.NONE;
+            rebuildMenu();
+        }));
+        h.add(t).left().expandX().padLeft(2);
+        h.add(never).width(150).height(38);
+        box.add(h).width(MENU_W).padBottom(8).row();
+
+        Label body = new Label(HOWTO_BODY, game.skin, "small");
+        body.setWrap(true);
+        box.add(body).width(MENU_W - 12).left().padBottom(12).row();
+
+        TextButton start = new TextButton("开始航行", game.skin, "go");
+        start.getLabel().setFontScale(1.05f);
+        start.addListener(click(() -> {
+            // Shown once per install — record it on 开始航行 too so the popup
+            // never reappears on a later login.
+            Gdx.app.getPreferences("nanhai-voyage").putBoolean("howto_shown", true).flush();
+            overlay = Overlay.NONE;
+            rebuildMenu();
+        }));
+        Table act = new Table();
+        act.add(start).width(300).height(54);
+        box.add(act).width(MENU_W).row();
+    }
+
+    /** 船长菜单 (opened by tapping the top-left avatar): save now / load save /
+     * close. While it is open the world is paused — VoyageScreen skips g.update()
+     * for Overlay.AVATAR, so time, events and movement all stop. 保存进度 writes the
+     * live state to the account's local save immediately; 读取存档 loads the most
+     * recent docking autosave (same handler as the fail popup). */
+    private void avatarTable(Table box) {
+        menuHeader(box, "船长菜单 · 世界暂停");
+        box.add(wrapLbl("菜单开着时停船停事件。\n保存进度 = 立刻把当前状态写入本机存档；\n读取存档 = 回最近一次靠港自动档。"))
+                .width(MENU_W - 10).left().padBottom(8).row();
+        Table act = new Table();
+        act.add(btn("保存进度", this::saveNow)).width(MENU_W - 10).height(50).row();
+        act.add(btn("读取存档", this::tryReloadLatestSave)).width(MENU_W - 10).height(50).padTop(8).row();
+        box.add(act).width(MENU_W).row();
+    }
+
+    private void saveNow() {
+        if (game.currentUser == null) {
+            g.toast("没有登录账号，无法保存进度。");
+            return;
+        }
+        game.accounts.save(game.currentUser, g.toSave());
+        g.toast("进度已保存到本机存档。");
     }
 
     /** One horizontal codex row: optional icon + single-line name. */
@@ -842,7 +1062,10 @@ public class VoyageScreen extends ScreenAdapter {
         // A docked ship whose popup was closed is un-paused by undockIfNeeded() in
         // the input handlers the moment the player touches a control, so the ship
         // can always sail unless a popup is actually open (0.25.2 lockup fix).
-        if (!g.worldPaused()) {
+        // The 船长菜单 (Overlay.AVATAR) and the first-run 玩法说明 (Overlay.HOWTO)
+        // pause everything too — update() drives time, weather, pirates and
+        // movement, so skipping it freezes the world.
+        if (!g.worldPaused() && overlay != Overlay.AVATAR && overlay != Overlay.HOWTO) {
             g.update(delta);
         }
 
@@ -851,19 +1074,24 @@ public class VoyageScreen extends ScreenAdapter {
         // the full-map modal is up, nothing auto-opens under it: the modal keeps
         // covering the whole UI until the player closes it, then the pending
         // context popup opens normally.
-        // 行情 (Overlay.PRICE) is a sub-view of the port menu: the docked auto-
-        // open must not stomp it back to PORT on the very next frame, or the
-        // 行情 button would look dead (the popup only flashed for one frame).
-        if (overlay != Overlay.MAP && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
+        // Sub-views of the docked menu must never be stomped by the docked auto-
+        // open: 行情 (PRICE) used to flash back to PORT the frame after opening, and
+        // the same applies to 市场 (MARKET), the 船长菜单 (AVATAR) and the first-run
+        // 玩法说明 (HOWTO).
+        boolean dockSub = overlay == Overlay.PRICE || overlay == Overlay.MARKET
+                || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO;
+        if (overlay != Overlay.MAP && !dockSub && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             rebuildMenu();
-        } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && g.dockedPort >= 0
-                && dismissedPort != g.dockedPort && overlay != Overlay.PRICE) {
+        } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && !dockSub
+                && overlay != Overlay.PORT && overlay != Overlay.ISLAND
+                && g.dockedPort >= 0 && dismissedPort != g.dockedPort) {
             overlay = Overlay.PORT;
             persist();
             rebuildMenu();
-        } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && overlay != Overlay.PORT
-                && overlay != Overlay.PRICE && g.islandMenu >= 0 && dismissedIsland != g.islandMenu) {
+        } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && !dockSub
+                && overlay != Overlay.PORT && overlay != Overlay.ISLAND
+                && g.islandMenu >= 0 && dismissedIsland != g.islandMenu) {
             overlay = Overlay.ISLAND;
             rebuildMenu();
         }
@@ -954,7 +1182,8 @@ public class VoyageScreen extends ScreenAdapter {
         // Tracked in hold(): reliable long-press even if isPressed() flickers.
         g.holdAccel = w || accelDown;
         g.holdDecel = s || decelDown;
-        if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
+        if (Gdx.input.isKeyJustPressed(Input.Keys.M)
+                && overlay != Overlay.AVATAR && overlay != Overlay.HOWTO) {
             overlay = overlay == Overlay.MAP ? Overlay.NONE : Overlay.MAP;
             rebuildMenu();
         }
@@ -1349,11 +1578,24 @@ public class VoyageScreen extends ScreenAdapter {
             hudVp.unproject(tmp.set(screenX, screenY, 0));
             float hx = tmp.x, hy = tmp.y;
 
+            // Captain avatar (top-left): tap it to open the paused 船长菜单 with
+            // 保存进度 / 读取存档 / 关闭. Only from a neutral overlay, so an open
+            // popup must first be closed via its own button.
+            if (overlay == Overlay.NONE) {
+                float adx = hx - AV_X, ady = hy - AV_Y;
+                if (adx * adx + ady * ady <= (AV_R + 12f) * (AV_R + 12f)) {
+                    overlay = Overlay.AVATAR;
+                    rebuildMenu();
+                    return true;
+                }
+            }
+
             // Virtual joystick: usable whenever no modal popup is open. While
             // docked with the port menu closed the world is NOT paused, so the
             // first touch undocks the ship and sailing starts immediately.
             float dx = hx - stickCX, dy = hy - stickCY;
-            boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL;
+            boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL
+                    || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO;
             if (!modal && overlay != Overlay.MAP
                     && dx * dx + dy * dy <= (stickR + 26f) * (stickR + 26f)) {
                 undockIfNeeded();

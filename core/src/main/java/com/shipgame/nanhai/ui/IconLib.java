@@ -20,7 +20,9 @@ public final class IconLib {
     private static final String[] GOOD_SLUGS = {
             "silk", "porcelain", "tea", "salt", "iron", "rice", "sugarcane",
             "agarwood", "sappanwood", "pepper", "ivory", "pearl",
-            "tortoiseshell", "betel"
+            "tortoiseshell", "betel",
+            "cotton", "lacquer", "bronze", "glass", "frankincense", "myrrh",
+            "cardamom", "clove", "coral", "rhinohorn"
     };
     private static final String[] BEAST_SLUGS = {
             "jingwei", "nine-tail-fox", "gu-diao", "flying-fish",
