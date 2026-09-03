@@ -31,6 +31,7 @@ import com.shipgame.nanhai.NanHaiVoyage;
 import com.shipgame.nanhai.PixelMapRenderer;
 import com.shipgame.nanhai.data.Catalog;
 import com.shipgame.nanhai.data.GameState;
+import com.shipgame.nanhai.data.SaveData;
 import com.shipgame.nanhai.ui.IconLib;
 
 public class VoyageScreen extends ScreenAdapter {
@@ -639,19 +640,42 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void failTable(Table box) {
-        menuHeader(box, "失败：" + g.failReason);
-        box.add(wrapLbl("补给空或船沉都直接失败，读取上次靠港存档。")).width(MENU_W - 10).left().padBottom(6).row();
+        String causeLabel = failCauseLabel(g.failReason);
+        menuHeader(box, "航程失败 · " + causeLabel);
+        box.add(wrapLbl(causeLabel + "，航程失败。")).width(MENU_W - 10).left().padBottom(6).row();
         Table act = new Table();
-        act.add(btn("读档重来", () -> {
-            game.state = GameState.fromSave(game.accounts.load(game.currentUser));
-            g = game.state;
-            dismissedPort = -1;
-            dismissedIsland = -1;
-            dismissedFail = false;
-            overlay = g.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE;
-            rebuildMenu();
-        })).width(240).height(46);
+        act.add(btn("读取存档", this::tryReloadLatestSave)).width(240).height(46);
         box.add(act).width(MENU_W).row();
+    }
+
+    /** User-facing phrasing for the two failure reasons the model can set. */
+    private String failCauseLabel(String reason) {
+        if (reason == null || reason.isEmpty()) return "未知原因";
+        if (reason.equals("补给耗尽")) return "补给耗尽";
+        if (reason.equals("船沉")) return "船只沉没";
+        return reason;
+    }
+
+    /** Read the latest docked save (same file the game auto-saves on port).
+     * If there is no save for the current user, show a message on the fail popup
+     * and stay on the fail popup instead of jumping back to login. */
+    private void tryReloadLatestSave() {
+        if (game.currentUser == null) {
+            g.toast("没有登录账号，无法读取存档。");
+            return;
+        }
+        SaveData s = game.accounts.load(game.currentUser);
+        if (s == null) {
+            g.toast("没有存档");
+            return;
+        }
+        game.state = GameState.fromSave(s);
+        g = game.state;
+        dismissedPort = -1;
+        dismissedIsland = -1;
+        dismissedFail = false;
+        overlay = g.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE;
+        rebuildMenu();
     }
 
     /** One horizontal codex row: optional icon + single-line name. */
