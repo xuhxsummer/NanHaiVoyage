@@ -42,10 +42,23 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float MM_CX = HUD_W - 106f;
     private static final float MM_CY = HUD_H - 104f;
     private static final float MM_R = 80f;
-    // Captain avatar: bottom-left, above it sits the virtual joystick
-    private static final float AV_X = 82f;
-    private static final float AV_Y = 66f;
-    private static final float AV_R = 30f;
+    // Captain avatar: top-left, just under the live status line (no bottom-left
+    // avatar anymore — the bottom-left belongs to the virtual joystick only).
+    private static final float AV_X = 62f;
+    private static final float AV_Y = 660f;
+    private static final float AV_R = 20f;
+    // Far-left circular action buttons 货物/图鉴/港口 stacked on the left edge.
+    private static final float LB_X = 55f;       // button center x
+    private static final float LB_SIZE = 70f;    // button diameter
+    private static final float LB_GAP = 76f;     // center-to-center spacing
+    private static final float LB_TOP = 580f;    // center y of the top (货物) button
+    // Full-map modal geometry (overlay == Overlay.MAP): the map is a fullscreen
+    // dimmed rect with the map area centered; its 关闭 button sits top-right.
+    private static final float FM_X = 90f, FM_Y = 90f, FM_W = 1100f, FM_H = 540f;
+    private static final float FM_CLOSE_X = FM_X + FM_W - 124f;
+    private static final float FM_CLOSE_Y = FM_Y + FM_H - 36f;
+    private static final float FM_CLOSE_W = 104f;
+    private static final float FM_CLOSE_H = 28f;
 
     private static final Color WATER = new Color(0.10f, 0.36f, 0.52f, 1f);
     private static final Color WATER_RAIN = new Color(0.08f, 0.22f, 0.34f, 1f);
@@ -94,9 +107,10 @@ public class VoyageScreen extends ScreenAdapter {
     private TextButton btnDecel;
 
     private boolean stickActive;
-    private float stickCX = 165f, stickCY = 205f, stickR = 62f;
+    private float stickCX = 170f, stickCY = 180f, stickR = 60f;
     private float stickKX, stickKY;
     private int stickPointer = -1;
+    private boolean accelDown, decelDown;
     private boolean loggedFirstFrame;
 
     public VoyageScreen(NanHaiVoyage game) {
@@ -202,17 +216,16 @@ public class VoyageScreen extends ScreenAdapter {
         right.add(btnDecel).width(124).height(72).pad(6);
         stage.addActor(right);
 
-        // Right-center base buttons: 货物 / 图鉴 (+ 港口/岛屿 while paused there).
-        Table ctl = new Table();
-        ctl.setFillParent(true);
-        ctl.right().center().padRight(22);
-        btnCargo = new TextButton("货物", game.skin);
-        btnCodex = new TextButton("图鉴", game.skin);
-        btnCtx = new TextButton("港口", game.skin);
+        // Far-left circular rail: 货物 / 图鉴 / 港口 on the very left edge. They are
+        // real stage actors sized 70x70, stacked vertically, clear of both the
+        // avatar (top-left) and the joystick (bottom-left).
+        btnCargo = roundBtn("货物");
+        btnCodex = roundBtn("图鉴");
+        btnCtx = roundBtn("港口");
         btnCargo.addListener(click(() -> {
             if (overlay == Overlay.CARGO) {
                 closePopup();
-            } else {
+            } else if (overlay != Overlay.MAP) {
                 overlay = Overlay.CARGO;
                 rebuildMenu();
             }
@@ -220,26 +233,34 @@ public class VoyageScreen extends ScreenAdapter {
         btnCodex.addListener(click(() -> {
             if (overlay == Overlay.CODEX) {
                 closePopup();
-            } else {
+            } else if (overlay != Overlay.MAP) {
                 overlay = Overlay.CODEX;
                 rebuildMenu();
             }
         }));
         btnCtx.addListener(click(() -> {
-            if (g.dockedPort >= 0 && overlay != Overlay.PORT) {
+            if (overlay == Overlay.PORT && g.dockedPort >= 0) {
+                closePopup();
+            } else if (overlay == Overlay.ISLAND && g.islandMenu >= 0) {
+                closePopup();
+            } else if (g.dockedPort >= 0) {
                 dismissedPort = -1; // manual reopen re-enables auto-open rules
                 overlay = Overlay.PORT;
                 rebuildMenu();
-            } else if (g.islandMenu >= 0 && overlay != Overlay.ISLAND) {
+            } else if (g.islandMenu >= 0) {
                 dismissedIsland = -1;
                 overlay = Overlay.ISLAND;
                 rebuildMenu();
+            } else {
+                g.toast("不在港口或岛屿附近：靠近港口/岛屿会自动弹出菜单。");
             }
         }));
-        ctl.add(btnCargo).width(122).height(50).pad(6).row();
-        ctl.add(btnCodex).width(122).height(50).pad(6).row();
-        ctl.add(btnCtx).width(122).height(50).pad(6);
-        stage.addActor(ctl);
+        placeRailButton(btnCargo, 0);
+        placeRailButton(btnCodex, 1);
+        placeRailButton(btnCtx, 2);
+        stage.addActor(btnCargo);
+        stage.addActor(btnCodex);
+        stage.addActor(btnCtx);
 
         // Contextual 取消自动 / 取消锁定 — slim strip at the very top-center so no
         // popup or HUD element can swallow their touches.
@@ -257,27 +278,65 @@ public class VoyageScreen extends ScreenAdapter {
         mid.add(btnCancelLock).width(132).height(38).pad(4);
         stage.addActor(mid);
 
-        // Popup root: right side, above the right-center cluster column, clear of
-        // the minimap circle on top-right.
+        // Popup root: right side, clear of the minimap circle on top-right.
         menuRoot = new Table();
         menuRoot.setFillParent(true);
         menuRoot.right().top().padTop(96).padRight(172);
         stage.addActor(menuRoot);
     }
 
+    private TextButton roundBtn(String label) {
+        TextButton b = new TextButton(label, game.skin, "circ");
+        b.getLabel().setFontScale(1f);
+        return b;
+    }
+
+    /** Positions the i-th left-rail circular button (0 = 货物 top, 2 = 港口 bottom). */
+    private void placeRailButton(TextButton b, int i) {
+        float cy = LB_TOP - i * LB_GAP;
+        b.setBounds(LB_X - LB_SIZE / 2f, cy - LB_SIZE / 2f, LB_SIZE, LB_SIZE);
+    }
+
+    /** Hold-to-keep listeners for 加速/减速. Press state is tracked directly (not
+     * via the button's isPressed in the render loop) so a long press survives
+     * drag jitter, and the pressed visual always shows — even when the world is
+     * paused at port the button itself still reacts and explains why the ship
+     * does not move yet. */
     private void hold(TextButton b, boolean accel) {
         b.addListener(new ClickListener() {
             @Override
             public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
-                if (accel) g.holdAccel = true;
-                else g.holdDecel = true;
+                boolean parked = g.worldPaused();
+                if (accel) {
+                    accelDown = true;
+                    g.holdAccel = true;
+                    if (parked) {
+                        g.toast("停泊中船不动：先点「港口→离港」出海后再加速。");
+                    }
+                } else {
+                    decelDown = true;
+                    g.holdDecel = true;
+                    if (parked) {
+                        g.toast("停泊中船不动：先点「港口→离港」出海后再减速。");
+                    }
+                }
                 return true;
             }
 
             @Override
             public void touchUp(InputEvent event, float x, float y, int pointer, int button) {
-                if (accel) g.holdAccel = false;
-                else g.holdDecel = false;
+                if (accel) {
+                    accelDown = false;
+                    g.holdAccel = false;
+                } else {
+                    decelDown = false;
+                    g.holdDecel = false;
+                }
+            }
+
+            @Override
+            public void touchDragged(InputEvent event, float x, float y, int pointer) {
+                // keep the hold while the finger stays on the button
             }
         });
     }
@@ -339,19 +398,15 @@ public class VoyageScreen extends ScreenAdapter {
         menuRoot.add(sp).width(520).maxHeight(500);
     }
 
-    /** Right-center cluster: 货物/图鉴 always; 港口 or 岛屿 while paused there. */
+    /** Left-rail context label: 港口 always; becomes 岛屿 while pausing on an island. */
     private void refreshBaseCtx() {
         if (g == null) {
             return;
         }
-        if (g.dockedPort >= 0) {
-            btnCtx.setText("港口");
-            btnCtx.setVisible(true);
-        } else if (g.islandMenu >= 0) {
+        if (g.islandMenu >= 0) {
             btnCtx.setText("岛屿");
-            btnCtx.setVisible(true);
         } else {
-            btnCtx.setVisible(false);
+            btnCtx.setText("港口");
         }
     }
 
@@ -663,16 +718,20 @@ public class VoyageScreen extends ScreenAdapter {
         }
 
         // Context transitions. Explicitly dismissed popups stay dismissed until the
-        // context changes; otherwise dock/island/fail auto-open their popup.
-        if (g.failed && !dismissedFail && overlay != Overlay.FAIL) {
+        // context changes; otherwise dock/island/fail auto-open their popup. While
+        // the full-map modal is up, nothing auto-opens under it: the modal keeps
+        // covering the whole UI until the player closes it, then the pending
+        // context popup opens normally.
+        if (overlay != Overlay.MAP && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             rebuildMenu();
-        } else if (overlay != Overlay.FAIL && g.dockedPort >= 0 && dismissedPort != g.dockedPort) {
+        } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && g.dockedPort >= 0
+                && dismissedPort != g.dockedPort) {
             overlay = Overlay.PORT;
             persist();
             rebuildMenu();
-        } else if (overlay != Overlay.FAIL && overlay != Overlay.PORT && g.islandMenu >= 0
-                && dismissedIsland != g.islandMenu) {
+        } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && overlay != Overlay.PORT
+                && g.islandMenu >= 0 && dismissedIsland != g.islandMenu) {
             overlay = Overlay.ISLAND;
             rebuildMenu();
         }
@@ -698,20 +757,29 @@ public class VoyageScreen extends ScreenAdapter {
         hudVp.apply();
         shapes.setProjectionMatrix(hudVp.getCamera().combined);
         game.batch.setProjectionMatrix(hudVp.getCamera().combined);
-        drawHudDecor();
-        if (overlay == Overlay.MAP) {
+
+        // Full-map modal: covers the ENTIRE screen. The HUD stage is hidden (not
+        // drawn and not hit-testable) so every button below — cargo/codex/port
+        // rail, joystick, accel/decel, minimap — is invisible AND unclickable;
+        // WorldInput alone handles all touches while it is open.
+        boolean mapOpen = overlay == Overlay.MAP;
+        if (mapOpen) {
             drawFullMap();
+        } else {
+            drawHudDecor();
+        }
+        stage.getRoot().setVisible(!mapOpen);
+        stage.act(delta);
+        if (!mapOpen) {
+            stage.draw();
         }
 
-        stage.act(delta);
-        stage.draw();
-
-        game.batch.begin();
-        if (g.toastT > 0) {
+        if (!mapOpen && g.toastT > 0) {
+            game.batch.begin();
             layout.setText(game.font, g.toast);
             game.font.draw(game.batch, g.toast, (HUD_W - layout.width) / 2f, 46f);
+            game.batch.end();
         }
-        game.batch.end();
     }
 
     private String statusText() {
@@ -726,6 +794,11 @@ public class VoyageScreen extends ScreenAdapter {
             s += " 自动->" + Catalog.PORTS[g.autoSailPort];
         } else if (g.autoSailIsle >= 0) {
             s += " 自动->" + Catalog.ISLANDS[g.autoSailIsle];
+        }
+        if (g.dockedPort >= 0) {
+            s += " ·停泊" + Catalog.PORTS[g.dockedPort];
+        } else if (g.islandMenu >= 0) {
+            s += " ·探岛" + Catalog.ISLANDS[g.islandMenu];
         }
         if (g.pirateAlive) {
             s += " 海盗";
@@ -742,10 +815,9 @@ public class VoyageScreen extends ScreenAdapter {
         }
         boolean w = Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.UP);
         boolean s = Gdx.input.isKeyPressed(Input.Keys.S) || Gdx.input.isKeyPressed(Input.Keys.DOWN);
-        boolean accelBtn = btnAccel != null && btnAccel.isPressed();
-        boolean decelBtn = btnDecel != null && btnDecel.isPressed();
-        g.holdAccel = w || accelBtn;
-        g.holdDecel = s || decelBtn;
+        // Tracked in hold(): reliable long-press even if isPressed() flickers.
+        g.holdAccel = w || accelDown;
+        g.holdDecel = s || decelDown;
         if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
             overlay = overlay == Overlay.MAP ? Overlay.NONE : Overlay.MAP;
             rebuildMenu();
@@ -760,18 +832,24 @@ public class VoyageScreen extends ScreenAdapter {
             game.batch.begin();
             pixelMap.drawWater(game.batch, g);
             game.batch.end();
-        }
-        // Vector silhouette under the sprite: even if the ship texture fails
-        // to render on a device, the player ship is always visible at sea.
-        // Must run inside an active ShapeRenderer pass: without begin()/end()
-        // every render frame throws "begin must be called first" and the app
-        // dies on the first voyage frame (the 0.24.2/0.24.3 login crash).
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        drawShipSilhouette(g.x, g.y, g.headingDeg);
-        shapes.end();
-        if (pixelMap != null) {
+            // Islands / ports / pirate only — the player ship is layered last.
             game.batch.begin();
             pixelMap.drawMarkers(game.batch, g);
+            game.batch.end();
+        }
+        // The camera centers on the ship (see render) and the ship is always drawn
+        // ABOVE the island/port tiles: vector hull outline first (never hidden),
+        // then the sprite on top when the texture really loaded. If the texture
+        // failed, the outline is enlarged 1.5x and stands alone. Without the
+        // begin()/end() pass below every frame throws "begin must be called first"
+        // and the app dies on the first voyage frame (the 0.24.x login crash).
+        boolean shipSpriteOk = pixelMap != null && pixelMap.shipSpriteOk;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        drawShipSilhouette(g.x, g.y, g.headingDeg, shipSpriteOk ? 0.94f : 1.5f);
+        shapes.end();
+        if (shipSpriteOk) {
+            game.batch.begin();
+            pixelMap.drawShip(game.batch, g);
             game.batch.end();
         }
 
@@ -798,24 +876,26 @@ public class VoyageScreen extends ScreenAdapter {
         game.batch.end();
     }
 
-    /** Vector junk silhouette drawn under the player sprite so the ship can
-     * never disappear from the sea (texture failure, alpha issue, etc.). */
-    private void drawShipSilhouette(float x, float y, float headingDeg) {
+    /** Vector junk silhouette of the player ship. It is drawn above islands/water
+     * but under the ship sprite (or alone, enlarged, when the sprite texture is
+     * missing) so the ship can never disappear from the sea. scale 1.0 ≈ sprite
+     * footprint; bigger values are the texture-failure fallback. */
+    private void drawShipSilhouette(float x, float y, float headingDeg, float scale) {
         float rad = headingDeg * MathUtils.degreesToRadians;
         float ux = MathUtils.cos(rad), uy = MathUtils.sin(rad);
         float px = -uy, py = ux;
-        float bowX = x + ux * 24f, bowY = y + uy * 24f;
-        float sternX = x - ux * 20f, sternY = y - uy * 20f;
+        float bowX = x + ux * 24f * scale, bowY = y + uy * 24f * scale;
+        float sternX = x - ux * 20f * scale, sternY = y - uy * 20f * scale;
         shapes.setColor(0.76f, 0.62f, 0.28f, 1f); // sail tan body
-        shapes.rectLine(sternX, sternY, bowX, bowY, 13f);
+        shapes.rectLine(sternX, sternY, bowX, bowY, 13f * scale);
         shapes.setColor(0.45f, 0.26f, 0.12f, 1f); // dark hull deck
-        shapes.rectLine(x - px * 5f - ux * 22f, y - py * 5f - uy * 22f,
-                x + px * 5f + ux * 22f, y + py * 5f + uy * 22f, 8f);
+        shapes.rectLine(x - px * 5f * scale - ux * 22f * scale, y - py * 5f * scale - uy * 22f * scale,
+                x + px * 5f * scale + ux * 22f * scale, y + py * 5f * scale + uy * 22f * scale, 8f * scale);
         shapes.setColor(0.97f, 0.94f, 0.84f, 1f); // bright sail canvas
-        shapes.rectLine(x + ux * 2f - px * 5f, y + uy * 2f - py * 5f,
-                x + ux * 2f + px * 5f, y + uy * 2f + py * 5f, 11f);
+        shapes.rectLine(x + ux * 2f * scale - px * 5f * scale, y + uy * 2f * scale - py * 5f * scale,
+                x + ux * 2f * scale + px * 5f * scale, y + uy * 2f * scale + py * 5f * scale, 11f * scale);
         shapes.setColor(1f, 0.92f, 0.45f, 1f); // mast cap
-        shapes.circle(bowX, bowY, 2.6f);
+        shapes.circle(bowX, bowY, 2.6f * scale);
     }
 
     private static boolean isFinite(float v) {
@@ -831,6 +911,44 @@ public class VoyageScreen extends ScreenAdapter {
             drawRoundMinimap();
         }
         drawAvatarAndStick();
+    }
+
+    /** Captain avatar (top-left, under the status line) + bottom-left joystick. */
+    private void drawAvatarAndStick() {
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        // avatar ring + round color block
+        shapes.setColor(0.03f, 0.05f, 0.09f, 0.95f);
+        shapes.circle(AV_X, AV_Y, AV_R + 3f);
+        shapes.setColor(0.55f, 0.20f, 0.18f, 1f);
+        shapes.circle(AV_X, AV_Y, AV_R);
+        shapes.setColor(0.86f, 0.66f, 0.50f, 1f);
+        shapes.circle(AV_X, AV_Y, AV_R * 0.55f);
+
+        // virtual joystick base (bottom-left)
+        shapes.setColor(0f, 0f, 0f, 0.35f);
+        shapes.circle(stickCX, stickCY, stickR);
+        shapes.setColor(0.10f, 0.18f, 0.26f, 0.6f);
+        shapes.circle(stickCX, stickCY, stickR - 7f);
+        shapes.setColor(0.85f, 0.85f, 0.85f, 0.55f);
+        float knx = stickCX, kny = stickCY;
+        if (stickActive) {
+            knx = stickCX + stickKX * (stickR - 20f);
+            kny = stickCY + stickKY * (stickR - 20f);
+        }
+        shapes.circle(knx, kny, 20f);
+        shapes.end();
+
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0.8f, 0.8f, 0.8f, 0.8f);
+        shapes.circle(stickCX, stickCY, stickR);
+        shapes.setColor(0.95f, 0.9f, 0.8f, 0.9f);
+        shapes.circle(AV_X, AV_Y, AV_R + 3f);
+        shapes.end();
+
+        game.batch.begin();
+        layout.setText(game.fontSmall, "船长");
+        game.fontSmall.draw(game.batch, "船长", AV_X + AV_R + 10f, AV_Y + 4f);
+        game.batch.end();
     }
 
     /** Round minimap with markers clipped to the circle. */
@@ -898,80 +1016,53 @@ public class VoyageScreen extends ScreenAdapter {
         game.batch.end();
     }
 
-    /** Captain avatar (bottom-left) + virtual joystick above it. */
-    private void drawAvatarAndStick() {
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        // avatar ring + round color block
-        shapes.setColor(0.03f, 0.05f, 0.09f, 0.95f);
-        shapes.circle(AV_X, AV_Y, AV_R + 4f);
-        shapes.setColor(0.55f, 0.20f, 0.18f, 1f);
-        shapes.circle(AV_X, AV_Y, AV_R);
-        shapes.setColor(0.86f, 0.66f, 0.50f, 1f);
-        shapes.circle(AV_X, AV_Y, AV_R * 0.55f);
 
-        // stick base
-        shapes.setColor(0f, 0f, 0f, 0.35f);
-        shapes.circle(stickCX, stickCY, stickR);
-        shapes.setColor(0.10f, 0.18f, 0.26f, 0.6f);
-        shapes.circle(stickCX, stickCY, stickR - 7f);
-        shapes.setColor(0.85f, 0.85f, 0.85f, 0.55f);
-        float knx = stickCX + stickKX * (stickR - 20f);
-        float kny = stickCY + stickKY * (stickR - 20f);
-        if (!stickActive) {
-            knx = stickCX;
-            kny = stickCY;
-        }
-        shapes.circle(knx, kny, 20f);
-        shapes.end();
 
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.8f, 0.8f, 0.8f, 0.8f);
-        shapes.circle(stickCX, stickCY, stickR);
-        shapes.setColor(0.95f, 0.9f, 0.8f, 0.9f);
-        shapes.circle(AV_X, AV_Y, AV_R + 4f);
-        shapes.end();
-
-        game.batch.begin();
-        layout.setText(game.fontSmall, "船长");
-        game.fontSmall.draw(game.batch, "船长", AV_X - layout.width / 2f, AV_Y - layout.height / 2f + 2f);
-        game.batch.end();
-    }
-
+    /** Fullscreen modal full map: a dim veil covers the whole HUD (the stage is
+     * hidden while overlay == Overlay.MAP, so no other control is visible or
+     * clickable). 关闭 sits top-right inside the map; blank taps keep it open. */
     private void drawFullMap() {
-        float x = 80, y = 70, w = 1120, h = 560;
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0f, 0f, 0f, 0.72f);
-        shapes.rect(x, y, w, h);
-        shapes.setColor(0.08f, 0.22f, 0.30f, 1f);
-        shapes.rect(x + 10, y + 10, w - 20, h - 20);
-        drawMapContents(x + 10, y + 10, w - 20, h - 20, true);
+        // fullscreen dim veil over the entire screen
+        shapes.setColor(0.02f, 0.04f, 0.07f, 0.94f);
+        shapes.rect(0f, 0f, HUD_W, HUD_H);
+        // map frame + content area
+        shapes.setColor(0.02f, 0.08f, 0.13f, 1f);
+        shapes.rect(FM_X, FM_Y, FM_W, FM_H);
+        shapes.setColor(0.05f, 0.14f, 0.20f, 1f);
+        shapes.rect(FM_X + 10f, FM_Y + 10f, FM_W - 20f, FM_H - 20f);
+        drawMapContents(FM_X + 10f, FM_Y + 10f, FM_W - 20f, FM_H - 20f, true);
         if (g.weather != GameState.WeatherKind.CLEAR) {
             shapes.setColor(0.7f, 0.75f, 0.8f, g.weather == GameState.WeatherKind.FOG ? 0.45f : 0.28f);
-            shapes.rect(x + 10, y + 10, w - 20, h - 20);
+            shapes.rect(FM_X + 10f, FM_Y + 10f, FM_W - 20f, FM_H - 20f);
         }
-        // 关闭 button (top-right corner of the full map)
-        float bx = x + w - 112f, by = y + h - 34f, bw = 96f, bh = 26f;
-        shapes.setColor(0.45f, 0.16f, 0.14f, 0.95f);
-        shapes.rect(bx, by, bw, bh);
+        // 关闭 button (top-right corner inside the map)
+        shapes.setColor(0.45f, 0.16f, 0.14f, 0.98f);
+        shapes.rect(FM_CLOSE_X, FM_CLOSE_Y, FM_CLOSE_W, FM_CLOSE_H);
         shapes.end();
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.8f, 0.8f, 0.8f, 0.8f);
-        shapes.rect(bx, by, bw, bh);
+        shapes.setColor(0.82f, 0.88f, 0.95f, 0.9f);
+        shapes.rect(FM_X, FM_Y, FM_W, FM_H);
+        shapes.rect(FM_CLOSE_X, FM_CLOSE_Y, FM_CLOSE_W, FM_CLOSE_H);
         shapes.end();
         game.batch.begin();
+        layout.setText(game.font, "全图：点港口/岛屿自动驶向");
+        game.font.draw(game.batch, "全图：点港口/岛屿自动驶向", FM_X + 16f, FM_Y + FM_H - 14f);
         layout.setText(game.fontSmall, "关闭");
-        game.fontSmall.draw(game.batch, "关闭", bx + (bw - layout.width) / 2f, by + (bh + layout.height) / 2f);
-        game.font.draw(game.batch, "全图：点港口/岛屿自动驶向", x + 20, y + h - 8);
+        game.fontSmall.draw(game.batch, "关闭",
+                FM_CLOSE_X + (FM_CLOSE_W - layout.width) / 2f,
+                FM_CLOSE_Y + (FM_CLOSE_H + layout.height) / 2f);
         // Ports/islands/ship are always labelled: the full map must never be blank.
+        float cxp = FM_X + 10f, cyp = FM_Y + 10f, cwp = FM_W - 20f, chp = FM_H - 20f;
         for (int i = 0; i < Catalog.PORTS.length; i++) {
-            float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], x + 10, y + 10, w - 20, h - 20);
+            float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], cxp, cyp, cwp, chp);
             game.fontSmall.draw(game.batch, Catalog.PORTS[i], xy[0] + 12, xy[1] + 12);
         }
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], x + 10, y + 10, w - 20, h - 20);
+            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], cxp, cyp, cwp, chp);
             game.fontSmall.draw(game.batch, Catalog.ISLANDS[i], xy[0] + 14, xy[1] - 10);
         }
-        float[] me = mapToUi(g.x, g.y, x + 10, y + 10, w - 20, h - 20);
+        float[] me = mapToUi(g.x, g.y, cxp, cyp, cwp, chp);
         game.fontSmall.draw(game.batch, "本船", me[0] + 12, me[1] - 10);
         game.batch.end();
     }
@@ -1100,16 +1191,16 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private boolean handleFullMapTap(float hx, float hy) {
-        float x = 80, y = 70, w = 1120, h = 560;
-        // 关闭 button (top-right inside the map) and taps outside the map close it.
-        float bx = x + w - 112f, by = y + h - 34f, bw = 96f, bh = 26f;
-        boolean inClose = hx >= bx && hx <= bx + bw && hy >= by && hy <= by + bh;
-        if (hx < x || hx > x + w || hy < y || hy > y + h || inClose) {
+        // 关闭 button and taps on the dimmed margin outside the map close it.
+        boolean inMap = hx >= FM_X && hx <= FM_X + FM_W && hy >= FM_Y && hy <= FM_Y + FM_H;
+        boolean inClose = hx >= FM_CLOSE_X && hx <= FM_CLOSE_X + FM_CLOSE_W
+                && hy >= FM_CLOSE_Y && hy <= FM_CLOSE_Y + FM_CLOSE_H;
+        if (!inMap || inClose) {
             overlay = Overlay.NONE;
             rebuildMenu();
             return true;
         }
-        float ix = x + 10, iy = y + 10, iw = w - 20, ih = h - 20;
+        float ix = FM_X + 10f, iy = FM_Y + 10f, iw = FM_W - 20f, ih = FM_H - 20f;
         // Tap a port -> auto-sail to it.
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], ix, iy, iw, ih);

@@ -31,12 +31,33 @@ public class PixelMapRenderer {
     private final Texture port;
     private final Texture island;
 
+    /** False when ship.png could not load: VoyageScreen then draws the ship as an
+     * enlarged vector hull outline so it is never invisible on screen. */
+    public boolean shipSpriteOk = true;
+
     public PixelMapRenderer() {
         water = loadSafe("textures/water.png", true, 0.10f, 0.36f, 0.52f, 1f);
-        ship = loadSafe("textures/ship.png", false, 0.70f, 0.40f, 0.20f, 1f);
+        ship = loadShip();
         pirate = loadSafe("textures/pirate.png", false, 0.70f, 0.20f, 0.15f, 1f);
         port = loadSafe("textures/port.png", false, 0.92f, 0.78f, 0.28f, 1f);
         island = loadSafe("textures/island.png", false, 0.28f, 0.62f, 0.34f, 1f);
+    }
+
+    private Texture loadShip() {
+        try {
+            Texture t = load("textures/ship.png", false);
+            shipSpriteOk = true;
+            return t;
+        } catch (Exception ex) {
+            Gdx.app.error("PixelMapRenderer", "ship texture failed, using vector hull", ex);
+            shipSpriteOk = false;
+            Pixmap pm = new Pixmap(4, 4, Pixmap.Format.RGBA8888);
+            pm.setColor(0.70f, 0.40f, 0.20f, 1f);
+            pm.fill();
+            Texture t = new Texture(pm);
+            pm.dispose();
+            return t;
+        }
     }
 
     /** Loads a texture; on any failure falls back to a flat 4x4 color so the
@@ -87,7 +108,9 @@ public class PixelMapRenderer {
         batch.setColor(old);
     }
 
-    /** Island / port / pirate / player-sprite pass (drawn over the water). */
+    /** Island / port / pirate pass over the water. The player ship is NOT drawn
+     * here: VoyageScreen layers its vector hull outline first (so it can never be
+     * hidden under an island/port tile), then the sprite on top. */
     public void drawMarkers(SpriteBatch batch, GameState g) {
         Color old = batch.getColor();
         batch.setColor(Color.WHITE);
@@ -100,6 +123,17 @@ public class PixelMapRenderer {
         if (g.pirateAlive) {
             drawMarker(batch, pirate, g.pirateX, g.pirateY, PIRATE_W, PIRATE_H, g.pirateHeading - 90f);
         }
+        batch.setColor(old);
+    }
+
+    /** Player ship sprite pass (drawn last, above islands/ports). Skipped when the
+     * texture failed to load — the vector hull outline then stands alone. */
+    public void drawShip(SpriteBatch batch, GameState g) {
+        if (!shipSpriteOk) {
+            return;
+        }
+        Color old = batch.getColor();
+        batch.setColor(Color.WHITE);
         drawMarker(batch, ship, g.x, g.y, SHIP_W, SHIP_H, g.headingDeg - 90f);
         batch.setColor(old);
     }
@@ -108,6 +142,7 @@ public class PixelMapRenderer {
     public void draw(SpriteBatch batch, GameState g) {
         drawWater(batch, g);
         drawMarkers(batch, g);
+        drawShip(batch, g);
     }
 
     private static void drawMarker(SpriteBatch batch, Texture tex, float x, float y, float w, float h, float rot) {
