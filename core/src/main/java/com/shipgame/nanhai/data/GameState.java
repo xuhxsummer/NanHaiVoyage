@@ -50,6 +50,8 @@ public class GameState {
 
     public boolean holdAccel, holdDecel;
     public float steerInput; // -1..1 from stick / A-D
+    public boolean manualHeadingActive;
+    public float desiredHeadingDeg;
 
     public boolean failed;
     public String failReason = "";
@@ -238,6 +240,11 @@ public class GameState {
             headingDeg = approachAngle(headingDeg, want, Catalog.TURN_RATE * dt);
             holdAccel = true;
             holdDecel = false;
+        } else if (manualHeadingActive) {
+            // The stick represents an absolute direction, not angular velocity.
+            // approachAngle follows the shortest arc and becomes a no-op once
+            // aligned, so holding the stick cannot make the ship spin forever.
+            headingDeg = approachAngle(headingDeg, desiredHeadingDeg, Catalog.TURN_RATE * dt);
         } else {
             if (Math.abs(steerInput) > 0.08f) {
                 headingDeg += steerInput * Catalog.TURN_RATE * dt;
@@ -588,9 +595,19 @@ public class GameState {
     }
 
     public void onManualSteer() {
-        if (autoSail && Math.abs(steerInput) > 0.25f) {
+        if (autoSail && (manualHeadingActive || Math.abs(steerInput) > 0.25f)) {
             cancelAutoSail();
         }
+    }
+
+    public void aimHeading(float heading) {
+        desiredHeadingDeg = wrapDeg(heading);
+        manualHeadingActive = true;
+        onManualSteer();
+    }
+
+    public void releaseHeading() {
+        manualHeadingActive = false;
     }
 
     public int firepower() {

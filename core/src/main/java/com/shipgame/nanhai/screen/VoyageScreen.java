@@ -38,6 +38,7 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float HUD_W = 1280f;
     private static final float HUD_H = 720f;
     private static final float MENU_W = 500f;             // popup content width
+    private static final float PORT_MENU_W = 900f;
     // Round minimap: top-right corner
     private static final float MM_CX = HUD_W - 106f;
     private static final float MM_CY = HUD_H - 104f;
@@ -90,6 +91,7 @@ public class VoyageScreen extends ScreenAdapter {
     private int selectedGood = -1;
     private int selectedBeast = -1;
     private int selectedHerb = -1;
+    private Overlay priceReturnOverlay = Overlay.CARGO;
     // Popups the player explicitly closed stay closed until the context changes
     // (docking at a different port / reaching a different island / leaving).
     private int dismissedPort = -1;
@@ -288,7 +290,7 @@ public class VoyageScreen extends ScreenAdapter {
         // Popup root: right side, clear of the minimap circle on top-right.
         menuRoot = new Table();
         menuRoot.setFillParent(true);
-        menuRoot.right().top().padTop(96).padRight(172);
+        menuRoot.center().top().padTop(78);
         stage.addActor(menuRoot);
     }
 
@@ -427,7 +429,7 @@ public class VoyageScreen extends ScreenAdapter {
         }
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
-        menuRoot.add(sp).width(520).maxHeight(500);
+        menuRoot.add(sp).width(overlay == Overlay.PORT ? PORT_MENU_W + 24f : 520f).maxHeight(560);
     }
 
     /** Left-rail context label: 港口 always; becomes 岛屿 while pausing on an island. */
@@ -444,6 +446,7 @@ public class VoyageScreen extends ScreenAdapter {
 
     /** Popup title row: horizontal title on the left, 关闭 button top-right. */
     private void menuHeader(Table box, String title) {
+        float width = overlay == Overlay.PORT ? PORT_MENU_W : MENU_W;
         Table h = new Table();
         Label t = new Label(title, game.skin);
         t.setWrap(false);
@@ -452,7 +455,7 @@ public class VoyageScreen extends ScreenAdapter {
         close.addListener(click(this::closePopup));
         h.add(t).left().expandX().padLeft(2);
         h.add(close).width(88).height(38);
-        box.add(h).width(MENU_W).padBottom(6).row();
+        box.add(h).width(width).padBottom(6).row();
     }
 
     private void portTable(Table box) {
@@ -460,7 +463,43 @@ public class VoyageScreen extends ScreenAdapter {
         int p = g.dockedPort;
         menuHeader(box, Catalog.PORTS[p] + " · 世界暂停");
         box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.cargoCap))
-                .width(MENU_W).padBottom(5).row();
+                .width(PORT_MENU_W).padBottom(6).row();
+
+        Table market = new Table();
+        Table buy = new Table();
+        buy.top().left();
+        buy.add(infoRow("本港可买 · 点买入，行情看各港价格")).width(430).left().padBottom(4).row();
+        for (int i = 0; i < Catalog.GOODS.length; i++) {
+            final int good = i;
+            Table row = new Table();
+            TextureRegionDrawable icon = IconLib.good(good);
+            if (icon != null) row.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(icon)).size(26, 26).padRight(4);
+            row.add(infoRow(Catalog.GOODS[good] + "  " + Catalog.goodPrice(p, good) + "两")).width(190).left();
+            row.add(btn("买1", () -> {
+                g.toast(g.buyGood(p, good, 1)); persist(); rebuildMenu();
+            })).width(78).height(36).padRight(4);
+            row.add(btn("行情", () -> {
+                selectedGood = good;
+                priceReturnOverlay = Overlay.PORT;
+                overlay = Overlay.PRICE;
+                rebuildMenu();
+            })).width(78).height(36);
+            buy.add(row).width(430).left().padBottom(2).row();
+        }
+
+        Table sell = new Table();
+        sell.top().left();
+        sell.add(infoRow("船上可卖 · 点击卖出 1 件")).width(430).left().padBottom(4).row();
+        addPortSellRows(sell, p);
+        ScrollPane buyScroll = new ScrollPane(buy, game.skin);
+        ScrollPane sellScroll = new ScrollPane(sell, game.skin);
+        buyScroll.setFadeScrollBars(false);
+        sellScroll.setFadeScrollBars(false);
+        market.add(buyScroll).width(438).height(285).top();
+        market.add(sellScroll).width(438).height(285).top().padLeft(12);
+        box.add(market).width(PORT_MENU_W).padBottom(8).row();
+
+        // Port services stay below the market and never displace either column.
         pairRow(box,
                 "补补给", () -> { g.toast(g.refillSupply()); persist(); rebuildMenu(); },
                 "还债(全还)", () -> { g.toast(g.repay(g.debt)); persist(); rebuildMenu(); });
@@ -480,9 +519,39 @@ public class VoyageScreen extends ScreenAdapter {
                 "升编制 " + g.crewCapCost(), () -> { g.toast(g.upgradeCrewCap()); persist(); rebuildMenu(); },
                 "雇人 " + Catalog.HIRE_COST, () -> { g.toast(g.hireCrew()); persist(); rebuildMenu(); });
         box.add(infoRow("船员 " + g.crew + "/" + g.crewCap + "    炮伤 " + g.firepower()
-                + "    耐久 " + (int) g.hull)).width(MENU_W).padTop(5).padBottom(4).row();
-        tabs(box);
-        listItems(box, true);
+                + "    耐久 " + (int) g.hull)).width(PORT_MENU_W).padTop(5).padBottom(4).row();
+    }
+
+    private void addPortSellRows(Table sell, int port) {
+        boolean any = false;
+        for (int i = 0; i < Catalog.GOODS.length; i++) {
+            if (g.trade[i] <= 0) continue;
+            any = true;
+            final int good = i;
+            sell.add(btn("商货 · " + Catalog.GOODS[i] + " x" + g.trade[i] + "  卖 "
+                    + Catalog.goodPrice(port, i) + "两", () -> {
+                g.toast(g.sellGood(port, good, 1)); persist(); rebuildMenu();
+            })).width(420).height(38).left().padBottom(2).row();
+        }
+        for (int i = 0; i < Catalog.BEASTS.length; i++) {
+            if (g.beasts[i] <= 0) continue;
+            any = true;
+            final int beast = i;
+            sell.add(btn("异兽 · " + Catalog.BEASTS[i] + " x" + g.beasts[i] + "  卖 "
+                    + Catalog.BEAST_PRICE[i] + "两", () -> {
+                g.toast(g.sellBeast(beast, 1)); persist(); rebuildMenu();
+            })).width(420).height(38).left().padBottom(2).row();
+        }
+        for (int i = 0; i < Catalog.HERBS.length; i++) {
+            if (g.herbs[i] <= 0) continue;
+            any = true;
+            final int herb = i;
+            sell.add(btn("草药 · " + Catalog.HERBS[i] + " x" + g.herbs[i] + "  卖 "
+                    + Catalog.HERB_PRICE[i] + "两", () -> {
+                g.toast(g.sellHerb(herb, 1)); persist(); rebuildMenu();
+            })).width(420).height(38).left().padBottom(2).row();
+        }
+        if (!any) sell.add(infoRow("船上暂无可卖货物")).width(420).left().row();
     }
 
     private void islandTable(Table box) {
@@ -552,7 +621,7 @@ public class VoyageScreen extends ScreenAdapter {
         Table act = new Table();
         act.add(btn("买 1", () -> { g.toast(g.buyGood(here, gidx, 1)); persist(); rebuildMenu(); })).width(150).height(44);
         act.add(btn("卖 1", () -> { g.toast(g.sellGood(here, gidx, 1)); persist(); rebuildMenu(); })).width(150).height(44).padLeft(8);
-        act.add(btn("返回列表", () -> { overlay = Overlay.CARGO; rebuildMenu(); })).width(180).height(44).padLeft(8);
+        act.add(btn("返回列表", () -> { overlay = priceReturnOverlay; rebuildMenu(); })).width(180).height(44).padLeft(8);
         box.add(act).width(MENU_W).padTop(6).row();
     }
 
@@ -621,6 +690,7 @@ public class VoyageScreen extends ScreenAdapter {
                 iconRow(box, IconLib.good(i), txt, () -> {
                     selectedGood = idx;
                     if (trading && g.dockedPort >= 0) {
+                        priceReturnOverlay = Overlay.CARGO;
                         overlay = Overlay.PRICE;
                     }
                     rebuildMenu();
@@ -741,7 +811,6 @@ public class VoyageScreen extends ScreenAdapter {
             Gdx.app.error("VoyageScreen", "non-finite ship state, reset to port");
         }
         readKeyboard();
-        g.steerInput = stickActive ? stickKX : g.steerInput;
         g.onManualSteer();
         // World update is gated by the model (paused while docked/island/failed).
         // A docked ship whose popup was closed is un-paused by undockIfNeeded() in
@@ -1281,6 +1350,7 @@ public class VoyageScreen extends ScreenAdapter {
                 stickPointer = -1;
                 stickKX = stickKY = 0;
                 g.steerInput = 0;
+                g.releaseHeading();
                 return true;
             }
             return false;
@@ -1297,10 +1367,13 @@ public class VoyageScreen extends ScreenAdapter {
         }
         stickKX = dx / stickR;
         stickKY = dy / stickR;
-        // stick only steers: horizontal (and angle) turns the ship
-        g.steerInput = stickKX;
-        if (g.autoSail && (stickKX * stickKX + stickKY * stickKY) > 0.05f) {
-            g.cancelAutoSail();
+        // Stick direction is the desired compass heading. Within the dead zone
+        // there is no steering target; holding an aligned direction stays still.
+        if (len >= 10f) {
+            g.steerInput = 0f;
+            g.aimHeading(MathUtils.atan2(stickKY, stickKX) * MathUtils.radiansToDegrees);
+        } else {
+            g.releaseHeading();
         }
     }
 
