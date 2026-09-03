@@ -32,7 +32,8 @@ public class GameState {
     public float leaveCooldown;
 
     public boolean autoSail;
-    public int autoSailPort = -1;
+    public int autoSailPort = -1;   // auto-sail target port (>=0) when sailing to a port
+    public int autoSailIsle = -1;   // auto-sail target island when sailing to an island
 
     public WeatherKind weather = WeatherKind.CLEAR;
     public float windDeg = 90f;
@@ -139,6 +140,8 @@ public class GameState {
             g.speed = 0;
             g.clearPirate();
             g.autoSail = false;
+            g.autoSailPort = -1;
+            g.autoSailIsle = -1;
             g.failed = false;
             g.toast("已读取靠港存档。");
             return g;
@@ -222,9 +225,15 @@ public class GameState {
     }
 
     private void applySteerAndSpeed(float dt) {
-        if (autoSail && autoSailPort >= 0) {
-            float tx = Catalog.PORT_X[autoSailPort];
-            float ty = Catalog.PORT_Y[autoSailPort];
+        if (autoSail && (autoSailPort >= 0 || autoSailIsle >= 0)) {
+            float tx, ty;
+            if (autoSailPort >= 0) {
+                tx = Catalog.PORT_X[autoSailPort];
+                ty = Catalog.PORT_Y[autoSailPort];
+            } else {
+                tx = Catalog.ISLAND_X[autoSailIsle];
+                ty = Catalog.ISLAND_Y[autoSailIsle];
+            }
             float want = MathUtils.atan2(ty - y, tx - x) * MathUtils.radiansToDegrees;
             headingDeg = approachAngle(headingDeg, want, Catalog.TURN_RATE * dt);
             holdAccel = true;
@@ -297,7 +306,7 @@ public class GameState {
                 islandMenu = i;
                 islandGathered = false;
                 speed = 0f;
-                autoSail = false;
+                stopAutoSail();
                 toast("靠近" + Catalog.ISLANDS[i] + "，可搜采。世界暂停。");
                 return;
             }
@@ -309,7 +318,7 @@ public class GameState {
         lastPort = port;
         islandMenu = -1;
         speed = 0f;
-        autoSail = false;
+        stopAutoSail();
         clearPirate();
         if (debt > 0) {
             int extra = Math.max(1, Math.round(debt * Catalog.INTEREST));
@@ -548,16 +557,34 @@ public class GameState {
         }
         autoSail = true;
         autoSailPort = port;
+        autoSailIsle = -1;
         toast("自动驶向 " + Catalog.PORTS[port]);
+    }
+
+    /** Full-map tap on an island: sail there; arriving opens the island menu. */
+    public void startAutoSailIsle(int idx) {
+        if (worldPaused() || pirateAlive) {
+            return;
+        }
+        autoSail = true;
+        autoSailPort = -1;
+        autoSailIsle = idx;
+        toast("自动驶向 " + Catalog.ISLANDS[idx]);
     }
 
     public void cancelAutoSail() {
         if (!autoSail) {
             return;
         }
+        stopAutoSail();
+        toast("取消自动驶向，改回手动。");
+    }
+
+    /** Clears auto-sail without a toast (docking, failure, pirate spawn, ...). */
+    private void stopAutoSail() {
         autoSail = false;
         autoSailPort = -1;
-        toast("取消自动驶向，改回手动。");
+        autoSailIsle = -1;
     }
 
     public void onManualSteer() {
@@ -598,10 +625,7 @@ public class GameState {
         combatLock = false;
         playerFireCd = 0f;
         pirateFireCd = 0.4f;
-        if (autoSail) {
-            autoSail = false;
-            autoSailPort = -1;
-        }
+        stopAutoSail(); // pirate encounter: 自动航行遇海盗仍停战
         toast("遭遇海盗！点船锁定开火。默认就地打；还击会追得紧。");
     }
 
@@ -610,7 +634,7 @@ public class GameState {
         if (d > Catalog.PIRATE_FLEE_RANGE) {
             toast("已开出范围，海盗停火。改回手动。");
             clearPirate();
-            autoSail = false;
+            stopAutoSail();
             return;
         }
         if (combatLock && d <= Catalog.PIRATE_RANGE) {
@@ -661,7 +685,7 @@ public class GameState {
         }
         toast("打赢海盗，抢得 " + loot + " 两。" + extra + " 改回手动。");
         clearPirate();
-        autoSail = false;
+        stopAutoSail();
     }
 
     public void clearPirate() {
@@ -674,7 +698,7 @@ public class GameState {
     public void fail(String reason) {
         failed = true;
         failReason = reason;
-        autoSail = false;
+        stopAutoSail();
         clearPirate();
         speed = 0f;
         toast(reason + "。失败，将读取上次靠港存档。");

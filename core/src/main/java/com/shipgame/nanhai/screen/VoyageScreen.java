@@ -21,15 +21,14 @@ import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 import com.shipgame.nanhai.NanHaiVoyage;
 import com.shipgame.nanhai.PixelMapRenderer;
-import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
-import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
-import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.shipgame.nanhai.data.Catalog;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.ui.IconLib;
@@ -38,6 +37,16 @@ public class VoyageScreen extends ScreenAdapter {
 
     private static final float HUD_W = 1280f;
     private static final float HUD_H = 720f;
+    private static final float MENU_W = 500f;             // popup content width
+    // Round minimap: top-right corner
+    private static final float MM_CX = HUD_W - 106f;
+    private static final float MM_CY = HUD_H - 104f;
+    private static final float MM_R = 80f;
+    // Captain avatar: bottom-left, above it sits the virtual joystick
+    private static final float AV_X = 82f;
+    private static final float AV_Y = 66f;
+    private static final float AV_R = 30f;
+
     private static final Color WATER = new Color(0.10f, 0.36f, 0.52f, 1f);
     private static final Color WATER_RAIN = new Color(0.08f, 0.22f, 0.34f, 1f);
     private static final Color WATER_FOG = new Color(0.22f, 0.32f, 0.38f, 1f);
@@ -68,16 +77,24 @@ public class VoyageScreen extends ScreenAdapter {
     private int selectedGood = -1;
     private int selectedBeast = -1;
     private int selectedHerb = -1;
+    // Popups the player explicitly closed stay closed until the context changes
+    // (docking at a different port / reaching a different island / leaving).
+    private int dismissedPort = -1;
+    private int dismissedIsland = -1;
+    private boolean dismissedFail;
 
     private Table menuRoot;
     private Label hudLine;
+    private TextButton btnCargo;
+    private TextButton btnCodex;
+    private TextButton btnCtx;      // 港口 / 岛屿 contextual reopen
     private TextButton btnCancelAuto;
     private TextButton btnCancelLock;
     private TextButton btnAccel;
     private TextButton btnDecel;
 
     private boolean stickActive;
-    private float stickCX = 140f, stickCY = 140f, stickR = 70f;
+    private float stickCX = 165f, stickCY = 205f, stickR = 62f;
     private float stickKX, stickKY;
     private int stickPointer = -1;
     private boolean loggedFirstFrame;
@@ -163,6 +180,8 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void buildHud() {
         stage.clear();
+
+        // Top-left live status line.
         hudLine = new Label("", game.skin, "small");
         hudLine.setAlignment(Align.left);
         Table top = new Table();
@@ -171,6 +190,7 @@ public class VoyageScreen extends ScreenAdapter {
         top.add(hudLine).left().expandX().fillX();
         stage.addActor(top);
 
+        // Bottom-right 加速 / 减速 (hold to keep sailing).
         Table right = new Table();
         right.setFillParent(true);
         right.bottom().right().pad(16);
@@ -178,31 +198,51 @@ public class VoyageScreen extends ScreenAdapter {
         btnDecel = new TextButton("减速", game.skin, "danger");
         hold(btnAccel, true);
         hold(btnDecel, false);
-        right.add(btnAccel).width(120).height(72).pad(6).row();
-        right.add(btnDecel).width(120).height(72).pad(6);
+        right.add(btnAccel).width(124).height(72).pad(6).row();
+        right.add(btnDecel).width(124).height(72).pad(6);
         stage.addActor(right);
 
-        Table leftBtns = new Table();
-        leftBtns.setFillParent(true);
-        leftBtns.bottom().left().padLeft(250).padBottom(16);
-        TextButton cargo = new TextButton("货物", game.skin);
-        TextButton codex = new TextButton("图鉴", game.skin);
-        cargo.addListener(click(() -> {
+        // Right-center base buttons: 货物 / 图鉴 (+ 港口/岛屿 while paused there).
+        Table ctl = new Table();
+        ctl.setFillParent(true);
+        ctl.right().center().padRight(22);
+        btnCargo = new TextButton("货物", game.skin);
+        btnCodex = new TextButton("图鉴", game.skin);
+        btnCtx = new TextButton("港口", game.skin);
+        btnCargo.addListener(click(() -> {
             if (overlay == Overlay.CARGO) {
-                overlay = g.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE;
+                closePopup();
             } else {
                 overlay = Overlay.CARGO;
+                rebuildMenu();
             }
-            rebuildMenu();
         }));
-        codex.addListener(click(() -> {
-            overlay = overlay == Overlay.CODEX ? (g.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE) : Overlay.CODEX;
-            rebuildMenu();
+        btnCodex.addListener(click(() -> {
+            if (overlay == Overlay.CODEX) {
+                closePopup();
+            } else {
+                overlay = Overlay.CODEX;
+                rebuildMenu();
+            }
         }));
-        leftBtns.add(cargo).width(100).height(44).pad(4);
-        leftBtns.add(codex).width(100).height(44).pad(4);
-        stage.addActor(leftBtns);
+        btnCtx.addListener(click(() -> {
+            if (g.dockedPort >= 0 && overlay != Overlay.PORT) {
+                dismissedPort = -1; // manual reopen re-enables auto-open rules
+                overlay = Overlay.PORT;
+                rebuildMenu();
+            } else if (g.islandMenu >= 0 && overlay != Overlay.ISLAND) {
+                dismissedIsland = -1;
+                overlay = Overlay.ISLAND;
+                rebuildMenu();
+            }
+        }));
+        ctl.add(btnCargo).width(122).height(50).pad(6).row();
+        ctl.add(btnCodex).width(122).height(50).pad(6).row();
+        ctl.add(btnCtx).width(122).height(50).pad(6);
+        stage.addActor(ctl);
 
+        // Contextual 取消自动 / 取消锁定 — slim strip at the very top-center so no
+        // popup or HUD element can swallow their touches.
         btnCancelAuto = new TextButton("取消自动", game.skin, "danger");
         btnCancelLock = new TextButton("取消锁定", game.skin, "danger");
         btnCancelAuto.addListener(click(() -> {
@@ -212,14 +252,16 @@ public class VoyageScreen extends ScreenAdapter {
         btnCancelLock.addListener(click(() -> g.cancelLock()));
         Table mid = new Table();
         mid.setFillParent(true);
-        mid.top().padTop(88);
-        mid.add(btnCancelAuto).width(140).height(40).pad(4);
-        mid.add(btnCancelLock).width(140).height(40).pad(4);
+        mid.top().padTop(8);
+        mid.add(btnCancelAuto).width(132).height(38).pad(4);
+        mid.add(btnCancelLock).width(132).height(38).pad(4);
         stage.addActor(mid);
 
+        // Popup root: right side, above the right-center cluster column, clear of
+        // the minimap circle on top-right.
         menuRoot = new Table();
         menuRoot.setFillParent(true);
-        menuRoot.right().top().padTop(80).padRight(160);
+        menuRoot.right().top().padTop(96).padRight(172);
         stage.addActor(menuRoot);
     }
 
@@ -249,15 +291,36 @@ public class VoyageScreen extends ScreenAdapter {
         };
     }
 
+    // ------------------------------------------------------------- popups
+
+    /** Closes whatever popup is open. A closed popup stays closed for the current
+     * context (port / island / failure) so the auto-open logic cannot fight the
+     * player's 关闭 tap. */
+    private void closePopup() {
+        if (overlay == Overlay.PORT && g.dockedPort >= 0) {
+            dismissedPort = g.dockedPort;
+        } else if (overlay == Overlay.ISLAND && g.islandMenu >= 0) {
+            dismissedIsland = g.islandMenu;
+        } else if (overlay == Overlay.FAIL) {
+            dismissedFail = true;
+        } else if (overlay == Overlay.PORT || overlay == Overlay.ISLAND) {
+            // port/island disappeared while the popup was up; reset dismissals
+            dismissedPort = -1;
+            dismissedIsland = -1;
+        }
+        overlay = Overlay.NONE;
+        rebuildMenu();
+    }
+
     private void rebuildMenu() {
         menuRoot.clear();
+        refreshBaseCtx();
         if (overlay == Overlay.NONE || overlay == Overlay.MAP) {
             return;
         }
         Table box = new Table(game.skin);
-        box.defaults().pad(3);
+        box.pad(8f);
         box.background(game.skin.getDrawable("panel"));
-        // tint via pad and width; Window-like
         if (overlay == Overlay.PORT) {
             portTable(box);
         } else if (overlay == Overlay.ISLAND) {
@@ -273,59 +336,99 @@ public class VoyageScreen extends ScreenAdapter {
         }
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
-        menuRoot.add(sp).width(520).maxHeight(560);
+        menuRoot.add(sp).width(520).maxHeight(500);
+    }
+
+    /** Right-center cluster: 货物/图鉴 always; 港口 or 岛屿 while paused there. */
+    private void refreshBaseCtx() {
+        if (g == null) {
+            return;
+        }
+        if (g.dockedPort >= 0) {
+            btnCtx.setText("港口");
+            btnCtx.setVisible(true);
+        } else if (g.islandMenu >= 0) {
+            btnCtx.setText("岛屿");
+            btnCtx.setVisible(true);
+        } else {
+            btnCtx.setVisible(false);
+        }
+    }
+
+    /** Popup title row: horizontal title on the left, 关闭 button top-right. */
+    private void menuHeader(Table box, String title) {
+        Table h = new Table();
+        Label t = new Label(title, game.skin);
+        t.setWrap(false);
+        TextButton close = new TextButton("关闭", game.skin, "danger");
+        close.getLabel().setFontScale(0.9f);
+        close.addListener(click(this::closePopup));
+        h.add(t).left().expandX().padLeft(2);
+        h.add(close).width(88).height(38);
+        box.add(h).width(MENU_W).padBottom(6).row();
     }
 
     private void portTable(Table box) {
         IconLib.checkAgainstCatalog();
         int p = g.dockedPort;
-        box.add(new Label(Catalog.PORTS[p] + " · 世界暂停", game.skin)).colspan(2).left().row();
-        box.add(lbl("银 " + g.silver + "  欠 " + g.debt + "  舱 " + g.cargoUsed() + "/" + g.cargoCap)).colspan(2).left().row();
-        box.add(btn("补补给", () -> { g.toast(g.refillSupply()); persist(); rebuildMenu(); })).width(150);
-        box.add(btn("还债(全还)", () -> { g.toast(g.repay(g.debt)); persist(); rebuildMenu(); })).width(150).row();
-        box.add(btn("修理", () -> { g.toast(g.repair()); persist(); rebuildMenu(); })).width(150);
-        box.add(btn("离港", () -> {
-            g.leavePort();
-            persist();
-            overlay = Overlay.NONE;
-            rebuildMenu();
-        })).width(150).row();
-        box.add(btn("升仓库 " + g.warehouseCost(), () -> { g.toast(g.upgradeWarehouse()); persist(); rebuildMenu(); })).width(150);
-        box.add(btn("升炮火 " + g.cannonCost(), () -> { g.toast(g.upgradeCannon()); persist(); rebuildMenu(); })).width(150).row();
-        box.add(btn("升编制 " + g.crewCapCost(), () -> { g.toast(g.upgradeCrewCap()); persist(); rebuildMenu(); })).width(150);
-        box.add(btn("雇人 " + Catalog.HIRE_COST, () -> { g.toast(g.hireCrew()); persist(); rebuildMenu(); })).width(150).row();
-        box.add(lbl("船员 " + g.crew + "/" + g.crewCap + "  炮伤 " + g.firepower() + "  耐久 " + (int) g.hull)).colspan(2).left().row();
+        menuHeader(box, Catalog.PORTS[p] + " · 世界暂停");
+        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.cargoCap))
+                .width(MENU_W).padBottom(5).row();
+        pairRow(box,
+                "补补给", () -> { g.toast(g.refillSupply()); persist(); rebuildMenu(); },
+                "还债(全还)", () -> { g.toast(g.repay(g.debt)); persist(); rebuildMenu(); });
+        pairRow(box,
+                "修理", () -> { g.toast(g.repair()); persist(); rebuildMenu(); },
+                "离港", () -> {
+                    g.leavePort();
+                    persist();
+                    dismissedPort = -1;
+                    overlay = Overlay.NONE;
+                    rebuildMenu();
+                });
+        pairRow(box,
+                "升仓库 " + g.warehouseCost(), () -> { g.toast(g.upgradeWarehouse()); persist(); rebuildMenu(); },
+                "升炮火 " + g.cannonCost(), () -> { g.toast(g.upgradeCannon()); persist(); rebuildMenu(); });
+        pairRow(box,
+                "升编制 " + g.crewCapCost(), () -> { g.toast(g.upgradeCrewCap()); persist(); rebuildMenu(); },
+                "雇人 " + Catalog.HIRE_COST, () -> { g.toast(g.hireCrew()); persist(); rebuildMenu(); });
+        box.add(infoRow("船员 " + g.crew + "/" + g.crewCap + "    炮伤 " + g.firepower()
+                + "    耐久 " + (int) g.hull)).width(MENU_W).padTop(5).padBottom(4).row();
         tabs(box);
         listItems(box, true);
     }
 
     private void islandTable(Table box) {
-        box.add(new Label(Catalog.ISLANDS[g.islandMenu] + " · 搜采", game.skin)).colspan(2).left().row();
-        box.add(btn("搜采", () -> {
+        menuHeader(box, Catalog.ISLANDS[g.islandMenu] + " · 搜采");
+        Table actions = new Table();
+        actions.add(btn("搜采", () -> {
             g.toast(g.gatherIsland());
             persist();
             rebuildMenu();
-        })).width(160);
-        box.add(btn("离开岛屿", () -> {
+        })).width(240).height(46);
+        actions.add(btn("离开岛屿", () -> {
             g.leaveIsland();
+            dismissedIsland = -1;
             overlay = Overlay.NONE;
             rebuildMenu();
-        })).width(160).row();
-        box.add(lbl(g.toastT > 0 ? g.toast : "靠岸菜单搜采。异兽/草药进图鉴，草药只卖钱。")).colspan(2).width(460).left().row();
+        })).width(240).height(46).padLeft(10);
+        box.add(actions).width(MENU_W).padBottom(5).row();
+        box.add(infoRow("靠岸搜采。异兽/草药进图鉴，草药只卖钱。")).width(MENU_W).padBottom(4).row();
+        if (g.toastT > 0 && !g.toast.isEmpty()) {
+            box.add(wrapLbl(g.toast)).width(MENU_W - 10).left().row();
+        }
     }
 
     private void cargoTable(Table box) {
-        box.add(new Label("货舱（三栏共用容量 " + g.cargoUsed() + "/" + g.cargoCap + "）", game.skin)).colspan(2).left().row();
+        menuHeader(box, "货舱（三栏共用容量 " + g.cargoUsed() + "/" + g.cargoCap + "）");
         tabs(box);
         listItems(box, g.dockedPort >= 0);
         if (g.dockedPort < 0) {
-            box.add(lbl("海上可丢货，丢了就没了。点货物再点丢掉。")).colspan(2).left().row();
-            box.add(btn("丢掉选中 x1", this::dumpSelected)).width(180).row();
+            box.add(wrapLbl("海上可丢货，丢了就没了。点货物再点丢掉。")).width(MENU_W - 10).left().padTop(4).row();
+            Table act = new Table();
+            act.add(btn("丢掉选中 x1", this::dumpSelected)).width(220).height(44);
+            box.add(act).width(MENU_W).padTop(4).row();
         }
-        box.add(btn("关闭", () -> {
-            overlay = g.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE;
-            rebuildMenu();
-        })).width(120).row();
     }
 
     private void dumpSelected() {
@@ -340,85 +443,82 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void priceTable(Table box) {
         if (selectedGood < 0) {
-            overlay = Overlay.PORT;
+            overlay = Overlay.CARGO;
             rebuildMenu();
             return;
         }
         int gidx = selectedGood;
         TextureRegionDrawable ico = IconLib.good(gidx);
+        String head = (ico != null ? "" : "") + Catalog.GOODS[gidx] + " · 各港行情（固定）";
+        menuHeader(box, head);
         if (ico != null) {
-            Table head = new Table();
-            head.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(ico)).size(32, 32).padRight(8);
-            head.add(new Label(Catalog.GOODS[gidx] + " · 各港行情（固定）", game.skin));
-            box.add(head).colspan(2).left().row();
-        } else {
-            box.add(new Label(Catalog.GOODS[gidx] + " · 各港行情（固定）", game.skin)).colspan(2).left().row();
+            Table headRow = new Table();
+            headRow.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(ico)).size(28, 28).padRight(6);
+            box.add(headRow).width(MENU_W).left().padBottom(2).row();
         }
         int here = g.dockedPort;
         for (int i = 0; i < Catalog.PORTS.length; i++) {
-            String mark = i == here ? " <-本港" : "";
-            box.add(lbl(Catalog.PORTS[i] + "  " + Catalog.goodPrice(i, gidx) + " 两" + mark)).colspan(2).left().row();
+            String mark = i == here ? "  <-本港" : "";
+            box.add(infoRow(Catalog.PORTS[i] + "    " + Catalog.goodPrice(i, gidx) + " 两" + mark))
+                    .width(MENU_W).left().padBottom(1).row();
         }
-        box.add(btn("买 1", () -> {
-            g.toast(g.buyGood(here, gidx, 1));
-            persist();
-            rebuildMenu();
-        })).width(120);
-        box.add(btn("卖 1", () -> {
-            g.toast(g.sellGood(here, gidx, 1));
-            persist();
-            rebuildMenu();
-        })).width(120).row();
-        box.add(btn("返回列表", () -> {
-            overlay = Overlay.PORT;
-            rebuildMenu();
-        })).colspan(2).width(160).row();
+        Table act = new Table();
+        act.add(btn("买 1", () -> { g.toast(g.buyGood(here, gidx, 1)); persist(); rebuildMenu(); })).width(150).height(44);
+        act.add(btn("卖 1", () -> { g.toast(g.sellGood(here, gidx, 1)); persist(); rebuildMenu(); })).width(150).height(44).padLeft(8);
+        act.add(btn("返回列表", () -> { overlay = Overlay.CARGO; rebuildMenu(); })).width(180).height(44).padLeft(8);
+        box.add(act).width(MENU_W).padTop(6).row();
     }
 
     private void codexTable(Table box) {
-        box.add(new Label("图鉴（随时可开）", game.skin)).colspan(2).left().row();
-        box.add(new Label("异兽", game.skin, "small")).colspan(2).left().row();
+        menuHeader(box, "图鉴");
+        box.add(new Label("异兽", game.skin, "small")).width(MENU_W).left().padTop(2).padBottom(2).row();
         for (int i = 0; i < Catalog.BEASTS.length; i++) {
             codexRow(box, IconLib.beast(i), g.beastFound[i] ? Catalog.BEASTS[i] : "？？？");
         }
-        box.add(new Label("草药（一期只卖钱）", game.skin, "small")).colspan(2).left().row();
+        box.add(new Label("草药（一期只卖钱）", game.skin, "small")).width(MENU_W).left().padTop(6).padBottom(2).row();
         for (int i = 0; i < Catalog.HERBS.length; i++) {
             codexRow(box, IconLib.herb(i), g.herbFound[i] ? Catalog.HERBS[i] : "？？？");
         }
-        box.add(btn("关闭", () -> {
-            overlay = g.dockedPort >= 0 ? Overlay.PORT : (g.islandMenu >= 0 ? Overlay.ISLAND : Overlay.NONE);
-            rebuildMenu();
-        })).width(120).row();
     }
 
     private void failTable(Table box) {
-        box.add(new Label("失败：" + g.failReason, game.skin)).colspan(2).left().row();
-        box.add(lbl("补给空或船沉都直接失败，读取上次靠港存档。")).colspan(2).width(460).left().row();
-        box.add(btn("读档重来", () -> {
+        menuHeader(box, "失败：" + g.failReason);
+        box.add(wrapLbl("补给空或船沉都直接失败，读取上次靠港存档。")).width(MENU_W - 10).left().padBottom(6).row();
+        Table act = new Table();
+        act.add(btn("读档重来", () -> {
             game.state = GameState.fromSave(game.accounts.load(game.currentUser));
             g = game.state;
+            dismissedPort = -1;
+            dismissedIsland = -1;
+            dismissedFail = false;
             overlay = g.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE;
             rebuildMenu();
-        })).width(180).row();
+        })).width(240).height(46);
+        box.add(act).width(MENU_W).row();
     }
 
+    /** One horizontal codex row: optional icon + single-line name. */
     private void codexRow(Table box, TextureRegionDrawable icon, String text) {
         if (icon != null) {
             Table row = new Table();
             row.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(icon)).size(32, 32).padRight(8);
-            row.add(lbl(text));
-            box.add(row).colspan(2).left().row();
+            Label l = new Label(text, game.skin, "small");
+            l.setWrap(false);
+            row.add(l).left();
+            box.add(row).width(MENU_W).left().padBottom(1).row();
         } else {
-            box.add(lbl(text)).colspan(2).left().row();
+            Label l = new Label(text, game.skin, "small");
+            l.setWrap(false);
+            box.add(l).width(MENU_W).left().padBottom(1).row();
         }
     }
 
     private void tabs(Table box) {
         Table t = new Table();
-        t.add(btn(cargoTab == 0 ? "[商货]" : "商货", () -> { cargoTab = 0; rebuildMenu(); })).width(90);
-        t.add(btn(cargoTab == 1 ? "[异兽]" : "异兽", () -> { cargoTab = 1; rebuildMenu(); })).width(90);
-        t.add(btn(cargoTab == 2 ? "[草药]" : "草药", () -> { cargoTab = 2; rebuildMenu(); })).width(90);
-        box.add(t).colspan(2).left().row();
+        t.add(btn(cargoTab == 0 ? "[商货]" : "商货", () -> { cargoTab = 0; rebuildMenu(); })).width(160).height(40);
+        t.add(btn(cargoTab == 1 ? "[异兽]" : "异兽", () -> { cargoTab = 1; rebuildMenu(); })).width(160).height(40).padLeft(8);
+        t.add(btn(cargoTab == 2 ? "[草药]" : "草药", () -> { cargoTab = 2; rebuildMenu(); })).width(160).height(40).padLeft(8);
+        box.add(t).width(MENU_W).padBottom(4).row();
     }
 
     private void listItems(Table box, boolean trading) {
@@ -426,9 +526,9 @@ public class VoyageScreen extends ScreenAdapter {
             int port = Math.max(0, g.dockedPort);
             for (int i = 0; i < Catalog.GOODS.length; i++) {
                 final int idx = i;
-                String s = Catalog.GOODS[i] + "  持有" + g.trade[i];
+                String s = Catalog.GOODS[i] + "   持有 " + g.trade[i];
                 if (g.dockedPort >= 0) {
-                    s += "  本港" + Catalog.goodPrice(port, i);
+                    s += "    本港 " + Catalog.goodPrice(port, i) + " 两";
                 }
                 final String txt = s;
                 iconRow(box, IconLib.good(i), txt, () -> {
@@ -445,7 +545,7 @@ public class VoyageScreen extends ScreenAdapter {
                 if (g.beasts[i] <= 0 && !(trading && g.beastFound[i])) {
                     continue;
                 }
-                String s = Catalog.BEASTS[i] + "  x" + g.beasts[i] + "  卖价" + Catalog.BEAST_PRICE[i];
+                String s = Catalog.BEASTS[i] + "    x" + g.beasts[i] + "    卖价 " + Catalog.BEAST_PRICE[i];
                 final String txt = s;
                 iconRow(box, IconLib.beast(i), txt, () -> {
                     selectedBeast = idx;
@@ -462,7 +562,7 @@ public class VoyageScreen extends ScreenAdapter {
                 if (g.herbs[i] <= 0 && !(trading && g.herbFound[i])) {
                     continue;
                 }
-                String s = Catalog.HERBS[i] + "  x" + g.herbs[i] + "  卖价" + Catalog.HERB_PRICE[i] + "（只卖）";
+                String s = Catalog.HERBS[i] + "    x" + g.herbs[i] + "    卖价 " + Catalog.HERB_PRICE[i] + "（只卖）";
                 final String txt = s;
                 iconRow(box, IconLib.herb(i), txt, () -> {
                     selectedHerb = idx;
@@ -476,24 +576,36 @@ public class VoyageScreen extends ScreenAdapter {
         }
     }
 
-    private Drawable iconOrNull(TextureRegionDrawable d) {
-        return d;
-    }
-
     /** Adds an icon+text row; icon cell omitted when the drawable is null. */
     private void iconRow(Table box, TextureRegionDrawable icon, String text, Runnable onClick) {
         TextButton b = btn(text, onClick);
         if (icon != null) {
             Table row = new Table();
             row.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(icon)).size(28, 28).padRight(6);
-            row.add(b).width(400).height(40);
-            box.add(row).colspan(2).left().row();
+            row.add(b).width(452).height(42);
+            box.add(row).width(MENU_W).left().padBottom(2).row();
         } else {
-            box.add(b).colspan(2).width(460).left().row();
+            box.add(b).width(452).height(42).left().padBottom(2).row();
         }
     }
 
-    private Label lbl(String s) {
+    /** Pair of action buttons on one horizontal row (single-line text). */
+    private void pairRow(Table box, String a, Runnable ra, String b, Runnable rb) {
+        Table row = new Table();
+        row.add(btn(a, ra)).width(242).height(46);
+        row.add(btn(b, rb)).width(242).height(46).padLeft(10);
+        box.add(row).width(MENU_W).padBottom(5).row();
+    }
+
+    /** Small single-line info text (never wraps into a vertical column). */
+    private Label infoRow(String s) {
+        Label l = new Label(s, game.skin, "small");
+        l.setWrap(false);
+        return l;
+    }
+
+    /** Wrapped hint text with an explicit width. */
+    private Label wrapLbl(String s) {
         Label l = new Label(s, game.skin, "small");
         l.setWrap(true);
         return l;
@@ -516,6 +628,8 @@ public class VoyageScreen extends ScreenAdapter {
             game.accounts.save(game.currentUser, g.toSave());
         }
     }
+
+    // ------------------------------------------------------------ render
 
     @Override
     public void render(float delta) {
@@ -544,28 +658,27 @@ public class VoyageScreen extends ScreenAdapter {
         g.onManualSteer();
         if (!g.worldPaused() && overlay != Overlay.PORT && overlay != Overlay.ISLAND && overlay != Overlay.FAIL) {
             g.update(delta);
-        } else if (overlay == Overlay.PORT || overlay == Overlay.ISLAND) {
-            // paused
         } else if (!g.worldPaused()) {
             g.update(delta);
         }
 
-        if (g.failed && overlay != Overlay.FAIL) {
+        // Context transitions. Explicitly dismissed popups stay dismissed until the
+        // context changes; otherwise dock/island/fail auto-open their popup.
+        if (g.failed && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             rebuildMenu();
-        }
-        if (g.dockedPort >= 0 && overlay == Overlay.NONE) {
+        } else if (overlay != Overlay.FAIL && g.dockedPort >= 0 && dismissedPort != g.dockedPort) {
             overlay = Overlay.PORT;
             persist();
             rebuildMenu();
-        }
-        if (g.islandMenu >= 0 && overlay == Overlay.NONE) {
+        } else if (overlay != Overlay.FAIL && overlay != Overlay.PORT && g.islandMenu >= 0
+                && dismissedIsland != g.islandMenu) {
             overlay = Overlay.ISLAND;
             rebuildMenu();
         }
 
-        btnCancelAuto.setVisible(g.autoSail);
-        btnCancelLock.setVisible(g.combatLock);
+        btnCancelAuto.setVisible(g.autoSail && overlay != Overlay.MAP);
+        btnCancelLock.setVisible(g.combatLock && overlay != Overlay.MAP);
         hudLine.setText(statusText());
 
         Color bg = WATER;
@@ -585,7 +698,7 @@ public class VoyageScreen extends ScreenAdapter {
         hudVp.apply();
         shapes.setProjectionMatrix(hudVp.getCamera().combined);
         game.batch.setProjectionMatrix(hudVp.getCamera().combined);
-        drawMinimapAndStick();
+        drawHudDecor();
         if (overlay == Overlay.MAP) {
             drawFullMap();
         }
@@ -595,21 +708,29 @@ public class VoyageScreen extends ScreenAdapter {
 
         game.batch.begin();
         if (g.toastT > 0) {
-            game.font.draw(game.batch, g.toast, 24, 92);
+            layout.setText(game.font, g.toast);
+            game.font.draw(game.batch, g.toast, (HUD_W - layout.width) / 2f, 46f);
         }
         game.batch.end();
     }
 
     private String statusText() {
-        return "银" + g.silver + " 欠" + g.debt
+        String s = "银" + g.silver + " 欠" + g.debt
                 + " 补给" + (int) g.supply + "/" + (int) g.supplyMax
                 + " 耐久" + (int) g.hull
                 + " 船员" + g.crew + "/" + g.crewCap
                 + " 舱" + g.cargoUsed() + "/" + g.cargoCap
                 + "  " + g.windLabel() + g.weatherLabel()
-                + " 速" + (int) g.speed
-                + (g.autoSail ? " 自动航行" : "")
-                + (g.pirateAlive ? " 海盗" : "");
+                + " 速" + (int) g.speed;
+        if (g.autoSailPort >= 0) {
+            s += " 自动->" + Catalog.PORTS[g.autoSailPort];
+        } else if (g.autoSailIsle >= 0) {
+            s += " 自动->" + Catalog.ISLANDS[g.autoSailIsle];
+        }
+        if (g.pirateAlive) {
+            s += " 海盗";
+        }
+        return s;
     }
 
     private void readKeyboard() {
@@ -621,13 +742,6 @@ public class VoyageScreen extends ScreenAdapter {
         }
         boolean w = Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.UP);
         boolean s = Gdx.input.isKeyPressed(Input.Keys.S) || Gdx.input.isKeyPressed(Input.Keys.DOWN);
-        if (w) g.holdAccel = true;
-        if (s) g.holdDecel = true;
-        if (!w && btnAccel != null && !btnAccel.isPressed()) {
-            if (!Gdx.input.isKeyPressed(Input.Keys.W) && !Gdx.input.isKeyPressed(Input.Keys.UP)) {
-                // keep holdAccel if button pressed — handled in touch; if neither key nor we need to clear
-            }
-        }
         boolean accelBtn = btnAccel != null && btnAccel.isPressed();
         boolean decelBtn = btnDecel != null && btnDecel.isPressed();
         g.holdAccel = w || accelBtn;
@@ -708,36 +822,118 @@ public class VoyageScreen extends ScreenAdapter {
         return !Float.isNaN(v) && !Float.isInfinite(v);
     }
 
-    private void drawMinimapAndStick() {
-        float mx = 24, my = HUD_H - 24 - 170, mw = 230, mh = 170;
+    // ------------------------------------------------------- HUD drawing
+
+    /** Round minimap (top-right), virtual stick (left) and captain avatar. */
+    private void drawHudDecor() {
+        boolean mapOpen = overlay == Overlay.MAP;
+        if (!mapOpen) {
+            drawRoundMinimap();
+        }
+        drawAvatarAndStick();
+    }
+
+    /** Round minimap with markers clipped to the circle. */
+    private void drawRoundMinimap() {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(PANEL);
-        shapes.rect(mx, my, mw, mh);
-        shapes.setColor(0.07f, 0.2f, 0.28f, 0.95f);
-        shapes.rect(mx + 6, my + 6, mw - 12, mh - 12);
-        drawMapContents(mx + 6, my + 6, mw - 12, mh - 12, false);
+        shapes.setColor(0.02f, 0.05f, 0.09f, 0.92f);
+        shapes.circle(MM_CX, MM_CY, MM_R + 5f);
+        shapes.setColor(0.06f, 0.19f, 0.27f, 0.97f);
+        shapes.circle(MM_CX, MM_CY, MM_R);
+        shapes.end();
+
+        float rr = MM_R - 6f;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        float scaleX = 2f * rr / Catalog.WORLD_W;
+        float scaleY = 2f * rr / Catalog.WORLD_H;
+        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+            float px = MM_CX + (Catalog.ISLAND_X[i] - Catalog.WORLD_W / 2f) * scaleX;
+            float py = MM_CY + (Catalog.ISLAND_Y[i] - Catalog.WORLD_H / 2f) * scaleY;
+            float ddx = px - MM_CX, ddy = py - MM_CY;
+            if (ddx * ddx + ddy * ddy > (rr - 3f) * (rr - 3f)) continue;
+            shapes.setColor(0f, 0f, 0f, 0.35f);
+            shapes.circle(px + 1f, py - 1f, 4.2f);
+            shapes.setColor(ISLE_C);
+            shapes.circle(px, py, 4.2f);
+        }
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            float px = MM_CX + (Catalog.PORT_X[i] - Catalog.WORLD_W / 2f) * scaleX;
+            float py = MM_CY + (Catalog.PORT_Y[i] - Catalog.WORLD_H / 2f) * scaleY;
+            float ddx = px - MM_CX, ddy = py - MM_CY;
+            if (ddx * ddx + ddy * ddy > (rr - 3f) * (rr - 3f)) continue;
+            shapes.setColor(0f, 0f, 0f, 0.35f);
+            shapes.circle(px + 1f, py - 1f, 3.8f);
+            shapes.setColor(PORT_C);
+            shapes.circle(px, py, 3.8f);
+        }
+        // Player ship (white ring + hull dot + short heading tick, clipped).
+        float px = MM_CX + (g.x - Catalog.WORLD_W / 2f) * scaleX;
+        float py = MM_CY + (g.y - Catalog.WORLD_H / 2f) * scaleY;
+        float ddx = px - MM_CX, ddy = py - MM_CY;
+        if (ddx * ddx + ddy * ddy < (rr - 8f) * (rr - 8f)) {
+            float rad = g.headingDeg * MathUtils.degreesToRadians;
+            shapes.setColor(1f, 1f, 1f, 0.9f);
+            shapes.circle(px, py, 5.4f);
+            shapes.setColor(HULL);
+            shapes.circle(px, py, 3.4f);
+            shapes.setColor(1f, 0.95f, 0.55f, 1f);
+            float tx = px + MathUtils.cos(rad) * 9f;
+            float ty = py + MathUtils.sin(rad) * 9f;
+            if (Math.abs(tx - MM_CX) > rr - 2f || Math.abs(ty - MM_CY) > rr - 2f) {
+                tx = px + MathUtils.cos(rad) * 6f;
+                ty = py + MathUtils.sin(rad) * 6f;
+            }
+            shapes.rectLine(px, py, tx, ty, 2.2f);
+        }
+        shapes.end();
+
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0.80f, 0.87f, 0.95f, 0.9f);
+        shapes.circle(MM_CX, MM_CY, MM_R + 5f);
+        shapes.end();
+
+        game.batch.begin();
+        layout.setText(game.fontSmall, "小地图(点开全图)");
+        game.fontSmall.draw(game.batch, "小地图(点开全图)", MM_CX - layout.width / 2f, MM_CY + MM_R + 20f);
+        game.batch.end();
+    }
+
+    /** Captain avatar (bottom-left) + virtual joystick above it. */
+    private void drawAvatarAndStick() {
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        // avatar ring + round color block
+        shapes.setColor(0.03f, 0.05f, 0.09f, 0.95f);
+        shapes.circle(AV_X, AV_Y, AV_R + 4f);
+        shapes.setColor(0.55f, 0.20f, 0.18f, 1f);
+        shapes.circle(AV_X, AV_Y, AV_R);
+        shapes.setColor(0.86f, 0.66f, 0.50f, 1f);
+        shapes.circle(AV_X, AV_Y, AV_R * 0.55f);
 
         // stick base
         shapes.setColor(0f, 0f, 0f, 0.35f);
         shapes.circle(stickCX, stickCY, stickR);
-        shapes.setColor(0.85f, 0.85f, 0.85f, 0.5f);
-        float knx = stickCX + stickKX * (stickR - 22);
-        float kny = stickCY + stickKY * (stickR - 22);
+        shapes.setColor(0.10f, 0.18f, 0.26f, 0.6f);
+        shapes.circle(stickCX, stickCY, stickR - 7f);
+        shapes.setColor(0.85f, 0.85f, 0.85f, 0.55f);
+        float knx = stickCX + stickKX * (stickR - 20f);
+        float kny = stickCY + stickKY * (stickR - 20f);
         if (!stickActive) {
             knx = stickCX;
             kny = stickCY;
         }
-        shapes.circle(knx, kny, 22f);
+        shapes.circle(knx, kny, 20f);
         shapes.end();
 
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(0.8f, 0.8f, 0.8f, 0.8f);
-        shapes.rect(mx, my, mw, mh);
         shapes.circle(stickCX, stickCY, stickR);
+        shapes.setColor(0.95f, 0.9f, 0.8f, 0.9f);
+        shapes.circle(AV_X, AV_Y, AV_R + 4f);
         shapes.end();
 
         game.batch.begin();
-        game.fontSmall.draw(game.batch, "小地图(点开全图)", mx + 8, my + mh - 4);
+        layout.setText(game.fontSmall, "船长");
+        game.fontSmall.draw(game.batch, "船长", AV_X - layout.width / 2f, AV_Y - layout.height / 2f + 2f);
         game.batch.end();
     }
 
@@ -753,9 +949,19 @@ public class VoyageScreen extends ScreenAdapter {
             shapes.setColor(0.7f, 0.75f, 0.8f, g.weather == GameState.WeatherKind.FOG ? 0.45f : 0.28f);
             shapes.rect(x + 10, y + 10, w - 20, h - 20);
         }
+        // 关闭 button (top-right corner of the full map)
+        float bx = x + w - 112f, by = y + h - 34f, bw = 96f, bh = 26f;
+        shapes.setColor(0.45f, 0.16f, 0.14f, 0.95f);
+        shapes.rect(bx, by, bw, bh);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0.8f, 0.8f, 0.8f, 0.8f);
+        shapes.rect(bx, by, bw, bh);
         shapes.end();
         game.batch.begin();
-        game.font.draw(game.batch, "全图（点港口自动驶向，点空白关闭）", x + 20, y + h - 8);
+        layout.setText(game.fontSmall, "关闭");
+        game.fontSmall.draw(game.batch, "关闭", bx + (bw - layout.width) / 2f, by + (bh + layout.height) / 2f);
+        game.font.draw(game.batch, "全图：点港口/岛屿自动驶向", x + 20, y + h - 8);
         // Ports/islands/ship are always labelled: the full map must never be blank.
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], x + 10, y + 10, w - 20, h - 20);
@@ -812,29 +1018,39 @@ public class VoyageScreen extends ScreenAdapter {
         return new float[] {px, py};
     }
 
+    // ------------------------------------------------------------- input
+
     private class WorldInput extends InputAdapter {
         @Override
         public boolean touchDown(int screenX, int screenY, int pointer, int button) {
             hudVp.unproject(tmp.set(screenX, screenY, 0));
             float hx = tmp.x, hy = tmp.y;
+
+            // Virtual joystick: only usable while the world is actually moving.
             float dx = hx - stickCX, dy = hy - stickCY;
-            if (dx * dx + dy * dy <= (stickR + 24) * (stickR + 24) && overlay != Overlay.PORT && overlay != Overlay.FAIL) {
+            if (!g.worldPaused() && overlay != Overlay.MAP
+                    && dx * dx + dy * dy <= (stickR + 26f) * (stickR + 26f)) {
                 stickActive = true;
                 stickPointer = pointer;
                 setStick(hx, hy);
                 g.onManualSteer();
                 return true;
             }
-            float mx = 24, my = HUD_H - 24 - 170, mw = 230, mh = 170;
-            if (hx >= mx && hx <= mx + mw && hy >= my && hy <= my + mh) {
-                overlay = overlay == Overlay.MAP ? Overlay.NONE : Overlay.MAP;
-                rebuildMenu();
-                return true;
+            // Round minimap (top-right): toggle the full map. Only from a neutral
+            // overlay so an open popup must be closed via its own 关闭 button.
+            if (overlay == Overlay.NONE) {
+                float mdx = hx - MM_CX, mdy = hy - MM_CY;
+                if (mdx * mdx + mdy * mdy <= (MM_R + 14f) * (MM_R + 14f)) {
+                    overlay = Overlay.MAP;
+                    rebuildMenu();
+                    return true;
+                }
             }
             if (overlay == Overlay.MAP) {
                 return handleFullMapTap(hx, hy);
             }
-            if (g.pirateAlive && overlay != Overlay.PORT) {
+            // Lock a pirate ship: tap near it while sailing.
+            if (g.pirateAlive && overlay == Overlay.NONE) {
                 worldVp.unproject(tmp.set(screenX, screenY, 0));
                 g.tryLockPirate(tmp.x, tmp.y);
                 return false;
@@ -885,12 +1101,16 @@ public class VoyageScreen extends ScreenAdapter {
 
     private boolean handleFullMapTap(float hx, float hy) {
         float x = 80, y = 70, w = 1120, h = 560;
-        if (hx < x || hx > x + w || hy < y || hy > y + h) {
+        // 关闭 button (top-right inside the map) and taps outside the map close it.
+        float bx = x + w - 112f, by = y + h - 34f, bw = 96f, bh = 26f;
+        boolean inClose = hx >= bx && hx <= bx + bw && hy >= by && hy <= by + bh;
+        if (hx < x || hx > x + w || hy < y || hy > y + h || inClose) {
             overlay = Overlay.NONE;
             rebuildMenu();
             return true;
         }
         float ix = x + 10, iy = y + 10, iw = w - 20, ih = h - 20;
+        // Tap a port -> auto-sail to it.
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], ix, iy, iw, ih);
             float ddx = hx - xy[0], ddy = hy - xy[1];
@@ -901,8 +1121,18 @@ public class VoyageScreen extends ScreenAdapter {
                 return true;
             }
         }
-        overlay = Overlay.NONE;
-        rebuildMenu();
+        // Tap an island -> auto-sail to it (arriving opens the island menu).
+        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ix, iy, iw, ih);
+            float ddx = hx - xy[0], ddy = hy - xy[1];
+            if (ddx * ddx + ddy * ddy < 24 * 24) {
+                overlay = Overlay.NONE;
+                g.startAutoSailIsle(i);
+                rebuildMenu();
+                return true;
+            }
+        }
+        // Blank tap inside the map keeps it open (close via the 关闭 button).
         return true;
     }
 
