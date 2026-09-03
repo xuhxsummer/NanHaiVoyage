@@ -306,19 +306,24 @@ public class VoyageScreen extends ScreenAdapter {
         b.addListener(new ClickListener() {
             @Override
             public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
-                boolean parked = g.worldPaused();
+                boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL;
+                if (modal) {
+                    // A popup is open: the world pauses by design. The button still
+                    // reacts (pressed feedback) and explains instead of silently
+                    // doing nothing — never a dead control.
+                    g.toast("港口/岛屿菜单开着世界暂停：先「离港/离开岛屿」或「关闭」再开船。");
+                    return true;
+                }
+                // No popup open: not paused. If the ship is still flagged docked
+                // (docked save whose port menu was closed), undock so the input
+                // actually sails instead of being swallowed by the model pause.
+                undockIfNeeded();
                 if (accel) {
                     accelDown = true;
                     g.holdAccel = true;
-                    if (parked) {
-                        g.toast("停泊中船不动：先点「港口→离港」出海后再加速。");
-                    }
                 } else {
                     decelDown = true;
                     g.holdDecel = true;
-                    if (parked) {
-                        g.toast("停泊中船不动：先点「港口→离港」出海后再减速。");
-                    }
                 }
                 return true;
             }
@@ -339,6 +344,26 @@ public class VoyageScreen extends ScreenAdapter {
                 // keep the hold while the finger stays on the button
             }
         });
+    }
+
+    /** 0.25.2 docked-save lockup fix: the world pauses only while the port/island
+     * popup is OPEN. If the ship is docked (or at an island) with the popup closed
+     * — e.g. right after loading a docked save and closing the menu — touching the
+     * joystick or 加速/减速 undocks first, so the controls are never dead and the
+     * ship really sails. Without this, worldPaused() (dockedPort >= 0) silently
+     * swallowed every control and the speed stayed 0. */
+    private void undockIfNeeded() {
+        if (g.dockedPort >= 0) {
+            g.leavePort();
+            dismissedPort = -1;
+            Gdx.app.error("VoyageScreen", "undocked via controls (port menu closed), leaving "
+                    + Catalog.PORTS[g.lastPort]);
+            g.toast("港口菜单未开：直接开船离港。");
+        } else if (g.islandMenu >= 0) {
+            g.leaveIsland();
+            dismissedIsland = -1;
+            g.toast("岛屿菜单未开：直接开船离岛。");
+        }
     }
 
     private ClickListener click(Runnable r) {
@@ -711,9 +736,11 @@ public class VoyageScreen extends ScreenAdapter {
         readKeyboard();
         g.steerInput = stickActive ? stickKX : g.steerInput;
         g.onManualSteer();
-        if (!g.worldPaused() && overlay != Overlay.PORT && overlay != Overlay.ISLAND && overlay != Overlay.FAIL) {
-            g.update(delta);
-        } else if (!g.worldPaused()) {
+        // World update is gated by the model (paused while docked/island/failed).
+        // A docked ship whose popup was closed is un-paused by undockIfNeeded() in
+        // the input handlers the moment the player touches a control, so the ship
+        // can always sail unless a popup is actually open (0.25.2 lockup fix).
+        if (!g.worldPaused()) {
             g.update(delta);
         }
 
@@ -1117,10 +1144,14 @@ public class VoyageScreen extends ScreenAdapter {
             hudVp.unproject(tmp.set(screenX, screenY, 0));
             float hx = tmp.x, hy = tmp.y;
 
-            // Virtual joystick: only usable while the world is actually moving.
+            // Virtual joystick: usable whenever no modal popup is open. While
+            // docked with the port menu closed the world is NOT paused, so the
+            // first touch undocks the ship and sailing starts immediately.
             float dx = hx - stickCX, dy = hy - stickCY;
-            if (!g.worldPaused() && overlay != Overlay.MAP
+            boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL;
+            if (!modal && overlay != Overlay.MAP
                     && dx * dx + dy * dy <= (stickR + 26f) * (stickR + 26f)) {
+                undockIfNeeded();
                 stickActive = true;
                 stickPointer = pointer;
                 setStick(hx, hy);
@@ -1207,6 +1238,7 @@ public class VoyageScreen extends ScreenAdapter {
             float ddx = hx - xy[0], ddy = hy - xy[1];
             if (ddx * ddx + ddy * ddy < 22 * 22) {
                 overlay = Overlay.NONE;
+                undockIfNeeded(); // full-map tap also sails from a closed-menu dock
                 g.startAutoSail(i);
                 rebuildMenu();
                 return true;
@@ -1218,6 +1250,7 @@ public class VoyageScreen extends ScreenAdapter {
             float ddx = hx - xy[0], ddy = hy - xy[1];
             if (ddx * ddx + ddy * ddy < 24 * 24) {
                 overlay = Overlay.NONE;
+                undockIfNeeded();
                 g.startAutoSailIsle(i);
                 rebuildMenu();
                 return true;

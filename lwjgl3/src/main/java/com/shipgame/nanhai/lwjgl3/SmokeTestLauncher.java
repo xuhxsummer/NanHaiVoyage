@@ -23,16 +23,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Desktop smoke test driving the real 0.25.1 UI through the input pipeline.
+ * Desktop smoke test driving the real 0.25.2 UI through the input pipeline.
  *
  * Flow (mode "register", run with a wiped account store):
  *   docked at 广州 (port popup auto-opens) ->
  *     1. port popup 关闭 closes and stays closed; far-left circular rail
  *        (货物/图鉴/港口) is present and usable while docked
- *     2. cargo / codex popups open and close
- *     3. 港口 -> 离港 sails out
- *     4. joystick drag turns the ship's heading; holding 加速 raises speed,
- *        holding 减速 lowers it (pressed state tracked)
+ *     2. 港口 rail reopens the popup, 关闭 closes it again
+ *     3. **docked + popup CLOSED: joystick drag undocks the ship (dockedPort
+ *        becomes -1) and steers it; holding 加速 raises speed > 6 — the 0.25.2
+ *        fix for dead controls after loading a docked save**
+ *     4. cargo / codex popups open and close at sea
  *     5. full-map modal: stage hidden (rail/joystick/accel invisible and not
  *        hit-testable), screenshots saved; its 关闭 button closes it
  *     6. minimap reopens the modal; tapping 合浦 auto-sails and closes the map
@@ -147,12 +148,78 @@ public class SmokeTestLauncher {
                         step = 6;
                         nextStepFrame = frame + 6;
                         break;
-                    case 6: // open cargo popup from the rail
-                        require(tapButton("货物"), "could not tap rail 货物");
+                    case 6: // 港口 rail reopens the popup while still docked
+                        require(tapButton("港口"), "could not tap rail 港口");
                         step = 7;
                         nextStepFrame = frame + 10;
                         break;
                     case 7:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("PORT"),
+                                "port popup not reopened via rail, got " + voyageOverlay());
+                        require(tapButton("关闭"), "could not close reopened port popup");
+                        step = 8;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 8:
+                        require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
+                                "overlay should be NONE after 2nd close, got " + voyageOverlay());
+                        System.out.println("SMOKE: 港口 rail reopens the popup; 关闭 works (docked, no menu)");
+                        step = 9;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 9: // 0.25.2 fix: joystick while docked + menu CLOSED must undock
+                        h0 = voyageState().headingDeg;
+                        require(voyageState().dockedPort == 0, "expected still docked before joystick, got "
+                                + voyageState().dockedPort);
+                        joystickDragRight();
+                        step = 10;
+                        nextStepFrame = frame + 4;
+                        break;
+                    case 10:
+                        GameState st2 = voyageState();
+                        require(st2.dockedPort == -1,
+                                "joystick did not undock the ship (dockedPort=" + st2.dockedPort + ")");
+                        require(Math.abs(st2.steerInput) > 0.05f,
+                                "joystick drag did not steer (steerInput=" + st2.steerInput + ")");
+                        System.out.println("SMOKE: docked+menu-closed joystick undocked & steered (dockedPort=-1)");
+                        step = 11;
+                        nextStepFrame = frame + 16; // let the turn accumulate
+                        break;
+                    case 11:
+                        float h1 = voyageState().headingDeg;
+                        float turn = Math.abs(h1 - h0);
+                        if (turn > 180f) turn = 360f - turn;
+                        require(turn > 3f, "joystick drag did not turn the ship (h0=" + h0 + " h1=" + h1 + ")");
+                        System.out.println("SMOKE: joystick turned ship by " + (int) turn + " deg");
+                        require(voyageState().holdAccel == false, "unexpected accel state");
+                        pressAccel();
+                        step = 12;
+                        nextStepFrame = frame + 16;
+                        break;
+                    case 12:
+                        float sp = voyageState().speed;
+                        require(sp > 6f, "holding 加速 did not raise speed (speed=" + sp + ")");
+                        System.out.println("SMOKE: 加速 raised speed to " + (int) sp);
+                        releaseAccel();
+                        pressDecel();
+                        step = 13;
+                        nextStepFrame = frame + 12;
+                        break;
+                    case 13:
+                        float spd = voyageState().speed;
+                        require(spd < 12f, "holding 减速 did not cut speed (speed=" + spd + ")");
+                        System.out.println("SMOKE: 减速 cut speed to " + (int) spd);
+                        releaseDecel();
+                        joystickRelease();
+                        step = 14;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 14: // open cargo popup from the rail (at sea)
+                        require(tapButton("货物"), "could not tap rail 货物");
+                        step = 15;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 15:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("CARGO"),
                                 "cargo popup not open, got " + voyageOverlay());
                         int closes = countText("关闭");
@@ -161,91 +228,30 @@ public class SmokeTestLauncher {
                         require(findText("商货") != null || findText("[商货]") != null, "cargo tabs missing");
                         System.out.println("SMOKE: cargo popup open with tabs");
                         require(tapButton("关闭"), "could not tap cargo 关闭");
-                        step = 8;
+                        step = 16;
                         nextStepFrame = frame + 10;
                         break;
-                    case 8:
+                    case 16:
                         require(countText("关闭") == 0, "cargo popup did not close");
-                        step = 9;
+                        step = 17;
                         nextStepFrame = frame + 6;
                         break;
-                    case 9: // open codex popup
+                    case 17: // open codex popup
                         require(tapButton("图鉴"), "could not tap rail 图鉴");
-                        step = 10;
+                        step = 18;
                         nextStepFrame = frame + 10;
                         break;
-                    case 10:
+                    case 18:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("CODEX"),
                                 "codex popup not open, got " + voyageOverlay());
                         require(findText("异兽") != null, "codex section 异兽 missing");
                         require(tapButton("关闭"), "could not tap codex 关闭");
-                        step = 11;
-                        nextStepFrame = frame + 10;
-                        break;
-                    case 11:
-                        require(countText("关闭") == 0, "codex popup did not close");
-                        System.out.println("SMOKE: cargo/codex open+close OK");
-                        step = 12;
-                        nextStepFrame = frame + 6;
-                        break;
-                    case 12: // reopen port popup via the rail and sail out
-                        require(tapButton("港口"), "could not tap rail 港口");
-                        step = 13;
-                        nextStepFrame = frame + 10;
-                        break;
-                    case 13:
-                        require(voyageOverlay() != null && voyageOverlay().name().equals("PORT"),
-                                "port popup not reopened, got " + voyageOverlay());
-                        require(tapButton("离港"), "could not tap 离港");
-                        step = 14;
-                        nextStepFrame = frame + 15;
-                        break;
-                    case 14:
-                        GameState st2 = voyageState();
-                        require(st2.dockedPort == -1, "should be at sea after 离港, dockedPort=" + st2.dockedPort);
-                        System.out.println("SMOKE: sailing (left 广州)");
-                        step = 15;
-                        nextStepFrame = frame + 6;
-                        break;
-                    case 15: // joystick: press center then drag right
-                        h0 = voyageState().headingDeg;
-                        joystickDragRight();
-                        step = 16;
-                        nextStepFrame = frame + 4;
-                        break;
-                    case 16:
-                        require(Math.abs(voyageState().steerInput) > 0.05f,
-                                "joystick drag did not steer (steerInput=" + voyageState().steerInput + ")");
-                        System.out.println("SMOKE: joystick engaged, steering input=" + voyageState().steerInput);
-                        step = 17;
-                        nextStepFrame = frame + 16; // let the turn accumulate
-                        break;
-                    case 17:
-                        float h1 = voyageState().headingDeg;
-                        float turn = Math.abs(h1 - h0);
-                        if (turn > 180f) turn = 360f - turn;
-                        require(turn > 3f, "joystick drag did not turn the ship (h0=" + h0 + " h1=" + h1 + ")");
-                        System.out.println("SMOKE: joystick turned ship by " + (int) turn + " deg");
-                        require(voyageState().holdAccel == false, "unexpected accel state");
-                        pressAccel();
-                        step = 18;
-                        nextStepFrame = frame + 16;
-                        break;
-                    case 18:
-                        float sp = voyageState().speed;
-                        require(sp > 6f, "holding 加速 did not raise speed (speed=" + sp + ")");
-                        System.out.println("SMOKE: 加速 raised speed to " + (int) sp);
-                        releaseAccel();
-                        pressDecel();
                         step = 19;
-                        nextStepFrame = frame + 12;
+                        nextStepFrame = frame + 10;
                         break;
                     case 19:
-                        float spd = voyageState().speed;
-                        require(spd < 12f, "holding 减速 did not cut speed (speed=" + spd + ")");
-                        System.out.println("SMOKE: 减速 cut speed to " + (int) spd);
-                        releaseDecel();
-                        joystickRelease();
+                        require(countText("关闭") == 0, "codex popup did not close");
+                        System.out.println("SMOKE: cargo/codex open+close OK");
                         step = 20;
                         nextStepFrame = frame + 6;
                         break;
