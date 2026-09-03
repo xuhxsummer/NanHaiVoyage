@@ -1,0 +1,15 @@
+.gradle/
+**/build/
+.idea/
+*.iml
+.DS_Store
+local.properties
+android/libs/
+*.apk
+*.aab
+.cxx/
+captures/
+
+Builds/
+assets/textures/ai-draft/
+bug-missing-ship.jpg

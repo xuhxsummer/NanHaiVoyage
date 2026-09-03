@@ -1,0 +1,44 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        google()
+        gradlePluginPortal()
+        maven { url 'https://oss.sonatype.org/content/repositories/snapshots/' }
+    }
+    dependencies {
+        if (findProject(':android') != null) {
+            classpath 'com.android.tools.build:gradle:8.1.4'
+        }
+    }
+}
+
+allprojects {
+    apply plugin: 'eclipse'
+    apply plugin: 'idea'
+}
+
+configure(subprojects.findAll { it.name != 'android' }) {
+    apply plugin: 'java-library'
+    java {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    compileJava {
+        options.incremental = true
+        options.encoding = 'UTF-8'
+    }
+}
+
+subprojects {
+    version = '0.23.0'
+    ext.appName = 'NanHaiVoyage'
+    ext.gdxVersion = gdxVersion
+    repositories {
+        mavenCentral()
+        google()
+        maven { url 'https://oss.sonatype.org/content/repositories/snapshots/' }
+        maven { url 'https://jitpack.io' }
+    }
+}
+
+eclipse.project.name = 'NanHaiVoyage-parent'

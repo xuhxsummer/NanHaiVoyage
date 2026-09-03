@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!129 &1
+PlayerSettings:
+  productGUID: 9a1b2c3d4e5f60718293a4b5c6d7e8f9
+  companyName: Shipgame
+  productName: NanHaiVoyage
+  defaultScreenOrientation: 3
+  m_AndroidRenderOutsideSafeArea: 1
+  androidBlitType: 0
+  androidMinSdkVersion: 22
+  androidTargetSdkVersion: 34
+  androidBundleVersionCode: 1
+  bundleVersion: 0.1.0
+  AndroidBundleVersionCode: 1
+  AndroidMinSdkVersion: 22
+  AndroidTargetSdkVersion: 34
+  use32BitDisplayBuffer: 1
+  androidSupportedAspectRatio: 1
+  androidMaxAspectRatio: 2.1
+  applicationIdentifier:
+    Android: com.shipgame.nanhai

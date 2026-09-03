@@ -1,0 +1,23 @@
+include 'core', 'lwjgl3'
+
+def hasAndroidSdk = false
+def localProps = new File(settingsDir, 'local.properties')
+if (localProps.exists()) {
+    def props = new Properties()
+    localProps.withInputStream { props.load(it) }
+    def sdk = props.getProperty('sdk.dir')
+    if (sdk != null && !sdk.trim().isEmpty() && !sdk.trim().startsWith('#')) {
+        hasAndroidSdk = true
+    }
+}
+if (System.getenv('ANDROID_HOME')) {
+    hasAndroidSdk = true
+}
+if (hasAndroidSdk) {
+    include 'android'
+    println 'Including :android (SDK found)'
+} else {
+    println 'NOTE: Android SDK not found; skipping :android. Set sdk.dir in local.properties to enable APK builds.'
+}
+
+rootProject.name = 'NanHaiVoyage'

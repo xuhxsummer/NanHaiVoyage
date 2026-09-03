@@ -1,0 +1,35 @@
+apply plugin: 'application'
+
+sourceSets.main.resources.srcDirs += [ rootProject.file('assets').path ]
+mainClassName = 'com.shipgame.nanhai.lwjgl3.Lwjgl3Launcher'
+eclipse.project.name = appName + '-lwjgl3'
+application.applicationDefaultJvmArgs = []
+
+dependencies {
+    implementation project(':core')
+    implementation "com.badlogicgames.gdx:gdx-backend-lwjgl3:$gdxVersion"
+    implementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+    implementation "com.badlogicgames.gdx:gdx-freetype-platform:$gdxVersion:natives-desktop"
+}
+
+def osName = System.properties['os.name'].toLowerCase(Locale.ROOT)
+
+run {
+    workingDir = rootProject.file('assets').path
+    setIgnoreExitValue(true)
+    if (osName.contains('mac')) {
+        jvmArgs += '-XstartOnFirstThread'
+    }
+}
+
+jar {
+    archiveBaseName.set(appName)
+    duplicatesStrategy(DuplicatesStrategy.EXCLUDE)
+    dependsOn configurations.runtimeClasspath
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+    from(rootProject.file('assets')) { include '**' }
+    exclude 'META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    manifest {
+        attributes 'Main-Class': project.mainClassName
+    }
+}

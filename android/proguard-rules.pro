@@ -1,0 +1,2 @@
+-dontwarn com.badlogic.gdx.backends.android.AndroidApplication
+-keep class com.shipgame.nanhai.** { *; }
