@@ -57,12 +57,37 @@ public class NanHaiVoyage extends Game {
 
     @Override
     public void create() {
+        installCrashLogger();
         batch = new SpriteBatch();
         font = loadFont(22);
         fontSmall = loadFont(16);
         skin = UiFactory.create(font, fontSmall);
         accounts = new AccountStore();
         setScreen(new LoginScreen(this));
+    }
+
+    /**
+     * Writes every uncaught throwable to internal storage (crash-log.txt) so a
+     * phone crash can be diagnosed without adb. Falls back silently if the
+     * write itself fails.
+     */
+    private void installCrashLogger() {
+        final Thread.UncaughtExceptionHandler prior = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread t, Throwable e) {
+                try {
+                    java.io.StringWriter sw = new java.io.StringWriter();
+                    e.printStackTrace(new java.io.PrintWriter(sw));
+                    Gdx.files.local("crash-log.txt").writeString(
+                            "crash thread=" + t.getName() + "\n" + sw + "\n", true);
+                } catch (Throwable ignored) {
+                }
+                if (prior != null) {
+                    prior.uncaughtException(t, e);
+                }
+            }
+        });
     }
 
     private BitmapFont loadFont(int size) {

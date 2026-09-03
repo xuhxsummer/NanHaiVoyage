@@ -21,6 +21,7 @@ public class LoginScreen extends ScreenAdapter {
     private final NanHaiVoyage game;
     private Stage stage;
     private Label msg;
+    private boolean switching;
 
     public LoginScreen(NanHaiVoyage game) {
         this.game = game;
@@ -28,6 +29,12 @@ public class LoginScreen extends ScreenAdapter {
 
     @Override
     public void show() {
+        buildUi();
+    }
+
+    /** Builds (or rebuilds) the whole login UI. Safe to call again after a
+     * failed transition so the user is never stuck on a dead screen. */
+    private void buildUi() {
         stage = new Stage(new FitViewport(1280, 720), game.batch);
         Gdx.input.setInputProcessor(stage);
 
@@ -97,10 +104,9 @@ public class LoginScreen extends ScreenAdapter {
             game.currentUser = u.trim();
             game.state = GameState.newGame();
             game.accounts.save(game.currentUser, game.state.toSave());
-            Gdx.input.setInputProcessor(null); // stage is disposed in hide(); release it first
-            game.setScreen(new VoyageScreen(game));
-        } catch (Exception ex) {
-            Gdx.app.error("LoginScreen", "register failed", ex);
+            enterVoyage();
+        } catch (Throwable t) { // Errors too: nothing on this path may kill the process
+            Gdx.app.error("LoginScreen", "register failed", t);
             msg.setText("注册错误。");
         }
     }
@@ -121,12 +127,41 @@ public class LoginScreen extends ScreenAdapter {
             if (s == null) {
                 game.accounts.save(game.currentUser, game.state.toSave());
             }
-            Gdx.input.setInputProcessor(null); // stage is disposed in hide(); release it first
-            game.setScreen(new VoyageScreen(game));
-        } catch (Exception ex) {
-            Gdx.app.error("LoginScreen", "login failed", ex);
+            enterVoyage();
+        } catch (Throwable t) { // Errors too: corrupt data must not kill the app
+            Gdx.app.error("LoginScreen", "login failed", t);
             msg.setText("登录错误。");
         }
+    }
+
+    /**
+     * Defers the screen switch to the next frame via postRunnable. Running
+     * setScreen synchronously inside the click handler disposes this stage
+     * mid-dispatch and races the Android surface lifecycle (resize NPE).
+     */
+    private void enterVoyage() {
+        if (switching) {
+            return; // ignore double-taps: only one transition may run
+        }
+        switching = true;
+        Gdx.input.setInputProcessor(null); // stop new input before the swap
+        Gdx.app.postRunnable(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    game.setScreen(new VoyageScreen(game));
+                } catch (Throwable t) {
+                    Gdx.app.error("LoginScreen", "enter voyage failed", t);
+                    // Rebuild the login UI so the app stays usable.
+                    try {
+                        buildUi();
+                        msg.setText("进入航海失败，请重试（" + t.getClass().getSimpleName() + "）。");
+                    } catch (Throwable ignored) {
+                    }
+                    switching = false;
+                }
+            }
+        });
     }
 
     @Override
@@ -141,7 +176,11 @@ public class LoginScreen extends ScreenAdapter {
 
     @Override
     public void resize(int width, int height) {
-        stage.getViewport().update(width, height, true);
+        // hide() sets stage = null; Android can fire resize at any point
+        // during the transition (IME hide, immersive-mode focus change).
+        if (stage != null) {
+            stage.getViewport().update(width, height, true);
+        }
     }
 
     @Override

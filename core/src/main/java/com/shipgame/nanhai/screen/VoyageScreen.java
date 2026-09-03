@@ -87,6 +87,32 @@ public class VoyageScreen extends ScreenAdapter {
 
     @Override
     public void show() {
+        try {
+            buildAll();
+        } catch (Throwable t) {
+            // show() runs inside setScreen during the login transition; it must
+            // never kill the process. Surface the error on the HUD instead.
+            Gdx.app.error("VoyageScreen", "show failed", t);
+            disposeQuietly();
+            g = (g != null) ? g : GameState.newGame();
+            worldCam = new OrthographicCamera();
+            worldVp = new FitViewport(960, 540, worldCam);
+            hudVp = new FitViewport(HUD_W, HUD_H);
+            stage = new Stage(hudVp, game.batch);
+            shapes = new ShapeRenderer();
+            pixelMap = null; // vector fallbacks still render the ship + map
+            buildHud();
+            Gdx.input.setInputProcessor(new InputMultiplexer(stage, new WorldInput()));
+            overlay = Overlay.NONE;
+            rebuildMenu();
+            g.toast("画面组件加载失败，已启用简化渲染。");
+        }
+        if (game.state != null) {
+            g = game.state;
+        }
+    }
+
+    private void buildAll() {
         g = game.state;
         worldCam = new OrthographicCamera();
         worldVp = new FitViewport(960, 540, worldCam);
@@ -107,6 +133,21 @@ public class VoyageScreen extends ScreenAdapter {
             overlay = Overlay.ISLAND;
         }
         rebuildMenu();
+    }
+
+    private void disposeQuietly() {
+        try {
+            if (stage != null) { stage.dispose(); }
+        } catch (Throwable ignored) {}
+        try {
+            if (shapes != null) { shapes.dispose(); }
+        } catch (Throwable ignored) {}
+        try {
+            if (pixelMap != null) { pixelMap.dispose(); }
+        } catch (Throwable ignored) {}
+        stage = null;
+        shapes = null;
+        pixelMap = null;
     }
 
     private void buildHud() {
@@ -471,10 +512,8 @@ public class VoyageScreen extends ScreenAdapter {
             ScreenUtils.clear(WATER);
             return;
         }
-        // Corrupted save data (NaN/Inf in x/y/heading/speed) poisons the world
-        // camera and blanks the whole world pass on device. Reset to last port.
         if (!isFinite(g.x) || !isFinite(g.y) || !isFinite(g.headingDeg) || !isFinite(g.speed)) {
-            int lp = Math.max(0, g.lastPort);
+            int lp = Math.max(0, Math.min(g.lastPort, Catalog.PORTS.length - 1));
             g.x = Catalog.PORT_X[lp] + 90f;
             g.y = Catalog.PORT_Y[lp];
             g.headingDeg = 0f;
@@ -587,15 +626,19 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void drawWorld() {
-        game.batch.begin();
-        pixelMap.drawWater(game.batch, g);
-        game.batch.end();
+        if (pixelMap != null) {
+            game.batch.begin();
+            pixelMap.drawWater(game.batch, g);
+            game.batch.end();
+        }
         // Vector silhouette under the sprite: even if the ship texture fails
         // to render on a device, the player ship is always visible at sea.
         drawShipSilhouette(g.x, g.y, g.headingDeg);
-        game.batch.begin();
-        pixelMap.drawMarkers(game.batch, g);
-        game.batch.end();
+        if (pixelMap != null) {
+            game.batch.begin();
+            pixelMap.drawMarkers(game.batch, g);
+            game.batch.end();
+        }
 
         if (g.muzzleFlash > 0 && g.pirateAlive && g.combatLock) {
             shapes.begin(ShapeRenderer.ShapeType.Filled);
@@ -844,14 +887,27 @@ public class VoyageScreen extends ScreenAdapter {
 
     @Override
     public void resize(int width, int height) {
-        worldVp.update(width, height);
-        hudVp.update(width, height, true);
+        if (worldVp != null) {
+            worldVp.update(width, height);
+        }
+        if (hudVp != null) {
+            hudVp.update(width, height, true);
+        }
     }
 
     @Override
     public void hide() {
-        if (stage != null) stage.dispose();
-        if (shapes != null) shapes.dispose();
-        if (pixelMap != null) pixelMap.dispose();
+        if (stage != null) {
+            stage.dispose();
+            stage = null;
+        }
+        if (shapes != null) {
+            shapes.dispose();
+            shapes = null;
+        }
+        if (pixelMap != null) {
+            pixelMap.dispose();
+            pixelMap = null;
+        }
     }
 }

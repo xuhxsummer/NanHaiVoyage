@@ -1,5 +1,6 @@
 package com.shipgame.nanhai.data;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.math.MathUtils;
 
 /** Runtime voyage: ship, cargo, weather, pirates, port/island actions. */
@@ -106,37 +107,46 @@ public class GameState {
         if (s == null) {
             return newGame();
         }
-        g.x = s.x;
-        g.y = s.y;
-        g.headingDeg = s.headingDeg;
-        g.hull = s.hull;
-        g.hullMax = s.hullMax <= 0 ? 100f : s.hullMax;
-        g.supply = s.supply;
-        g.supplyMax = s.supplyMax <= 0 ? 100f : s.supplyMax;
-        g.silver = s.silver;
-        g.debt = s.debt;
-        g.cargoCap = s.cargoCap <= 0 ? Catalog.START_CARGO_CAP : s.cargoCap;
-        g.warehouseLevel = Math.max(1, s.warehouseLevel);
-        g.cannonLevel = Math.max(1, s.cannonLevel);
-        g.cannonDamage = s.cannonDamage <= 0 ? Catalog.START_CANNON_DMG : s.cannonDamage;
-        g.crew = s.crew;
-        g.crewCap = s.crewCap <= 0 ? Catalog.START_CREW_CAP : s.crewCap;
-        g.crewCapLevel = Math.max(1, s.crewCapLevel);
-        copy(s.trade, g.trade);
-        copy(s.beasts, g.beasts);
-        copy(s.herbs, g.herbs);
-        copy(s.beastFound, g.beastFound);
-        copy(s.herbFound, g.herbFound);
-        g.lastPort = s.lastPort;
-        g.dockedPort = s.lastPort;
-        g.x = Catalog.PORT_X[g.lastPort] + 90f;
-        g.y = Catalog.PORT_Y[g.lastPort];
-        g.speed = 0;
-        g.clearPirate();
-        g.autoSail = false;
-        g.failed = false;
-        g.toast("已读取靠港存档。");
-        return g;
+        try {
+            g.hullMax = s.hullMax <= 0 ? 100f : s.hullMax;
+            g.supplyMax = s.supplyMax <= 0 ? 100f : s.supplyMax;
+            g.hull = (s.hull <= 0f || Float.isNaN(s.hull)) ? g.hullMax : s.hull;
+            g.supply = (s.supply <= 0f || Float.isNaN(s.supply)) ? g.supplyMax : s.supply;
+            g.silver = s.silver;
+            g.debt = Math.max(0, s.debt);
+            g.cargoCap = s.cargoCap <= 0 ? Catalog.START_CARGO_CAP : s.cargoCap;
+            g.warehouseLevel = Math.max(1, s.warehouseLevel);
+            g.cannonLevel = Math.max(1, s.cannonLevel);
+            g.cannonDamage = s.cannonDamage <= 0 ? Catalog.START_CANNON_DMG : s.cannonDamage;
+            g.crew = Math.max(0, s.crew);
+            g.crewCap = s.crewCap <= 0 ? Catalog.START_CREW_CAP : Math.max(s.crew, s.crewCap);
+            g.crewCapLevel = Math.max(1, s.crewCapLevel);
+            copy(s.trade, g.trade);
+            copy(s.beasts, g.beasts);
+            copy(s.herbs, g.herbs);
+            copy(s.beastFound, g.beastFound);
+            copy(s.herbFound, g.herbFound);
+            int lp = s.lastPort;
+            if (lp < 0 || lp >= Catalog.PORTS.length) {
+                lp = 0; // corrupt port index must not throw AIOOBE
+            }
+            g.lastPort = lp;
+            g.dockedPort = lp;
+            // Always respawn at the dock: any stale/NaN position is discarded.
+            g.x = Catalog.PORT_X[lp] + 90f;
+            g.y = Catalog.PORT_Y[lp];
+            g.headingDeg = 0f;
+            g.speed = 0;
+            g.clearPirate();
+            g.autoSail = false;
+            g.failed = false;
+            g.toast("已读取靠港存档。");
+            return g;
+        } catch (Throwable t) {
+            // Corrupt save: start a fresh game instead of dying.
+            Gdx.app.error("GameState", "save corrupt, starting new game", t);
+            return newGame();
+        }
     }
 
     private static void copy(int[] src, int[] dst) {
