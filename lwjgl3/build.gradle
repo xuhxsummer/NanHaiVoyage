@@ -22,6 +22,17 @@ run {
     }
 }
 
+tasks.register('smokeTest', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.SmokeTestLauncher')
+    workingDir = rootProject.file('assets').path
+    args((project.findProperty('smokeMode') ?: 'login').toString())
+    if (osName.contains('mac')) {
+        jvmArgs += '-XstartOnFirstThread'
+    }
+}
+
 jar {
     archiveBaseName.set(appName)
     duplicatesStrategy(DuplicatesStrategy.EXCLUDE)

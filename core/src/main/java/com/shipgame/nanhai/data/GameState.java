@@ -597,14 +597,26 @@ public class GameState {
         return Math.max(1, Math.round(cannonDamage * (1f + 0.08f * crew)));
     }
 
-    public void tryLockPirate(float wx, float wy) {
+    public boolean tryLockPirate(float wx, float wy) {
+        if (!pirateAlive) {
+            return false;
+        }
+        if (Catalog.dist(wx, wy, pirateX, pirateY) < 70f) {
+            lockPirate();
+            return true;
+        }
+        return false;
+    }
+
+    /** Locks the only enemy in the current encounter (used by the visible HUD
+     * button as well as direct taps on the pirate sprite). */
+    public void lockPirate() {
         if (!pirateAlive) {
             return;
         }
-        if (Catalog.dist(wx, wy, pirateX, pirateY) < 70f) {
-            combatLock = true;
-            toast("已锁定海盗，自动开火。");
-        }
+        combatLock = true;
+        playerFireCd = Math.min(playerFireCd, 0.08f);
+        toast("已锁定海盗，自动连续开火。");
     }
 
     public void cancelLock() {
@@ -614,9 +626,17 @@ public class GameState {
 
     private void spawnPirate() {
         pirateSpawnTimer = 22f + MathUtils.random(28f);
+        // Ports are safe waters. Postpone the roll instead of spawning an enemy
+        // on top of a docking popup where it cannot be selected or fought.
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            if (Catalog.dist(x, y, Catalog.PORT_X[i], Catalog.PORT_Y[i]) < 240f) {
+                pirateSpawnTimer = 8f;
+                return;
+            }
+        }
         float ang = MathUtils.random(360f) * MathUtils.degreesToRadians;
-        pirateX = x + MathUtils.cos(ang) * 280f;
-        pirateY = y + MathUtils.sin(ang) * 280f;
+        pirateX = MathUtils.clamp(x + MathUtils.cos(ang) * 300f, 50f, Catalog.WORLD_W - 50f);
+        pirateY = MathUtils.clamp(y + MathUtils.sin(ang) * 300f, 50f, Catalog.WORLD_H - 50f);
         pirateHeading = MathUtils.atan2(y - pirateY, x - pirateX) * MathUtils.radiansToDegrees;
         pirateHpMax = Catalog.PIRATE_HP;
         pirateHp = pirateHpMax;
@@ -665,7 +685,9 @@ public class GameState {
         if (pirateChase) {
             pirateHeading = MathUtils.atan2(y - pirateY, x - pirateX) * MathUtils.radiansToDegrees;
             float rad = pirateHeading * MathUtils.degreesToRadians;
-            float chase = 165f;
+            // It mostly fights in place. Retaliating provokes pursuit, but the
+            // player can still escape by sailing well and opening the gap.
+            float chase = 105f;
             pirateX += MathUtils.cos(rad) * chase * dt;
             pirateY += MathUtils.sin(rad) * chase * dt;
         }

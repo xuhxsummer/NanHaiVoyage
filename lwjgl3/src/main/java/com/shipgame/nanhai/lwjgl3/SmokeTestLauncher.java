@@ -60,6 +60,8 @@ public class SmokeTestLauncher {
     private static int nextStepFrame;
     private static int step;
     private static float h0;
+    private static float pirateHp0;
+    private static float hull0;
 
     public static void main(String[] args) {
         if (args.length > 0) {
@@ -191,6 +193,7 @@ public class SmokeTestLauncher {
                         if (turn > 180f) turn = 360f - turn;
                         require(turn > 3f, "joystick drag did not turn the ship (h0=" + h0 + " h1=" + h1 + ")");
                         System.out.println("SMOKE: joystick turned ship by " + (int) turn + " deg");
+                        joystickRelease();
                         require(voyageState().holdAccel == false, "unexpected accel state");
                         pressAccel();
                         step = 12;
@@ -210,7 +213,6 @@ public class SmokeTestLauncher {
                         require(spd < 12f, "holding 减速 did not cut speed (speed=" + spd + ")");
                         System.out.println("SMOKE: 减速 cut speed to " + (int) spd);
                         releaseDecel();
-                        joystickRelease();
                         step = 14;
                         nextStepFrame = frame + 6;
                         break;
@@ -318,7 +320,54 @@ public class SmokeTestLauncher {
                         require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
                                 "full map should be closed after target tap, got " + voyageOverlay());
                         require(stageVisible(), "stage should be visible after the map closed");
-                        System.out.println("SMOKE: PASS - auto-sail to port " + Catalog.PORTS[TARGET_PORT] + " set");
+                        System.out.println("SMOKE: auto-sail to port " + Catalog.PORTS[TARGET_PORT] + " set");
+                        // Deterministic short pirate encounter: put one enemy in
+                        // range, verify its lock UI, then tap the ship itself.
+                        st3.autoSail = false;
+                        st3.autoSailPort = -1;
+                        st3.autoSailIsle = -1;
+                        st3.pirateAlive = true;
+                        st3.combatLock = false;
+                        st3.pirateChase = false;
+                        st3.pirateX = st3.x + 200f;
+                        st3.pirateY = st3.y;
+                        st3.pirateHpMax = Catalog.PIRATE_HP;
+                        st3.pirateHp = st3.pirateHpMax;
+                        st3.playerFireCd = 0f;
+                        st3.pirateFireCd = 0f;
+                        pirateHp0 = st3.pirateHp;
+                        hull0 = st3.hull;
+                        step = 27;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 27:
+                        require(findExactButton("锁定海盗") != null,
+                                "pirate lock UI is not visible");
+                        // World viewport is 960x540 in a 1280x720 window. Enemy is
+                        // exactly +200 world units from the centred player.
+                        tapScreen(640 + Math.round(200f * 1280f / 960f), 360);
+                        step = 28;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 28:
+                        GameState fight = voyageState();
+                        require(fight.combatLock, "tapping pirate ship did not lock it");
+                        require(findExactButton("取消锁定") != null,
+                                "cancel-lock UI is not visible after locking");
+                        step = 29;
+                        nextStepFrame = frame + 55;
+                        break;
+                    case 29:
+                        GameState exchanged = voyageState();
+                        require(exchanged.pirateHp < pirateHp0,
+                                "locked pirate did not take automatic cannon damage");
+                        require(exchanged.hull < hull0,
+                                "pirate did not return fire against player");
+                        require(exchanged.pirateChase,
+                                "pirate did not pursue more closely after return fire");
+                        require(tapButton("取消锁定"), "could not tap cancel lock");
+                        saveShot("pirate-combat");
+                        System.out.println("SMOKE: PASS - pirate tapped, auto-fire exchanged damage, cancel-lock visible");
                         exitCode = 0;
                         flowDone = true;
                         Gdx.app.exit();

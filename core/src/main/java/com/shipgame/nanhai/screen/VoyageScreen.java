@@ -102,6 +102,7 @@ public class VoyageScreen extends ScreenAdapter {
     private TextButton btnCodex;
     private TextButton btnCtx;      // 港口 / 岛屿 contextual reopen
     private TextButton btnCancelAuto;
+    private TextButton btnLockPirate;
     private TextButton btnCancelLock;
     private TextButton btnAccel;
     private TextButton btnDecel;
@@ -139,7 +140,7 @@ public class VoyageScreen extends ScreenAdapter {
             shapes = new ShapeRenderer();
             pixelMap = null; // vector fallbacks still render the ship + map
             buildHud();
-            Gdx.input.setInputProcessor(new InputMultiplexer(stage, new WorldInput()));
+            Gdx.input.setInputProcessor(new InputMultiplexer(new WorldInput(), stage));
             overlay = Overlay.NONE;
             rebuildMenu();
             g.toast("画面组件加载失败，已启用简化渲染。");
@@ -163,7 +164,10 @@ public class VoyageScreen extends ScreenAdapter {
         Gdx.app.error("VoyageEnter", "shape renderer + pixel map textures created");
 
         buildHud();
-        InputMultiplexer mux = new InputMultiplexer(stage, new WorldInput());
+        // World hit-testing goes first. It consumes only joystick/minimap/enemy
+        // hits and otherwise falls through to Scene2D, so a full-parent HUD Table
+        // cannot swallow pirate taps on Android.
+        InputMultiplexer mux = new InputMultiplexer(new WorldInput(), stage);
         Gdx.input.setInputProcessor(mux);
 
         if (g.failed) {
@@ -265,16 +269,19 @@ public class VoyageScreen extends ScreenAdapter {
         // Contextual 取消自动 / 取消锁定 — slim strip at the very top-center so no
         // popup or HUD element can swallow their touches.
         btnCancelAuto = new TextButton("取消自动", game.skin, "danger");
+        btnLockPirate = new TextButton("锁定海盗", game.skin, "go");
         btnCancelLock = new TextButton("取消锁定", game.skin, "danger");
         btnCancelAuto.addListener(click(() -> {
             g.cancelAutoSail();
             rebuildMenu();
         }));
+        btnLockPirate.addListener(click(() -> g.lockPirate()));
         btnCancelLock.addListener(click(() -> g.cancelLock()));
         Table mid = new Table();
         mid.setFillParent(true);
         mid.top().padTop(8);
         mid.add(btnCancelAuto).width(132).height(38).pad(4);
+        mid.add(btnLockPirate).width(132).height(38).pad(4);
         mid.add(btnCancelLock).width(132).height(38).pad(4);
         stage.addActor(mid);
 
@@ -764,6 +771,7 @@ public class VoyageScreen extends ScreenAdapter {
         }
 
         btnCancelAuto.setVisible(g.autoSail && overlay != Overlay.MAP);
+        btnLockPirate.setVisible(g.pirateAlive && !g.combatLock && overlay == Overlay.NONE);
         btnCancelLock.setVisible(g.combatLock && overlay != Overlay.MAP);
         hudLine.setText(statusText());
 
@@ -828,7 +836,9 @@ public class VoyageScreen extends ScreenAdapter {
             s += " ·探岛" + Catalog.ISLANDS[g.islandMenu];
         }
         if (g.pirateAlive) {
-            s += " 海盗";
+            int distance = (int) Catalog.dist(g.x, g.y, g.pirateX, g.pirateY);
+            s += " 【海盗】敌" + Math.max(0, (int) g.pirateHp) + "/" + (int) g.pirateHpMax
+                    + " 距" + distance + (g.combatLock ? " ·已锁定自动开火" : " ·点船锁定");
         }
         return s;
     }
@@ -885,6 +895,28 @@ public class VoyageScreen extends ScreenAdapter {
             shapes.setColor(1f, 0.85f, 0.3f, 1f);
             shapes.rectLine(g.x, g.y, g.pirateX, g.pirateY, 2.5f);
             shapes.end();
+        }
+
+        if (g.pirateAlive) {
+            // Always-visible encounter feedback in world space: selection ring,
+            // enemy HP bar and gun-range ring. This makes combat legible even if
+            // the texture is tiny on a phone.
+            float hp = g.pirateHpMax <= 0f ? 0f : MathUtils.clamp(g.pirateHp / g.pirateHpMax, 0f, 1f);
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.08f, 0.03f, 0.03f, 0.95f);
+            shapes.rect(g.pirateX - 34f, g.pirateY + 30f, 68f, 8f);
+            shapes.setColor(PIRATE_C);
+            shapes.rect(g.pirateX - 32f, g.pirateY + 32f, 64f * hp, 4f);
+            shapes.end();
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            shapes.setColor(g.combatLock ? Color.YELLOW : PIRATE_C);
+            shapes.circle(g.pirateX, g.pirateY, g.combatLock ? 42f : 34f);
+            shapes.end();
+            game.batch.begin();
+            game.fontSmall.draw(game.batch,
+                    g.combatLock ? "海盗 已锁定" : "海盗 点船锁定",
+                    g.pirateX - 42f, g.pirateY + 56f);
+            game.batch.end();
         }
 
         game.batch.begin();
@@ -1226,8 +1258,7 @@ public class VoyageScreen extends ScreenAdapter {
             // Lock a pirate ship: tap near it while sailing.
             if (g.pirateAlive && overlay == Overlay.NONE) {
                 worldVp.unproject(tmp.set(screenX, screenY, 0));
-                g.tryLockPirate(tmp.x, tmp.y);
-                return false;
+                return g.tryLockPirate(tmp.x, tmp.y);
             }
             return false;
         }
