@@ -30,6 +30,14 @@ public class LoginScreen extends ScreenAdapter {
     @Override
     public void show() {
         buildUi();
+        // Fire-and-forget GitHub Releases check (Android only; null elsewhere).
+        // Must never block or throw — implementation is failure-silent.
+        if (game.updateChecker != null) {
+            try {
+                game.updateChecker.checkForUpdate();
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** Builds (or rebuilds) the whole login UI. Safe to call again after a

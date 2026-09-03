@@ -19,8 +19,8 @@ android {
         aaptOptions {
             ignoreAssetsPattern '!.svn:!.git:!.gitignore:!.ds_store:!*.scc:.*:!ai-draft'
         }
-        versionCode 5
-        versionName '0.24.2'
+        versionCode 6
+        versionName '0.24.3'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -43,6 +43,8 @@ configurations { natives }
 
 dependencies {
     implementation project(':core')
+    // FileProvider for the in-app updater (install via system installer).
+    implementation 'androidx.core:core:1.9.0'
     implementation "com.badlogicgames.gdx:gdx-backend-android:$gdxVersion"
     natives "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-armeabi-v7a"
     natives "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-arm64-v8a"

@@ -11,6 +11,7 @@ import com.shipgame.nanhai.data.AccountStore;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.screen.LoginScreen;
 import com.shipgame.nanhai.ui.UiFactory;
+import com.shipgame.nanhai.ui.UpdateChecker;
 
 public class NanHaiVoyage extends Game {
 
@@ -28,6 +29,7 @@ public class NanHaiVoyage extends Game {
             + "天气战斗港口菜单列表还债借债补足修好雇满未满员火力消耗"
             + "点选敌船连续离开战斗返回手动继续开船点港口"
             + "点击空白关闭详情当前目标距离东沙西沙南澳琼东礁屿探岛发现"
+            + "发现新版本可用是否下载安装以后再说中取消失败需要未知应用权限请在设置允许后重试已开始"
             + "空空如也银不足舱已满修理完毕升级完成已雇人补给已满无需"
             + "利息已计入本次回港离开港口出海失败了将读取上次靠港存档"
             + "点击海盗锁定取消锁定按钮加速中减速中滑行中自动航行中战斗中停泊中探岛中"
@@ -54,6 +56,8 @@ public class NanHaiVoyage extends Game {
     public AccountStore accounts;
     public String currentUser;
     public GameState state;
+    /** Backend-provided update checker (Android: GitHub Releases). Null on desktop. */
+    public UpdateChecker updateChecker;
 
     @Override
     public void create() {

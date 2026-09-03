@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Update APKs are downloaded into cacheDir/update/ -->
+    <cache-path name="update_apk" path="update/" />
+</paths>
