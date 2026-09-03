@@ -173,7 +173,10 @@ public class SmokeTestLauncher {
                         h0 = voyageState().headingDeg;
                         require(voyageState().dockedPort == 0, "expected still docked before joystick, got "
                                 + voyageState().dockedPort);
-                        joystickDragRight();
+                        // 0.25.5 heading joystick: the stick aims an absolute compass
+                        // heading (manualHeadingActive), not an angular steerInput.
+                        // Aim 60 deg off the current heading so the turn is certain.
+                        joystickAimAt(h0 + 60f);
                         step = 10;
                         nextStepFrame = frame + 4;
                         break;
@@ -181,9 +184,9 @@ public class SmokeTestLauncher {
                         GameState st2 = voyageState();
                         require(st2.dockedPort == -1,
                                 "joystick did not undock the ship (dockedPort=" + st2.dockedPort + ")");
-                        require(Math.abs(st2.steerInput) > 0.05f,
-                                "joystick drag did not steer (steerInput=" + st2.steerInput + ")");
-                        System.out.println("SMOKE: docked+menu-closed joystick undocked & steered (dockedPort=-1)");
+                        require(st2.manualHeadingActive,
+                                "joystick drag did not arm the heading aim (manualHeadingActive=false)");
+                        System.out.println("SMOKE: docked+menu-closed joystick undocked & aiming (dockedPort=-1)");
                         step = 11;
                         nextStepFrame = frame + 16; // let the turn accumulate
                         break;
@@ -422,28 +425,53 @@ public class SmokeTestLauncher {
                 return true;
             }
 
-            /** 0.25.3 chart visibility: the saved full-map frame must contain deep
-             * sea pixels, khaki land pixels and the bright-yellow player marker. */
+            /** 0.25.6 chart visibility: the saved full-map frame must contain deep
+             * sea pixels, khaki land pixels and the RED radar pulse anchored at the
+             * player's real projected position (not a corner legend). */
             private void verifyMapShot() throws Exception {
                 java.io.File f = new java.io.File("/tmp/shots/map-modal.png");
                 require(f.exists(), "map-modal.png missing");
                 javax.imageio.ImageIO.setUseCache(false);
                 java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(f);
                 require(img != null, "map-modal.png unreadable");
-                int sea = 0, land = 0, ship = 0;
+                int sea = 0, land = 0;
                 for (int y = 0; y < img.getHeight(); y++) {
                     for (int x = 0; x < img.getWidth(); x++) {
                         int rgb = img.getRGB(x, y);
                         int r = (rgb >> 16) & 0xff, g2 = (rgb >> 8) & 0xff, b = rgb & 0xff;
                         if (Math.abs(r - 13) <= 8 && Math.abs(g2 - 38) <= 8 && Math.abs(b - 61) <= 8) sea++;
                         else if (Math.abs(r - 148) <= 10 && Math.abs(g2 - 125) <= 10 && Math.abs(b - 82) <= 10) land++;
-                        else if (r > 235 && g2 > 190 && g2 < 235 && b < 60) ship++;
+                    }
+                }
+                // Red radar center dot sits exactly on the player's projected world
+                // position; count bright-red pixels within a 70px window of it.
+                GameState st = voyageState();
+                float[] me = worldToMapScreen(st.x, st.y);
+                int radar = 0;
+                int y0 = Math.max(0, (int) me[1] - 70), y1 = Math.min(img.getHeight() - 1, (int) me[1] + 70);
+                int x0 = Math.max(0, (int) me[0] - 70), x1 = Math.min(img.getWidth() - 1, (int) me[0] + 70);
+                for (int y = y0; y <= y1; y++) {
+                    for (int x = x0; x <= x1; x++) {
+                        int rgb = img.getRGB(x, y);
+                        int r = (rgb >> 16) & 0xff, g2 = (rgb >> 8) & 0xff, b = rgb & 0xff;
+                        if (r > 190 && g2 < 110 && b < 110) radar++;
                     }
                 }
                 require(sea > 2000, "full map has no sea (sea=" + sea + ")");
                 require(land > 300, "full map has no land (land=" + land + ")");
-                require(ship > 40, "full map player marker missing (ship=" + ship + ")");
-                System.out.println("SMOKE: sea chart visible: sea=" + sea + " land=" + land + " ship(yellow)=" + ship);
+                require(radar > 25, "red radar pulse missing at ship pos (" + (int) me[0]
+                        + "," + (int) me[1] + ") radar=" + radar);
+                System.out.println("SMOKE: sea chart + red radar at ship visible: sea=" + sea
+                        + " land=" + land + " radar(red)=" + radar + " @(" + (int) me[0] + "," + (int) me[1] + ")");
+            }
+
+            /** World coords -> full-map screen pixel (modal rect from VoyageScreen). */
+            private float[] worldToMapScreen(float wx, float wy) {
+                float x = 90f, y = 90f, w = 1100f, h = 540f;
+                float ix = x + 10f, iy = y + 10f, iw = w - 20f, ih = h - 20f;
+                float px = ix + (wx / Catalog.WORLD_W) * iw;
+                float py = iy + (wy / Catalog.WORLD_H) * ih;
+                return new float[] {px, HUD_H - py};
             }
 
             private void saveShot(String name) {
@@ -520,15 +548,21 @@ public class SmokeTestLauncher {
                 p.touchUp((int) sx, (int) sy, 0, 0);
             }
 
-            private void joystickDragRight() {
+            /** Drag the stick to aim at an absolute compass heading (degrees,
+             * 0=east). Screen y grows downward, so the vertical offset is negated
+             * before the drag is injected. */
+            private void joystickAimAt(float headingDeg) {
+                float rad = (float) Math.toRadians(headingDeg);
+                int tx = STICK_X + (int) Math.round(Math.cos(rad) * 60f);
+                int ty = STICK_Y - (int) Math.round(Math.sin(rad) * 60f);
                 com.badlogic.gdx.InputProcessor p = Gdx.input.getInputProcessor();
                 p.touchDown(STICK_X, STICK_Y, 0, 0);
-                p.touchDragged(STICK_X + 50, STICK_Y, 0);
+                p.touchDragged(tx, ty, 0);
             }
 
             private void joystickRelease() {
                 com.badlogic.gdx.InputProcessor p = Gdx.input.getInputProcessor();
-                p.touchUp(STICK_X + 50, STICK_Y, 0, 0);
+                p.touchUp(STICK_X + 60, STICK_Y, 0, 0);
             }
 
             private void pressAccel() throws Exception {

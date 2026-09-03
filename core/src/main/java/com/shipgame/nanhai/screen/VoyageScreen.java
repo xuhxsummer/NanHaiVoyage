@@ -115,6 +115,7 @@ public class VoyageScreen extends ScreenAdapter {
     private int stickPointer = -1;
     private boolean accelDown, decelDown;
     private boolean loggedFirstFrame;
+    private float radarT;   // seconds the full map has been open (radar pulse clock)
 
     public VoyageScreen(NanHaiVoyage game) {
         this.game = game;
@@ -868,6 +869,7 @@ public class VoyageScreen extends ScreenAdapter {
         // WorldInput alone handles all touches while it is open.
         boolean mapOpen = overlay == Overlay.MAP;
         if (mapOpen) {
+            radarT += delta;   // freezes while the map is closed, resumes on reopen
             drawFullMap();
         } else {
             drawHudDecor();
@@ -1219,6 +1221,28 @@ public class VoyageScreen extends ScreenAdapter {
         shapes.setColor(0.82f, 0.88f, 0.95f, 0.9f);
         shapes.rect(FM_X, FM_Y, FM_W, FM_H);
         shapes.rect(FM_CLOSE_X, FM_CLOSE_Y, FM_CLOSE_W, FM_CLOSE_H);
+        shapes.end();
+        // 0.25.6 radar pulse: anchored at the player's REAL projected position
+        // (never a corner legend). Bright red center dot + 1-2 rings that keep
+        // expanding and fading out, looping while the map is open, so the ship
+        // is findable even when it sits right on a town icon.
+        float cx = me[0], cy = me[1];
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1f, 0.12f, 0.09f, 1f);
+        shapes.circle(cx, cy, 7f);
+        shapes.setColor(1f, 0.15f, 0.10f, 0.16f);
+        shapes.circle(cx, cy, 14f);   // soft red glow under the rings
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int ring = 0; ring < 2; ring++) {
+            float phase = (radarT / 1.6f + ring * 0.5f) % 1f;
+            float rr = 16f + phase * 100f;
+            float alpha = (1f - phase) * 0.9f;
+            shapes.setColor(1f, 0.18f, 0.10f, alpha);
+            for (float w = -1.5f; w <= 1.5f; w += 1.5f) {
+                shapes.circle(cx, cy, rr + w);   // 3 strokes -> visible line width
+            }
+        }
         shapes.end();
         // labels: title, 关闭, port names beside their icons, island names, 本船
         game.batch.begin();
