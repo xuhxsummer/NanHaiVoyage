@@ -86,16 +86,11 @@ public class PixelMapRenderer {
         return t;
     }
 
-    /** Water tile pass (drawn first, under everything). */
+    /** Water tile pass (drawn first, under everything). 0.26.2: weather is
+     * always sunny, so no rain/fog tint is ever applied. */
     public void drawWater(SpriteBatch batch, GameState g) {
         Color old = batch.getColor();
-        if (g.weather == GameState.WeatherKind.RAIN) {
-            batch.setColor(0.62f, 0.72f, 0.82f, 1f);
-        } else if (g.weather == GameState.WeatherKind.FOG) {
-            batch.setColor(0.78f, 0.84f, 0.88f, 1f);
-        } else {
-            batch.setColor(Color.WHITE);
-        }
+        batch.setColor(Color.WHITE);
         float left = g.x - 720f;
         float bottom = g.y - 420f;
         float width = 1440f;

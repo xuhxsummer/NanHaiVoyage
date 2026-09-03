@@ -6,6 +6,7 @@ gen_icons.py — 64x64 transparent pixel icons for NanHai Voyage (一期).
 Deps: numpy + stdlib (PNG writer, Up filter). Run: python3 tools/gen_icons.py
 """
 import math
+import os
 import struct
 import zlib
 
@@ -37,6 +38,7 @@ def write_png(path, rgba):
     ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
     png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
            + chunk(b"IDAT", comp) + chunk(b"IEND", b""))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(png)
 
@@ -114,6 +116,178 @@ GRAY = (150, 152, 158)
 DGRAY = (86, 88, 96)
 BLUE = (90, 140, 190)
 LBLUE = (170, 205, 230)
+
+# ----------------------------------------------------------------------------
+# HUD (0.26.2): top-left stat icons, captain avatar, top-right rail buttons,
+# weather sun. Same 64x64 transparent kit, drawn with the shared palette.
+# ----------------------------------------------------------------------------
+def i_hud_silver():
+    m = icon()
+    disk(m, 42, 20, 13, (196, 148, 52))       # coin behind (top-right)
+    disk(m, 42, 20, 13, (196, 148, 52))
+    disk(m, 27, 44, 14, GOLD)                 # coin front (bottom-left)
+    disk(m, 27, 44, 14, GOLD)
+    disk(m, 27, 44, 10, (238, 196, 92))       # inner relief
+    disk(m, 27, 44, 10, (238, 196, 92))
+    disk(m, 27, 44, 4.5, (150, 104, 30))      # square-hole hint
+    rect(m, 24, 41, 30, 47, (150, 104, 30))
+    px(m, 42, 20, (236, 196, 110))
+    outline(m)
+    return m
+
+def i_hud_supply():
+    m = icon()
+    ellipse(m, 32, 40, 16, 13, (96, 66, 42))  # wooden bowl
+    ellipse(m, 32, 48, 16, 6, (96, 66, 42))
+    ellipse(m, 32, 40, 15, 11, (222, 186, 130))  # rice mound
+    ellipse(m, 32, 36, 12, 7, (240, 210, 160))   # rice top
+    line(m, 26, 26, 22, 18, (214, 218, 226), 2)  # steam
+    line(m, 34, 24, 36, 15, (214, 218, 226), 2)
+    line(m, 41, 26, 45, 19, (214, 218, 226), 2)
+    px(m, 30, 33, (255, 240, 200)); px(m, 36, 38, (252, 234, 196))
+    outline(m)
+    return m
+
+def i_hud_hull():
+    m = icon()
+    # ship hull seen from the side: wooden belly + bow post + two plank lines
+    for y in range(30, 50):                   # hull body
+        hw = 10 + (y - 30) * 1.4
+        rect(m, 32 - hw, y, 32 + hw, y, (150, 102, 56) if y < 44 else (112, 72, 40))
+    rect(m, 40, 20, 46, 34, (112, 72, 40))    # bow post
+    line(m, 42, 34, 44, 20, (84, 54, 30), 1)
+    rect(m, 20, 30, 24, 46, (128, 88, 48))    # stern post
+    line(m, 12, 47, 52, 47, (84, 54, 30), 2)  # keel
+    line(m, 14, 40, 50, 40, (196, 150, 96), 1)   # plank line
+    line(m, 14, 45, 50, 45, (128, 88, 48), 1)
+    px(m, 30, 36, (216, 178, 122)); px(m, 38, 36, (216, 178, 122))
+    px(m, 26, 43, (84, 54, 30))
+    outline(m)
+    return m
+
+def i_hud_crew():
+    m = icon()
+    disk(m, 32, 22, 9, (232, 190, 150))       # face
+    px(m, 28, 21, (30, 26, 30)); px(m, 36, 21, (30, 26, 30))
+    line(m, 32, 26, 32, 17, (70, 58, 52), 2)  # hair top
+    disk(m, 32, 16, 8, (58, 74, 96))          # hat dome
+    rect(m, 20, 19, 44, 21, (58, 74, 96))     # hat brim
+    rect(m, 27, 32, 37, 50, (74, 118, 156))   # body
+    rect(m, 20, 48, 27, 50, (56, 92, 126))    # arms out
+    rect(m, 37, 48, 44, 50, (56, 92, 126))
+    line(m, 27, 41, 37, 41, (150, 190, 220), 1)  # sash
+    px(m, 32, 33, (120, 160, 200))
+    outline(m)
+    return m
+
+def i_hud_avatar():
+    m = icon()
+    disk(m, 32, 32, 26, (212, 172, 134))      # face circle
+    rect(m, 6, 8, 58, 34, (212, 172, 134))
+    line(m, 32, 52, 32, 34, (70, 56, 46), 6)  # beard hint
+    disk(m, 26, 32, 3, (30, 26, 30)); disk(m, 38, 32, 3, (30, 26, 30))
+    line(m, 32, 30, 32, 24, (70, 56, 46), 1)  # nose
+    # captain tricorn hat
+    ellipse(m, 32, 30, 24, 10, (66, 44, 30))
+    rect(m, 8, 26, 56, 30, (66, 44, 30))
+    dome(m, 32, 40, 26, 14, (84, 56, 38))
+    ellipse(m, 32, 40, 14, 5, (84, 56, 38))
+    px(m, 32, 38, GOLD); px(m, 30, 39, GOLD); px(m, 34, 39, GOLD)
+    outline(m)
+    return m
+
+def i_hud_cargo():
+    m = icon()
+    rect(m, 12, 16, 52, 52, (150, 96, 50))    # crate
+    rect(m, 12, 16, 52, 20, (186, 132, 76))   # top light
+    rect(m, 12, 30, 16, 52, (120, 74, 38))    # side shade
+    rect(m, 30, 16, 34, 52, (120, 74, 38))    # divider boards
+    line(m, 12, 46, 52, 46, (120, 74, 38), 2)
+    line(m, 22, 46, 22, 52, (104, 62, 32), 2)
+    line(m, 42, 46, 42, 52, (104, 62, 32), 2)
+    line(m, 20, 14, 20, 54, (104, 62, 32), 2)
+    px(m, 16, 22, (214, 164, 104)); px(m, 46, 22, (214, 164, 104))
+    outline(m)
+    return m
+
+def i_hud_codex():
+    m = icon()
+    rect(m, 10, 20, 32, 52, (128, 58, 44))    # back cover open
+    rect(m, 32, 20, 54, 52, (128, 58, 44))
+    rect(m, 13, 22, 32, 50, (238, 228, 196))  # pages
+    rect(m, 32, 22, 51, 50, (246, 238, 210))
+    line(m, 17, 28, 28, 28, (150, 120, 90), 1)  # text lines
+    line(m, 17, 34, 28, 34, (150, 120, 90), 1)
+    line(m, 17, 40, 28, 40, (150, 120, 90), 1)
+    line(m, 36, 28, 47, 28, (150, 120, 90), 1)
+    line(m, 36, 34, 47, 34, (150, 120, 90), 1)
+    line(m, 36, 40, 47, 40, (150, 120, 90), 1)
+    line(m, 32, 20, 32, 52, (96, 42, 32), 1)
+    outline(m)
+    return m
+
+def i_hud_port():
+    m = icon()
+    line(m, 32, 12, 32, 52, (210, 212, 218), 4)  # shank
+    disk(m, 32, 12, 6, (210, 212, 218))          # ring
+    disk(m, 32, 12, 6, (210, 212, 218))
+    rect(m, 16, 26, 48, 28, (210, 212, 218))     # stock bar
+    # flukes
+    line(m, 20, 38, 12, 50, (210, 212, 218), 3)
+    line(m, 20, 40, 13, 46, (210, 212, 218), 2)
+    line(m, 44, 38, 52, 50, (210, 212, 218), 3)
+    line(m, 44, 40, 51, 46, (210, 212, 218), 2)
+    line(m, 12, 50, 30, 42, (210, 212, 218), 2)  # arm curve
+    line(m, 52, 50, 34, 42, (210, 212, 218), 2)
+    disk(m, 24, 52, 3, (210, 212, 218)); disk(m, 40, 52, 3, (210, 212, 218))
+    px(m, 32, 15, (250, 252, 255))
+    outline(m)
+    return m
+
+def i_hud_intel():
+    m = icon()
+    ellipse(m, 32, 34, 22, 12, (244, 244, 240))  # eye white
+    disk(m, 32, 34, 8, (96, 60, 44))             # iris
+    disk(m, 32, 34, 4.5, (30, 26, 30))           # pupil
+    px(m, 30, 32, (255, 255, 255)); px(m, 35, 36, (255, 255, 255))
+    line(m, 8, 34, 10, 27, (96, 60, 44), 2)      # upper lid
+    line(m, 10, 27, 17, 24, (96, 60, 44), 2)
+    line(m, 8, 34, 11, 40, (96, 60, 44), 2)      # lower lid
+    line(m, 11, 40, 17, 44, (96, 60, 44), 2)
+    line(m, 56, 34, 54, 27, (96, 60, 44), 2)
+    line(m, 54, 27, 47, 24, (96, 60, 44), 2)
+    line(m, 56, 34, 53, 40, (96, 60, 44), 2)
+    line(m, 53, 40, 47, 44, (96, 60, 44), 2)
+    outline(m)
+    return m
+
+def i_hud_quest():
+    m = icon()
+    line(m, 18, 50, 18, 14, (232, 214, 176), 8)  # roll left
+    line(m, 46, 50, 46, 14, (222, 202, 160), 8)  # roll right
+    rect(m, 18, 16, 46, 48, (240, 226, 194))     # sheet
+    line(m, 23, 40, 41, 40, (120, 96, 66), 1)    # text lines
+    line(m, 23, 34, 41, 34, (120, 96, 66), 1)
+    line(m, 23, 28, 35, 28, (120, 96, 66), 1)
+    line(m, 18, 47, 46, 47, (176, 62, 48), 3)    # red seal band
+    disk(m, 40, 21, 5, GOLD)                     # reward star
+    px(m, 40, 22, (246, 220, 130)); px(m, 41, 21, (246, 220, 130))
+    px(m, 39, 20, (196, 140, 40)); px(m, 41, 20, (196, 140, 40))
+    outline(m)
+    return m
+
+def i_hud_sun():
+    m = icon()
+    disk(m, 32, 32, 13, GOLD)
+    disk(m, 32, 32, 10, (246, 210, 110))
+    px(m, 32, 34, (255, 240, 190))
+    for ang in range(0, 360, 45):
+        rad = math.radians(ang)
+        for i in range(20, 29):
+            x, y = 32 + math.cos(rad) * i, 32 + math.sin(rad) * i
+            px(m, x, y, (240, 196, 80) if i % 2 else (196, 148, 52))
+    outline(m)
+    return m
 
 # ----------------------------------------------------------------------------
 # GOODS (14)
@@ -674,17 +848,26 @@ HERBS = {
     "gancao": i_gancao, "chrysanthemum": i_chrysanthemum,
 }
 
+HUD = {
+    "silver": i_hud_silver, "supply": i_hud_supply, "hull": i_hud_hull,
+    "crew": i_hud_crew, "avatar": i_hud_avatar, "cargo": i_hud_cargo,
+    "codex": i_hud_codex, "port": i_hud_port, "intel": i_hud_intel,
+    "quest": i_hud_quest, "sun": i_hud_sun,
+}
+
 if __name__ == "__main__":
     n = 0
-    for folder, table in (("goods", GOODS), ("beasts", BEASTS), ("herbs", HERBS)):
+    for folder, table in (("goods", GOODS), ("beasts", BEASTS), ("herbs", HERBS),
+                          ("hud", HUD)):
         for slug, fn in table.items():
             img = fn()
             alpha = img[..., 3]
             assert alpha.sum() > 300, f"{slug}: nearly empty"
             assert alpha.max() <= 255
-            # no stray pixels touching the border
-            assert alpha[0].sum() == 0 and alpha[-1].sum() == 0
-            assert alpha[:, 0].sum() == 0 and alpha[:, -1].sum() == 0
+            # no stray pixels touching the border (hud circles may fill more)
+            if folder != "hud":
+                assert alpha[0].sum() == 0 and alpha[-1].sum() == 0
+                assert alpha[:, 0].sum() == 0 and alpha[:, -1].sum() == 0
             write_png(f"{OUT}/{folder}/{slug}.png", img)
             n += 1
     print(f"generated {n} icons")

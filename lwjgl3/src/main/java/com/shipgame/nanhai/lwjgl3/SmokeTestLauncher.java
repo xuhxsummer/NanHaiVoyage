@@ -27,16 +27,21 @@ import java.util.List;
  *
  * Flow (mode "register", run with a wiped account store):
  *   docked at 广州 (port popup auto-opens) ->
- *     1. port popup 关闭 closes and stays closed; far-left circular rail
- *        (货物/图鉴/港口) is present and usable while docked
+ *     1. port popup 关闭 closes and stays closed; the 0.26.2 top HUD is present:
+ *        circular 船长 avatar (top-left), the four stat cells 银两/补给/耐久/船员
+ *        with live numbers, the sun icon + 今日：晴 tip, and the top-right icon
+ *        rail 货物/图鉴/港口/情报/任务 left of the round minimap
  *     2. 港口 rail reopens the popup, 关闭 closes it again
  *     3. **docked + popup CLOSED: joystick drag undocks the ship (dockedPort
  *        becomes -1) and steers it; holding 加速 raises speed > 6 — the 0.25.2
  *        fix for dead controls after loading a docked save**
  *     4. cargo / codex popups open and close at sea
- *     5. full-map modal: stage hidden (rail/joystick/accel invisible and not
+ *     5. top-left HUD: tapping stat cells opens the 说明 popup (switching cells
+ *        switches the popup); tapping the avatar opens 船长菜单 with 保存进度 /
+ *        读取存档; tapping 情报/任务 rail buttons opens their popups at sea
+ *     6. full-map modal: stage hidden (rail/joystick/accel invisible and not
  *        hit-testable), screenshots saved; its 关闭 button closes it
- *     6. minimap reopens the modal; tapping 合浦 auto-sails and closes the map
+ *     7. minimap reopens the modal; tapping 合浦 auto-sails and closes the map
  *   Exits 0 on success, non-zero with a reason otherwise.
  */
 public class SmokeTestLauncher {
@@ -50,6 +55,16 @@ public class SmokeTestLauncher {
     private static final int FM_CLOSE_X = 90 + 1100 - 124 + 52;      // modal 关闭 center
     private static final int FM_CLOSE_Y = HUD_H - (90 + 540 - 36 + 14);
     private static final int TARGET_PORT = 5;                        // 合浦 (not 广州)
+    // 0.26.2 top HUD mirrors VoyageScreen (stage y-up, 720 tall): the stat
+    // panel spans stage y 654..710 (screen y-down 10..66) at x 82..474, the
+    // avatar circle centers on stage (44,682) -> screen (44,38), and the icon
+    // rail column sits left of the minimap (stage x 1023, y-down 106..326).
+    private static final int STAT_X0 = (int) (44 + 28 + 10);         // panel left (screen x)
+    private static final int STAT_YC = HUD_H - (654 + 56 / 2);       // row center (y-down)
+    private static final int STAT_W = 98;
+    private static final int AVATAR_X = 44, AVATAR_YC = HUD_H - 682; // 船长 circle center
+    private static final int RAIL_X = (int) (1174 - 80 - 44);        // column center (screen x)
+    private static final int RAIL_TOP_Y = HUD_H - 664;               // 货物 center (y-down)
 
     private static int frame;
     private static int exitCode = 97;
@@ -130,8 +145,10 @@ public class SmokeTestLauncher {
                                 "port popup should auto-open, got " + voyageOverlay());
                         require(countText("关闭") >= 1, "port popup 关闭 not found");
                         require(stageVisible(), "stage should be visible while docked");
-                        require(railPresent(), "left circular rail (货物/图鉴/港口) missing");
-                        System.out.println("SMOKE: docked at 广州, port popup open, rail present");
+                        require(avatarAndStatsPresent(), "top-left avatar/stat HUD missing");
+                        require(railPresent(), "top-right icon rail (货物/图鉴/港口/情报/任务) missing");
+                        require(findText("今日：晴") != null, "今日：晴 weather tip missing");
+                        System.out.println("SMOKE: docked at 广州, port popup open, 0.26.2 top HUD present");
                         step = 4;
                         nextStepFrame = frame + 6;
                         break;
@@ -144,32 +161,74 @@ public class SmokeTestLauncher {
                         require(countText("关闭") == 0, "port popup did not close (关闭 still present)");
                         require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
                                 "overlay should be NONE after closing, got " + voyageOverlay());
+                        require(avatarAndStatsPresent(), "stat HUD vanished after closing the popup");
                         require(railPresent(), "rail buttons vanished after closing the popup");
-                        saveShot("docked-hud");
-                        System.out.println("SMOKE: port popup closed and stays closed; rail visible");
+                        // 0.26.2: each top stat cell is tappable and opens 说明.
+                        tapScreen(STAT_X0 + STAT_W / 2, STAT_YC); // 银两
                         step = 6;
-                        nextStepFrame = frame + 6;
+                        nextStepFrame = frame + 10;
                         break;
-                    case 6: // 港口 rail reopens the popup while still docked
-                        require(tapButton("港口"), "could not tap rail 港口");
+                    case 6: // stat detail popup open (银两)
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("STAT"),
+                                "stat popup not open, got " + voyageOverlay());
+                        require(findText("银两 · 说明") != null, "银两 detail popup missing");
+                        // tapping the NEXT cell switches the popup content
+                        tapScreen(STAT_X0 + STAT_W + STAT_W / 2, STAT_YC); // 补给
                         step = 7;
                         nextStepFrame = frame + 10;
                         break;
                     case 7:
-                        require(voyageOverlay() != null && voyageOverlay().name().equals("PORT"),
-                                "port popup not reopened via rail, got " + voyageOverlay());
-                        require(tapButton("关闭"), "could not close reopened port popup");
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("STAT"),
+                                "stat popup closed unexpectedly, got " + voyageOverlay());
+                        require(findText("补给 · 说明") != null, "stat popup did not switch to 补给");
+                        require(tapButton("关闭"), "could not close stat popup");
                         step = 8;
                         nextStepFrame = frame + 10;
                         break;
                     case 8:
                         require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
-                                "overlay should be NONE after 2nd close, got " + voyageOverlay());
-                        System.out.println("SMOKE: 港口 rail reopens the popup; 关闭 works (docked, no menu)");
+                                "stat popup did not close, got " + voyageOverlay());
+                        // tap the 船长 avatar -> save/load menu
+                        tapScreen(AVATAR_X, AVATAR_YC);
                         step = 9;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 9: // avatar menu open
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("AVATAR"),
+                                "avatar menu not open, got " + voyageOverlay());
+                        require(findText("保存进度") != null && findText("读取存档") != null,
+                                "avatar save/load buttons missing");
+                        require(tapButton("关闭"), "could not close avatar menu");
+                        step = 10;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 10:
+                        require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
+                                "avatar menu did not close, got " + voyageOverlay());
+                        System.out.println("SMOKE: stat detail popups + avatar save/load menu OK");
+                        step = 11;
                         nextStepFrame = frame + 6;
                         break;
-                    case 9: // 0.25.2 fix: joystick while docked + menu CLOSED must undock
+                    case 11: // 港口 rail reopens the popup while still docked
+                        require(tapButton("港口"), "could not tap rail 港口");
+                        step = 12;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 12:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("PORT"),
+                                "port popup not reopened via rail, got " + voyageOverlay());
+                        require(tapButton("关闭"), "could not close reopened port popup");
+                        step = 13;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 13:
+                        require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
+                                "overlay should be NONE after 2nd close, got " + voyageOverlay());
+                        System.out.println("SMOKE: 港口 rail reopens the popup; 关闭 works (docked, no menu)");
+                        step = 14;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 14: // 0.25.2 fix: joystick while docked + menu CLOSED must undock
                         h0 = voyageState().headingDeg;
                         require(voyageState().dockedPort == 0, "expected still docked before joystick, got "
                                 + voyageState().dockedPort);
@@ -177,20 +236,20 @@ public class SmokeTestLauncher {
                         // heading (manualHeadingActive), not an angular steerInput.
                         // Aim 60 deg off the current heading so the turn is certain.
                         joystickAimAt(h0 + 60f);
-                        step = 10;
+                        step = 15;
                         nextStepFrame = frame + 4;
                         break;
-                    case 10:
+                    case 15:
                         GameState st2 = voyageState();
                         require(st2.dockedPort == -1,
                                 "joystick did not undock the ship (dockedPort=" + st2.dockedPort + ")");
                         require(st2.manualHeadingActive,
                                 "joystick drag did not arm the heading aim (manualHeadingActive=false)");
                         System.out.println("SMOKE: docked+menu-closed joystick undocked & aiming (dockedPort=-1)");
-                        step = 11;
+                        step = 16;
                         nextStepFrame = frame + 16; // let the turn accumulate
                         break;
-                    case 11:
+                    case 16:
                         float h1 = voyageState().headingDeg;
                         float turn = Math.abs(h1 - h0);
                         if (turn > 180f) turn = 360f - turn;
@@ -199,32 +258,32 @@ public class SmokeTestLauncher {
                         joystickRelease();
                         require(voyageState().holdAccel == false, "unexpected accel state");
                         pressAccel();
-                        step = 12;
+                        step = 17;
                         nextStepFrame = frame + 16;
                         break;
-                    case 12:
+                    case 17:
                         float sp = voyageState().speed;
                         require(sp > 6f, "holding 加速 did not raise speed (speed=" + sp + ")");
                         System.out.println("SMOKE: 加速 raised speed to " + (int) sp);
                         releaseAccel();
                         pressDecel();
-                        step = 13;
+                        step = 18;
                         nextStepFrame = frame + 12;
                         break;
-                    case 13:
+                    case 18:
                         float spd = voyageState().speed;
                         require(spd < 12f, "holding 减速 did not cut speed (speed=" + spd + ")");
                         System.out.println("SMOKE: 减速 cut speed to " + (int) spd);
                         releaseDecel();
-                        step = 14;
+                        step = 19;
                         nextStepFrame = frame + 6;
                         break;
-                    case 14: // open cargo popup from the rail (at sea)
+                    case 19: // open cargo popup from the rail (at sea)
                         require(tapButton("货物"), "could not tap rail 货物");
-                        step = 15;
+                        step = 20;
                         nextStepFrame = frame + 10;
                         break;
-                    case 15:
+                    case 20:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("CARGO"),
                                 "cargo popup not open, got " + voyageOverlay());
                         int closes = countText("关闭");
@@ -233,39 +292,56 @@ public class SmokeTestLauncher {
                         require(findText("商货") != null || findText("[商货]") != null, "cargo tabs missing");
                         System.out.println("SMOKE: cargo popup open with tabs");
                         require(tapButton("关闭"), "could not tap cargo 关闭");
-                        step = 16;
+                        step = 21;
                         nextStepFrame = frame + 10;
                         break;
-                    case 16:
+                    case 21:
                         require(countText("关闭") == 0, "cargo popup did not close");
-                        step = 17;
+                        step = 22;
                         nextStepFrame = frame + 6;
                         break;
-                    case 17: // open codex popup
+                    case 22: // open codex popup
                         require(tapButton("图鉴"), "could not tap rail 图鉴");
-                        step = 18;
+                        step = 23;
                         nextStepFrame = frame + 10;
                         break;
-                    case 18:
+                    case 23:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("CODEX"),
                                 "codex popup not open, got " + voyageOverlay());
                         require(findText("异兽") != null, "codex section 异兽 missing");
                         require(tapButton("关闭"), "could not tap codex 关闭");
-                        step = 19;
+                        step = 24;
                         nextStepFrame = frame + 10;
                         break;
-                    case 19:
+                    case 24:
                         require(countText("关闭") == 0, "codex popup did not close");
-                        System.out.println("SMOKE: cargo/codex open+close OK");
-                        step = 20;
+                        step = 25;
                         nextStepFrame = frame + 6;
                         break;
-                    case 20: // open the full map via the round minimap
+                    case 25: // open 情报 popup (0.26.2 rail)
+                        require(tapButton("情报"), "could not tap rail 情报");
+                        step = 26;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 26:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("INTEL"),
+                                "intel popup not open, got " + voyageOverlay());
+                        System.out.println("SMOKE: cargo/codex/intel open+close OK");
+                        require(tapButton("关闭"), "could not tap intel 关闭");
+                        step = 27;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 27:
+                        require(countText("关闭") == 0, "intel popup did not close");
+                        step = 28;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 28: // open the full map via the round minimap
                         tapScreen(MM_X, MM_Y);
-                        step = 21;
+                        step = 29;
                         nextStepFrame = frame + 8;
                         break;
-                    case 21:
+                    case 29:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("MAP"),
                                 "full map not open, got " + voyageOverlay());
                         require(!stageVisible(), "HUD stage must be hidden under the full-map modal");
@@ -286,36 +362,36 @@ public class SmokeTestLauncher {
                         System.out.println("SMOKE: full-map modal covers the HUD (stage hidden)");
                         saveShot("map-modal");
                         verifyMapShot();
-                        step = 22;
+                        step = 30;
                         nextStepFrame = frame + 6;
                         break;
-                    case 22: // modal 关闭 button closes it
+                    case 30: // modal 关闭 button closes it
                         tapScreen(FM_CLOSE_X, FM_CLOSE_Y);
-                        step = 23;
+                        step = 31;
                         nextStepFrame = frame + 8;
                         break;
-                    case 23:
+                    case 31:
                         require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
                                 "map modal 关闭 did not close it, got " + voyageOverlay());
                         require(stageVisible(), "stage should be visible again after closing the modal");
                         System.out.println("SMOKE: map modal 关闭 works, HUD back");
-                        step = 24;
+                        step = 32;
                         nextStepFrame = frame + 6;
                         break;
-                    case 24: // reopen and tap a far port -> auto-sail
+                    case 32: // reopen and tap a far port -> auto-sail
                         tapScreen(MM_X, MM_Y);
-                        step = 25;
+                        step = 33;
                         nextStepFrame = frame + 8;
                         break;
-                    case 25:
+                    case 33:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("MAP"),
                                 "full map not reopened, got " + voyageOverlay());
                         float[] xy = mapPortToScreen(TARGET_PORT);
                         tapScreen((long) xy[0], (long) xy[1]);
-                        step = 26;
+                        step = 34;
                         nextStepFrame = frame + 8;
                         break;
-                    case 26:
+                    case 34:
                         GameState st3 = voyageState();
                         require(st3.autoSail && st3.autoSailPort == TARGET_PORT,
                                 "auto-sail not set for port " + TARGET_PORT + " (autoSail=" + st3.autoSail
@@ -340,27 +416,27 @@ public class SmokeTestLauncher {
                         st3.pirateFireCd = 0f;
                         pirateHp0 = st3.pirateHp;
                         hull0 = st3.hull;
-                        step = 27;
+                        step = 35;
                         nextStepFrame = frame + 6;
                         break;
-                    case 27:
+                    case 35:
                         require(findExactButton("锁定海盗") != null,
                                 "pirate lock UI is not visible");
                         // World viewport is 960x540 in a 1280x720 window. Enemy is
                         // exactly +200 world units from the centred player.
                         tapScreen(640 + Math.round(200f * 1280f / 960f), 360);
-                        step = 28;
+                        step = 36;
                         nextStepFrame = frame + 6;
                         break;
-                    case 28:
+                    case 36:
                         GameState fight = voyageState();
                         require(fight.combatLock, "tapping pirate ship did not lock it");
                         require(findExactButton("取消锁定") != null,
                                 "cancel-lock UI is not visible after locking");
-                        step = 29;
+                        step = 37;
                         nextStepFrame = frame + 55;
                         break;
-                    case 29:
+                    case 37:
                         GameState exchanged = voyageState();
                         require(exchanged.pirateHp < pirateHp0,
                                 "locked pirate did not take automatic cannon damage");
@@ -403,17 +479,58 @@ public class SmokeTestLauncher {
                 return stage.getRoot().isVisible();
             }
 
-            /** All three rail buttons present anywhere in the stage. */
+            /** 0.26.2 top HUD: circular 船长 avatar + the four stat cells with
+             * their live value labels, all present anywhere in the stage. */
+            private boolean avatarAndStatsPresent() throws Exception {
+                boolean ok = findExactButton("船长") != null;
+                for (String nm : new String[] {"银两", "补给", "耐久", "船员"}) {
+                    ok &= namedCell(nm) != null;
+                }
+                return ok;
+            }
+
+            private Actor namedCell(String name) throws Exception {
+                for (Actor a : stage.getRoot().getChildren()) {
+                    Actor hit = findNamed(name, a);
+                    if (hit != null) return hit;
+                }
+                return null;
+            }
+
+            private Actor findNamed(String name, Actor a) {
+                if (name.equals(a.getName())) return a;
+                if (a instanceof Group) {
+                    for (Actor c : ((Group) a).getChildren()) {
+                        Actor hit = findNamed(name, c);
+                        if (hit != null) return hit;
+                    }
+                }
+                return null;
+            }
+
+            /** All five rail buttons present anywhere in the stage. */
             private boolean railPresent() throws Exception {
                 return findExactButton("货物") != null
                         && findExactButton("图鉴") != null
-                        && findExactButton("港口") != null;
+                        && findExactButton("港口") != null
+                        && findExactButton("情报") != null
+                        && findExactButton("任务") != null;
             }
 
             /** Under the modal the stage root is invisible, so hits on the rail /
              * accel areas must return null (nothing below is clickable). */
             private boolean noStageHitAtRail() throws Exception {
-                int[][] pts = {{55, 140}, {55, 216}, {55, 292}, {1200, 620}};
+                // 0.26.2 rail column centers (top-right), plus the avatar and the
+                // bottom-right accel/decel stack.
+                int[][] pts = {
+                        {RAIL_X, RAIL_TOP_Y},
+                        {RAIL_X, RAIL_TOP_Y + 56},
+                        {RAIL_X, RAIL_TOP_Y + 112},
+                        {RAIL_X, RAIL_TOP_Y + 168},
+                        {RAIL_X, RAIL_TOP_Y + 224},
+                        {AVATAR_X, AVATAR_YC},
+                        {1200, 620}
+                };
                 for (int[] p : pts) {
                     Vector2 sp = stage.screenToStageCoordinates(new Vector2(p[0], p[1]));
                     if (stage.hit(sp.x, sp.y, true) != null) {
@@ -508,6 +625,8 @@ public class SmokeTestLauncher {
                 }
             }
 
+            /** Tap an actor found by exact TextButton text OR by its stage name
+             * (the 0.26.2 icon rail / avatar are named Tables with no text). */
             private boolean tapButton(String text) throws Exception {
                 Actor a = findExactButton(text);
                 if (a == null) {
@@ -528,6 +647,7 @@ public class SmokeTestLauncher {
 
             private Actor findExactButtonIn(String text, Actor a) {
                 if (a instanceof TextButton && text.equals(((TextButton) a).getText().toString())) return a;
+                if (text.equals(a.getName())) return a;   // 0.26.2 named icon buttons
                 if (a instanceof Group) {
                     for (Actor c : ((Group) a).getChildren()) {
                         Actor hit = findExactButtonIn(text, c);

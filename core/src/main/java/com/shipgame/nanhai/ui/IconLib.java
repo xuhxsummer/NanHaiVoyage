@@ -52,6 +52,18 @@ public final class IconLib {
         return get("herbs", HERB_SLUGS, i);
     }
 
+    /** Drawable for a 0.26.2 HUD icon by name (silver/supply/hull/crew/avatar/
+     * cargo/codex/port/intel/quest/sun), or null if the PNG is missing. */
+    public static TextureRegionDrawable hud(String slug) {
+        String key = "hud/" + slug;
+        if (cache.containsKey(key)) {
+            return cache.get(key);
+        }
+        TextureRegionDrawable d = tryLoad("hud", slug);
+        cache.put(key, d);
+        return d;
+    }
+
     private static TextureRegionDrawable get(String folder, String[] slugs, int i) {
         if (i < 0 || i >= slugs.length) {
             return null;

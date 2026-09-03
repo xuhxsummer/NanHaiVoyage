@@ -6,7 +6,9 @@ import com.badlogic.gdx.math.MathUtils;
 /** Runtime voyage: ship, cargo, weather, pirates, port/island actions. */
 public class GameState {
 
-    public enum WeatherKind { CLEAR, RAIN, FOG }
+    // 0.26.2: weather is always sunny. Kept as a one-value enum so later
+    // versions can reintroduce rain/fog without a save-data migration.
+    public enum WeatherKind { CLEAR }
 
     public float x, y, headingDeg, speed;
     public float hull, hullMax = Catalog.HULL_MAX;
@@ -35,6 +37,8 @@ public class GameState {
     public int autoSailPort = -1;   // auto-sail target port (>=0) when sailing to a port
     public int autoSailIsle = -1;   // auto-sail target island when sailing to an island
 
+    // 0.26.2: weather is always 晴 (sunny). Wind still shifts so sailing keeps
+    // its variety; rain/fog no longer occur.
     public WeatherKind weather = WeatherKind.CLEAR;
     public float windDeg = 90f;
     public float windStr = 0.35f;
@@ -46,7 +50,20 @@ public class GameState {
     public boolean combatLock;
     public float playerFireCd, pirateFireCd;
     public float pirateSpawnTimer = 12f;
-    public float muzzleFlash;
+    // 0.26.2: discrete flying cannonballs instead of an instant laser line.
+    // Runtime-only (never persisted). Player balls are white, pirate balls black.
+    public static final int MAX_BALLS = 16;
+    public int ballCount;
+    public final float[] ballX = new float[MAX_BALLS];
+    public final float[] ballY = new float[MAX_BALLS];
+    public final float[] ballSX = new float[MAX_BALLS];
+    public final float[] ballSY = new float[MAX_BALLS];
+    public final float[] ballDX = new float[MAX_BALLS];
+    public final float[] ballDY = new float[MAX_BALLS];
+    public final float[] ballDist = new float[MAX_BALLS];
+    public final float[] ballT = new float[MAX_BALLS];     // seconds remaining
+    public final float[] ballDur = new float[MAX_BALLS];
+    public final boolean[] ballFromPlayer = new boolean[MAX_BALLS];
 
     public boolean holdAccel, holdDecel;
     public float steerInput; // -1..1 from stick / A-D
@@ -348,7 +365,6 @@ public class GameState {
                 tryApproach();
             }
         }
-        muzzleFlash = Math.max(0f, muzzleFlash - dt);
     }
 
     private void applySteerAndSpeed(float dt) {
@@ -416,14 +432,7 @@ public class GameState {
         weatherTimer = 16f + MathUtils.random(22f);
         windDeg = wrapDeg(windDeg + MathUtils.random(-80f, 80f));
         windStr = 0.15f + MathUtils.random(0.7f);
-        float r = MathUtils.random();
-        if (r < 0.55f) {
-            weather = WeatherKind.CLEAR;
-        } else if (r < 0.78f) {
-            weather = WeatherKind.RAIN;
-        } else {
-            weather = WeatherKind.FOG;
-        }
+        weather = WeatherKind.CLEAR; // 0.26.2: 常年晴，无雨雾
     }
 
     private void tryApproach() {
@@ -859,29 +868,20 @@ public class GameState {
             stopAutoSail();
             return;
         }
+        // Player fires a WHITE cannonball (damage lands when it reaches the
+        // pirate, not instantly). Pirate fires BLACK balls back, 1 point each.
         if (combatLock && d <= Catalog.PIRATE_RANGE) {
             playerFireCd -= dt;
             if (playerFireCd <= 0f) {
                 playerFireCd = fireInterval();
-                pirateChase = true;
-                pirateHp -= 1f; // 0.25.9: every player hit deals a flat 1 point
-                muzzleFlash = 0.12f;
-                if (pirateHp <= 0f) {
-                    winCombat();
-                    return;
-                }
+                spawnBall(true, x, y, pirateX, pirateY);
             }
         }
         if (d <= Catalog.PIRATE_RANGE) {
             pirateFireCd -= dt;
             if (pirateFireCd <= 0f) {
                 pirateFireCd = Catalog.PIRATE_FIRE_INTERVAL;
-                hull -= Catalog.PIRATE_SHOT;
-                if (hull <= 0f) {
-                    hull = 0f;
-                    fail("船沉");
-                    return;
-                }
+                spawnBall(false, pirateX, pirateY, x, y);
             }
         }
         if (pirateChase) {
@@ -893,6 +893,94 @@ public class GameState {
             pirateX += MathUtils.cos(rad) * chase * dt;
             pirateY += MathUtils.sin(rad) * chase * dt;
         }
+        updateBalls(dt);
+    }
+
+    /** Fires one cannonball along a straight line toward the target. Travel time
+     * scales with distance (~0.2-0.5s), so balls are visible in flight. */
+    private void spawnBall(boolean fromPlayer, float sx, float sy, float tx, float ty) {
+        if (ballCount >= MAX_BALLS) {
+            return;
+        }
+        float dx = tx - sx, dy = ty - sy;
+        float dist = (float) Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1f) {
+            dist = 1f;
+        }
+        float dur = 0.10f + dist / 1500f;
+        if (dur > 0.5f) dur = 0.5f;
+        int i = ballCount;
+        ballSX[i] = sx;
+        ballSY[i] = sy;
+        ballX[i] = sx;
+        ballY[i] = sy;
+        ballDX[i] = dx / dist;
+        ballDY[i] = dy / dist;
+        ballDist[i] = dist;
+        ballT[i] = dur;
+        ballDur[i] = dur;
+        ballFromPlayer[i] = fromPlayer;
+        ballCount++;
+    }
+
+    /** Advances every ball; damage is applied only when a ball reaches its
+     * target (misses if the enemy sailed away beyond the hit radius). */
+    private void updateBalls(float dt) {
+        int i = 0;
+        while (i < ballCount) {
+            ballT[i] -= dt;
+            float p = 1f - MathUtils.clamp(ballT[i] / Math.max(ballDur[i], 1e-4f), 0f, 1f);
+            ballX[i] = ballSX[i] + ballDX[i] * ballDist[i] * p;
+            ballY[i] = ballSY[i] + ballDY[i] * ballDist[i] * p;
+            if (ballT[i] > 0f) {
+                i++;
+                continue;
+            }
+            boolean hit = false;
+            if (ballFromPlayer[i] && pirateAlive
+                    && Catalog.dist(ballX[i], ballY[i], pirateX, pirateY) <= 100f) {
+                // 0.25.9: every player hit deals a flat 1 point.
+                pirateHp -= 1f;
+                pirateChase = true;
+                hit = true;
+                if (pirateHp <= 0f) {
+                    removeBall(i);
+                    winCombat();
+                    return;
+                }
+            } else if (!ballFromPlayer[i]
+                    && Catalog.dist(ballX[i], ballY[i], x, y) <= 90f) {
+                hull -= Catalog.PIRATE_SHOT; // 1 点耐久 / 海盗弹
+                hit = true;
+                if (hull <= 0f) {
+                    removeBall(i);
+                    hull = 0f;
+                    fail("船沉");
+                    return;
+                }
+            }
+            removeBall(i);
+            if (!hit) {
+                // miss: ball splashes into the sea, nothing else happens
+            }
+        }
+    }
+
+    private void removeBall(int i) {
+        int last = ballCount - 1;
+        if (i != last) {
+            ballSX[i] = ballSX[last];
+            ballSY[i] = ballSY[last];
+            ballX[i] = ballX[last];
+            ballY[i] = ballY[last];
+            ballDX[i] = ballDX[last];
+            ballDY[i] = ballDY[last];
+            ballDist[i] = ballDist[last];
+            ballT[i] = ballT[last];
+            ballDur[i] = ballDur[last];
+            ballFromPlayer[i] = ballFromPlayer[last];
+        }
+        ballCount--;
     }
 
     private void winCombat() {
@@ -917,7 +1005,7 @@ public class GameState {
         pirateAlive = false;
         combatLock = false;
         pirateChase = false;
-        muzzleFlash = 0f;
+        ballCount = 0; // in-flight balls vanish with the encounter
     }
 
     public void fail(String reason) {
@@ -943,17 +1031,6 @@ public class GameState {
             return "逆风";
         }
         return "侧风";
-    }
-
-    public String weatherLabel() {
-        switch (weather) {
-            case RAIN:
-                return "雨";
-            case FOG:
-                return "雾";
-            default:
-                return "晴";
-        }
     }
 
     private static float wrapDeg(float d) {

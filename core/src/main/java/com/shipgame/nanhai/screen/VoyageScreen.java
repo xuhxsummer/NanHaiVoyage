@@ -15,6 +15,7 @@ import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.ui.Image;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
@@ -44,16 +45,21 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float MM_CX = HUD_W - 106f;
     private static final float MM_CY = HUD_H - 104f;
     private static final float MM_R = 80f;
-    // Captain avatar: top-left, just under the live status line (no bottom-left
-    // avatar anymore — the bottom-left belongs to the virtual joystick only).
-    private static final float AV_X = 62f;
-    private static final float AV_Y = 660f;
-    private static final float AV_R = 20f;
-    // Far-left circular action buttons 货物/图鉴/港口 stacked on the left edge.
-    private static final float LB_X = 55f;       // button center x
-    private static final float LB_SIZE = 70f;    // button diameter
-    private static final float LB_GAP = 76f;     // center-to-center spacing
-    private static final float LB_TOP = 580f;    // center y of the top (货物) button
+    // Captain avatar (top-left): tap opens the 船长菜单 (save/load). Right of it
+    // sits the stat panel with ICON+NUMBER for 银两/补给/耐久/船员; each cell
+    // opens a short detail popup.
+    private static final float AV_X = 44f;       // avatar circle center
+    private static final float AV_Y = 682f;
+    private static final float AV_R = 28f;
+    private static final float STAT_Y = 654f;    // bottom edge of the stat panel
+    private static final float STAT_CELL_W = 98f;
+    private static final float STAT_CELL_H = 56f;
+    // Top-right icon rail: five round icon buttons in a column just LEFT of the
+    // round minimap (replaces the old left-edge text rail).
+    private static final float NR_X = MM_CX - MM_R - 44f;  // column center x
+    private static final float NR_D = 54f;                 // button diameter
+    private static final float NR_TOP = 664f;              // top button center y
+    private static final float NR_GAP = 56f;               // center-to-center
     // Full-map modal geometry (overlay == Overlay.MAP): the map is a fullscreen
     // dimmed rect with the map area centered; its 关闭 button sits top-right.
     private static final float FM_X = 90f, FM_Y = 90f, FM_W = 1100f, FM_H = 540f;
@@ -62,9 +68,7 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float FM_CLOSE_W = 104f;
     private static final float FM_CLOSE_H = 28f;
 
-    private static final Color WATER = new Color(0.10f, 0.36f, 0.52f, 1f);
-    private static final Color WATER_RAIN = new Color(0.08f, 0.22f, 0.34f, 1f);
-    private static final Color WATER_FOG = new Color(0.22f, 0.32f, 0.38f, 1f);
+    private static final Color WATER = new Color(0.10f, 0.36f, 0.52f, 1f); // 0.26.2: 常年晴
     private static final Color GRID = new Color(0.14f, 0.42f, 0.58f, 1f);
     private static final Color HULL = new Color(0.70f, 0.38f, 0.18f, 1f);
     private static final Color SAIL = new Color(0.93f, 0.90f, 0.80f, 1f);
@@ -78,7 +82,8 @@ public class VoyageScreen extends ScreenAdapter {
         // 0.26.0 sub-views: MARKET is the paged buy/sell screen reachable from
         // the docked actions menu; AVATAR is the paused 船长菜单 (save/load);
         // HOWTO is the first-run 玩法说明 popup shown once per install.
-        MARKET, AVATAR, HOWTO, INTEL, QUESTS
+        // 0.26.2: STAT is the detail popup opened from a top stat cell.
+        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT
     }
 
     /** 0.26.0 first-run gameplay help. Body is verbatim from howto_spec.txt:
@@ -128,17 +133,17 @@ public class VoyageScreen extends ScreenAdapter {
 
     private Table menuRoot;
     private Label hudLine;
-    private TextButton btnCargo;
-    private TextButton btnCodex;
-    private TextButton btnCtx;      // 港口 / 岛屿 contextual reopen
-    private TextButton btnIntel;    // 情报 market-intel overlay
-    private TextButton btnQuests;   // 任务 quest overlay
-    private TextButton btnQuestState; // active-quest pill under the round 任务 button
+    private Label[] statVals = new Label[4];   // live numbers in the top stat cells
+    private TextButton btnQuestState;          // active-quest pill under the rail
     private TextButton btnCancelAuto;
     private TextButton btnLockPirate;
     private TextButton btnCancelLock;
     private TextButton btnAccel;
     private TextButton btnDecel;
+    // Stat-detail popup state (Overlay.STAT): 0=银两 1=补给 2=耐久 3=船员
+    private int statDetail;
+    private static final String[] STAT_SLUGS = {"silver", "supply", "hull", "crew"};
+    private static final String[] STAT_NAMES = {"银两", "补给", "耐久", "船员"};
 
     private boolean stickActive;
     private float stickCX = 170f, stickCY = 180f, stickR = 60f;
@@ -246,19 +251,57 @@ public class VoyageScreen extends ScreenAdapter {
         pixelMap = null;
     }
 
+    // Active-quest pill parked under the top-right rail column.
+    private static final float QP_W = 210f;
+    private static final float QP_H = 40f;
+
     private void buildHud() {
         stage.clear();
 
-        // Top-left live status line.
+        // --- Top-left: circular captain avatar (tap opens save/load). ---
+        TextureRegionDrawable avatarIcon = IconLib.hud("avatar");
+        Table avatarBtn = new Table();
+        avatarBtn.setName("船长");
+        avatarBtn.setBackground(circleBg(new Color(0.17f, 0.12f, 0.10f, 0.96f)));
+        if (avatarIcon != null) {
+            avatarBtn.add(new Image(avatarIcon)).size(50, 50);
+        } else {
+            avatarBtn.add(new Label("船长", game.skin, "small"));
+        }
+        avatarBtn.addListener(click(this::toggleAvatar));
+        avatarBtn.setBounds(AV_X - AV_R, AV_Y - AV_R, AV_R * 2f, AV_R * 2f);
+        stage.addActor(avatarBtn);
+
+        // --- Stat panel right of the avatar: ICON + NUMBER per resource, each
+        // cell tappable -> detail popup (Overlay.STAT). ---
+        Table statPanel = new Table();
+        statPanel.setBackground(game.skin.getDrawable("panel"));
+        for (int i = 0; i < 4; i++) {
+            final int idx = i;
+            Table cell = new Table();
+            cell.setName(STAT_NAMES[i]);
+            TextureRegionDrawable ico = IconLib.hud(STAT_SLUGS[i]);
+            if (ico != null) {
+                cell.add(new Image(ico)).size(26, 26).padRight(4);
+            }
+            statVals[i] = new Label("0", game.skin, "small");
+            statVals[i].setAlignment(Align.left);
+            cell.add(statVals[i]).width(52).left();
+            cell.addListener(click(() -> statClicked(idx)));
+            statPanel.add(cell).width(STAT_CELL_W).height(STAT_CELL_H);
+        }
+        statPanel.pack();
+        statPanel.setPosition(AV_X + AV_R + 10f, STAT_Y);
+        stage.addActor(statPanel);
+
+        // Caption row under the stat panel: the rest of the voyage status.
         hudLine = new Label("", game.skin, "small");
         hudLine.setAlignment(Align.left);
-        Table top = new Table();
-        top.setFillParent(true);
-        top.top().left().pad(12);
-        top.add(hudLine).left().expandX().fillX();
-        stage.addActor(top);
+        hudLine.setWrap(false);
+        hudLine.setBounds(16f, STAT_Y - 28f, 660f, 22f);
+        stage.addActor(hudLine);
 
-        // Bottom-right 加速 / 减速 (hold to keep sailing).
+        // --- Bottom-right 加速 / 减速 (hold to keep sailing). ---
         Table right = new Table();
         right.setFillParent(true);
         right.bottom().right().pad(16);
@@ -270,76 +313,38 @@ public class VoyageScreen extends ScreenAdapter {
         right.add(btnDecel).width(124).height(72).pad(6);
         stage.addActor(right);
 
-        // Right-side vertical quest button (任务). Opens the quest overlay.
-        btnQuests = new TextButton("任务", game.skin, "circ");
-        btnQuests.addListener(click(this::toggleQuestOverlay));
-        stage.addActor(btnQuests);
-        // Compact pill under the round button: the single current active quest
-        // (first incomplete/unclaimed) with its progress — never a list on the HUD.
+        // --- Sun weather icon + 今日：晴 tip under the round minimap (0.26.2:
+        // no rain, no fog). ---
+        TextureRegionDrawable sun = IconLib.hud("sun");
+        if (sun != null) {
+            Image sunImg = new Image(sun);
+            sunImg.setBounds(MM_CX - 98f, MM_CY - MM_R - 34f, 24f, 24f);
+            stage.addActor(sunImg);
+        }
+        Label today = new Label("今日：晴", game.skin, "small");
+        today.setBounds(MM_CX - 68f, MM_CY - MM_R - 30f, 150f, 20f);
+        stage.addActor(today);
+
+        // --- Top-right icon rail: 货物/图鉴/港口/情报/任务 just LEFT of the round
+        // minimap (old left-edge text column is gone). ---
+        String[] railSlugs = {"cargo", "codex", "port", "intel", "quest"};
+        String[] railNames = {"货物", "图鉴", "港口", "情报", "任务"};
+        Runnable[] railActs = {this::toggleCargo, this::toggleCodex, this::contextReopen,
+                this::openIntel, this::toggleQuestOverlay};
+        for (int i = 0; i < railSlugs.length; i++) {
+            Table b = iconBtn(railNames[i], railSlugs[i], railActs[i]);
+            b.setBounds(NR_X - NR_D / 2f, railCy(i) - NR_D / 2f, NR_D, NR_D);
+            stage.addActor(b);
+        }
+        // Active-quest pill under the rail column: the single current active
+        // quest (first incomplete/unclaimed) with its progress.
         btnQuestState = new TextButton("", game.skin);
         btnQuestState.getLabel().setFontScale(0.8f);
         btnQuestState.addListener(click(this::toggleQuestOverlay));
         btnQuestState.setVisible(false);
+        float pillTop = railCy(railSlugs.length - 1) - NR_D / 2f - 8f;
+        btnQuestState.setBounds(NR_X - QP_W / 2f, pillTop - QP_H, QP_W, QP_H);
         stage.addActor(btnQuestState);
-        placeQuestButton();
-
-        // Far-left circular rail: 货物 / 图鉴 / 港口 on the very left edge. They are
-        // real stage actors sized 70x70, stacked vertically, clear of both the
-        // avatar (top-left) and the joystick (bottom-left).
-        btnCargo = roundBtn("货物");
-        btnCodex = roundBtn("图鉴");
-        btnCtx = roundBtn("港口");
-        btnCargo.addListener(click(() -> {
-            if (overlay == Overlay.CARGO) {
-                closePopup();
-            } else if (overlay != Overlay.MAP) {
-                overlay = Overlay.CARGO;
-                rebuildMenu();
-            }
-        }));
-        btnCodex.addListener(click(() -> {
-            if (overlay == Overlay.CODEX) {
-                closePopup();
-            } else if (overlay != Overlay.MAP) {
-                overlay = Overlay.CODEX;
-                rebuildMenu();
-            }
-        }));
-        btnCtx.addListener(click(() -> {
-            if (overlay == Overlay.PORT && g.dockedPort >= 0) {
-                closePopup();
-            } else if (overlay == Overlay.ISLAND && g.islandMenu >= 0) {
-                closePopup();
-            } else if (g.dockedPort >= 0) {
-                dismissedPort = -1; // manual reopen re-enables auto-open rules
-                overlay = Overlay.PORT;
-                rebuildMenu();
-            } else if (g.islandMenu >= 0) {
-                dismissedIsland = -1;
-                overlay = Overlay.ISLAND;
-                rebuildMenu();
-            } else {
-                g.toast("不在港口或岛屿附近：靠近港口/岛屿会自动弹出菜单。");
-            }
-        }));
-        btnIntel = roundBtn("情报");
-        btnIntel.addListener(click(() -> {
-            if (overlay == Overlay.INTEL) {
-                closePopup();
-            } else if (overlay != Overlay.MAP) {
-                overlay = Overlay.INTEL;
-                markIntelViewed();
-                rebuildMenu();
-            }
-        }));
-        placeRailButton(btnCargo, 0);
-        placeRailButton(btnCodex, 1);
-        placeRailButton(btnCtx, 2);
-        placeRailButton(btnIntel, 3);
-        stage.addActor(btnCargo);
-        stage.addActor(btnCodex);
-        stage.addActor(btnCtx);
-        stage.addActor(btnIntel);
 
         // Contextual 取消自动 / 取消锁定 — slim strip at the very top-center so no
         // popup or HUD element can swallow their touches.
@@ -367,38 +372,104 @@ public class VoyageScreen extends ScreenAdapter {
         stage.addActor(menuRoot);
     }
 
-    private TextButton roundBtn(String label) {
-        TextButton b = new TextButton(label, game.skin, "circ");
-        b.getLabel().setFontScale(1f);
-        return b;
-    }
-
-    /** Positions the i-th left-rail circular button (0 = 货物 top, 2 = 港口 bottom). */
-    private void placeRailButton(TextButton b, int i) {
-        float cy = LB_TOP - i * LB_GAP;
-        b.setBounds(LB_X - LB_SIZE / 2f, cy - LB_SIZE / 2f, LB_SIZE, LB_SIZE);
-    }
-
-    /** Right-side quest button: vertical stack near the right edge, above the
-     * accel/decel buttons and clear of the minimap on the top-right. */
-    private static final float QB_X = HUD_W - 55f;   // button center x
-    private static final float QB_SIZE = 70f;        // button diameter
-    private static final float QB_TOP = 460f;        // center y of the top
-    private static final float QB_GAP = 76f;         // center-to-center spacing
-    private int questBtnIndex = 0;
-    // Active-quest pill parked below the round button, flush to the right edge.
-    private static final float QP_W = 212f;
-    private static final float QP_H = 40f;
-
-    private void placeQuestButton() {
-        float cy = QB_TOP - questBtnIndex * QB_GAP;
-        btnQuests.setBounds(QB_X - QB_SIZE / 2f, cy - QB_SIZE / 2f, QB_SIZE, QB_SIZE);
-        if (btnQuestState != null) {
-            btnQuestState.setBounds(HUD_W - 16f - QP_W, cy - QB_SIZE / 2f - QP_H - 8f, QP_W, QP_H);
+    /** Tap a top stat cell: opens (or switches) the detail popup for that stat. */
+    private void statClicked(int idx) {
+        if (overlay == Overlay.STAT && statDetail == idx) {
+            closePopup();
+        } else if (overlay != Overlay.MAP) {
+            statDetail = idx;
+            overlay = Overlay.STAT;
+            rebuildMenu();
         }
     }
 
-    /** Round 任务 button and the active-quest pill both open/close the quest popup. */
+    /** Avatar opens the paused 船长菜单 (save/load) only from a neutral HUD. */
+    private void toggleAvatar() {
+        if (overlay == Overlay.AVATAR) {
+            closePopup();
+        } else if (overlay == Overlay.NONE) {
+            overlay = Overlay.AVATAR;
+            rebuildMenu();
+        }
+    }
+
+    private void toggleCargo() {
+        if (overlay == Overlay.CARGO) {
+            closePopup();
+        } else if (overlay != Overlay.MAP) {
+            overlay = Overlay.CARGO;
+            rebuildMenu();
+        }
+    }
+
+    private void toggleCodex() {
+        if (overlay == Overlay.CODEX) {
+            closePopup();
+        } else if (overlay != Overlay.MAP) {
+            overlay = Overlay.CODEX;
+            rebuildMenu();
+        }
+    }
+
+    /** 港口/岛屿 icon: reopen the context menu of wherever the ship is. */
+    private void contextReopen() {
+        if (overlay == Overlay.PORT && g.dockedPort >= 0) {
+            closePopup();
+        } else if (overlay == Overlay.ISLAND && g.islandMenu >= 0) {
+            closePopup();
+        } else if (g.dockedPort >= 0) {
+            dismissedPort = -1; // manual reopen re-enables auto-open rules
+            overlay = Overlay.PORT;
+            rebuildMenu();
+        } else if (g.islandMenu >= 0) {
+            dismissedIsland = -1;
+            overlay = Overlay.ISLAND;
+            rebuildMenu();
+        } else {
+            g.toast("不在港口或岛屿附近：靠近港口/岛屿会自动弹出菜单。");
+        }
+    }
+
+    private void openIntel() {
+        if (overlay == Overlay.INTEL) {
+            closePopup();
+        } else if (overlay != Overlay.MAP) {
+            overlay = Overlay.INTEL;
+            markIntelViewed();
+            rebuildMenu();
+        }
+    }
+
+    /** Round icon button: circle background + centered pixel icon, named after
+     * its meaning so the desktop smoke test can find it by name. */
+    private Table iconBtn(String name, String slug, Runnable onTap) {
+        Table b = new Table();
+        b.setName(name);
+        b.setBackground(circleBg(new Color(0.13f, 0.27f, 0.37f, 0.96f)));
+        TextureRegionDrawable ico = IconLib.hud(slug);
+        if (ico != null) {
+            b.add(new Image(ico)).size(30, 30);
+        } else {
+            b.add(new Label(name, game.skin, "small"));
+        }
+        b.addListener(click(onTap));
+        return b;
+    }
+
+    private float railCy(int i) {
+        return NR_TOP - i * NR_GAP;
+    }
+
+    /** Tinted copy of the white circle texture (never mutates the skin copy). */
+    private Drawable circleBg(Color c) {
+        TextureRegionDrawable base = (TextureRegionDrawable) game.skin.getDrawable("circle");
+        TextureRegionDrawable d = new TextureRegionDrawable(base.getRegion());
+        d.tint(c);
+        return d;
+    }
+
+    /** The round rail 任务 icon and the active-quest pill both open/close the
+     * quest popup. */
     private void toggleQuestOverlay() {
         if (overlay == Overlay.QUESTS) {
             closePopup();
@@ -524,7 +595,6 @@ public class VoyageScreen extends ScreenAdapter {
     private void rebuildMenu() {
         updateQuestButtonLabel();
         menuRoot.clear();
-        refreshBaseCtx();
         if (overlay == Overlay.NONE || overlay == Overlay.MAP) {
             return;
         }
@@ -553,24 +623,14 @@ public class VoyageScreen extends ScreenAdapter {
             intelTable(box);
         } else if (overlay == Overlay.QUESTS) {
             questsTable(box);
+        } else if (overlay == Overlay.STAT) {
+            statTable(box);
         }
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
         boolean wide = overlay == Overlay.PORT || overlay == Overlay.MARKET;
         float pw = wide ? PORT_MENU_W + 24f : (overlay == Overlay.QUESTS ? 560f : 520f);
         menuRoot.add(sp).width(pw).maxHeight(560);
-    }
-
-    /** Left-rail context label: 港口 always; becomes 岛屿 while pausing on an island. */
-    private void refreshBaseCtx() {
-        if (g == null) {
-            return;
-        }
-        if (g.islandMenu >= 0) {
-            btnCtx.setText("岛屿");
-        } else {
-            btnCtx.setText("港口");
-        }
     }
 
     /** Popup title row: horizontal title on the left, 关闭 button top-right. */
@@ -1385,6 +1445,40 @@ public class VoyageScreen extends ScreenAdapter {
         g.toast("进度已保存到本机存档。");
     }
 
+    /** Detail popup opened from a top stat cell (银两/补给/耐久/船员). */
+    private void statTable(Table box) {
+        if (statDetail < 0 || statDetail >= 4) {
+            statDetail = 0;
+        }
+        menuHeader(box, STAT_NAMES[statDetail] + " · 说明");
+        String value = "0";
+        String desc;
+        switch (statDetail) {
+            case 0:
+                value = g.silver + " 两";
+                desc = "贸易的本钱。低买高卖赚差价、卖异兽/草药、打赢海盗缴获都能得银两；"
+                        + "升级、雇人、补给、修船都要花银两。欠债后每次回港计息 2%。";
+                break;
+            case 1:
+                value = (int) g.supply + " / " + (int) g.supplyMax;
+                desc = "出航时按船员人数持续消耗，耗尽则航程失败。回港点「补补给」按缺口花银两补满；"
+                        + "银两不够可以借债，但欠款每次回港计息。";
+                break;
+            case 2:
+                value = (int) g.hull + " / " + (int) g.hullMax;
+                desc = "船的生命。被海盗弹命中一次扣 1 点，归零则船沉失败。回港点「修理」花银两修满；"
+                        + "与海盗交手时拉开距离或击沉对方，都能少挨打。";
+                break;
+            default:
+                value = g.crew + " / " + g.crewCap;
+                desc = "船员越多开炮越快、补给消耗也越快。先在港口「升编制」提高上限，再点「雇人」招人上船。";
+                break;
+        }
+        box.add(infoRow("当前：" + value)).width(MENU_W).left().padBottom(8).row();
+        box.add(wrapLbl(desc)).width(MENU_W - 10).left().padBottom(8).row();
+        box.add(infoRow("顶部每个图标+数字都可以点开看说明。")).width(MENU_W).left().row();
+    }
+
     /** One horizontal codex row: optional icon + single-line name. */
     private void codexRow(Table box, TextureRegionDrawable icon, String text) {
         if (icon != null) {
@@ -1513,17 +1607,16 @@ public class VoyageScreen extends ScreenAdapter {
         return b;
     }
 
-    /** HUD quest entry: the round button reads 任务; the pill under it shows the
-     * ONE current active quest (first incomplete/unclaimed) with its progress.
-     * The pill hides while any popup is open so it never collides with overlays. */
+    /** Active-quest pill under the rail: the ONE current active quest (first
+     * incomplete/unclaimed) with its progress. The pill hides while any popup
+     * is open so it never collides with overlays. */
     private void updateQuestButtonLabel() {
-        if (g == null || btnQuests == null || btnQuestState == null) return;
+        if (g == null || btnQuestState == null) return;
         int activeIdx = getActiveQuestIndex();
         if (activeIdx >= 0 && activeIdx < QUESTS.length) {
             QuestDef q = QUESTS[activeIdx];
             int prog = getQuestProgress(g, q.progressType);
             int target = q.targetAmount > 0 ? q.targetAmount : 1;
-            btnQuests.setText("任务");
             if (isQuestComplete(g, q)) {
                 btnQuestState.setText(q.title + " 可领奖");
             } else if (q.targetAmount <= 0) {
@@ -1531,8 +1624,6 @@ public class VoyageScreen extends ScreenAdapter {
             } else {
                 btnQuestState.setText(q.title + " " + prog + "/" + target);
             }
-        } else {
-            btnQuests.setText("任务 ✓");
         }
         btnQuestState.setVisible(activeIdx >= 0 && overlay == Overlay.NONE);
     }
@@ -1543,6 +1634,15 @@ public class VoyageScreen extends ScreenAdapter {
             g.questIntelViewed = true;
             persist();
         }
+    }
+
+    /** Refreshes the four ICON+NUMBER values in the top stat panel. */
+    private void updateStatValues() {
+        if (g == null || statVals == null || statVals[0] == null) return;
+        statVals[0].setText(String.valueOf(g.silver));
+        statVals[1].setText(String.valueOf((int) g.supply));
+        statVals[2].setText(String.valueOf((int) g.hull));
+        statVals[3].setText(g.crew + "/" + g.crewCap);
     }
 
     private void persist() {
@@ -1620,12 +1720,11 @@ public class VoyageScreen extends ScreenAdapter {
         btnLockPirate.setVisible(g.pirateAlive && !g.combatLock && overlay == Overlay.NONE);
         btnCancelLock.setVisible(g.combatLock && overlay != Overlay.MAP);
         hudLine.setText(statusText());
+        updateStatValues();   // live numbers in the top stat cells
         updateQuestButtonLabel(); // active-quest pill stays current while sailing
 
-        Color bg = WATER;
-        if (g.weather == GameState.WeatherKind.RAIN) bg = WATER_RAIN;
-        else if (g.weather == GameState.WeatherKind.FOG) bg = WATER_FOG;
-        ScreenUtils.clear(bg);
+        ScreenUtils.clear(WATER); // 0.26.2: 无雨雾，永远晴天
+        // (dead RAIN/FOG water tints removed; weather is permanently CLEAR)
         Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(com.badlogic.gdx.graphics.GL20.GL_SRC_ALPHA, com.badlogic.gdx.graphics.GL20.GL_ONE_MINUS_SRC_ALPHA);
 
@@ -1666,13 +1765,8 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private String statusText() {
-        String s = "银" + g.silver + " 欠" + g.debt
-                + " 补给" + (int) g.supply + "/" + (int) g.supplyMax
-                + " 耐久" + (int) g.hull
-                + " 船员" + g.crew + "/" + g.crewCap
-                + " 舱" + g.cargoUsed() + "/" + g.cargoCap
-                + "  " + g.windLabel() + g.weatherLabel()
-                + " 速" + (int) g.speed;
+        String s = "欠" + g.debt + " 舱 " + g.cargoUsed() + "/" + g.cargoCap
+                + "   " + g.windLabel() + " 速" + (int) g.speed;
         if (g.autoSailPort >= 0) {
             s += " 自动->" + Catalog.PORTS[g.autoSailPort];
         } else if (g.autoSailIsle >= 0) {
@@ -1739,10 +1833,23 @@ public class VoyageScreen extends ScreenAdapter {
             game.batch.end();
         }
 
-        if (g.muzzleFlash > 0 && g.pirateAlive && g.combatLock) {
+        // 0.26.2: discrete flying cannonballs (no continuous laser line).
+        // Player's shots are WHITE, pirate's are BLACK, 1 point of damage on hit.
+        if (g.ballCount > 0) {
             shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(1f, 0.85f, 0.3f, 1f);
-            shapes.rectLine(g.x, g.y, g.pirateX, g.pirateY, 2.5f);
+            for (int i = 0; i < g.ballCount; i++) {
+                if (g.ballFromPlayer[i]) {
+                    shapes.setColor(0f, 0f, 0f, 0.6f);
+                    shapes.circle(g.ballX[i], g.ballY[i], 4.4f);
+                    shapes.setColor(1f, 1f, 1f, 1f);
+                    shapes.circle(g.ballX[i], g.ballY[i], 3.4f);
+                } else {
+                    shapes.setColor(0.75f, 0.82f, 0.9f, 0.4f);
+                    shapes.circle(g.ballX[i], g.ballY[i], 4.2f);
+                    shapes.setColor(0.03f, 0.03f, 0.03f, 1f);
+                    shapes.circle(g.ballX[i], g.ballY[i], 3.0f);
+                }
+            }
             shapes.end();
         }
 
@@ -1770,15 +1877,10 @@ public class VoyageScreen extends ScreenAdapter {
 
         game.batch.begin();
         BitmapFont f = game.fontSmall;
-        boolean hideFar = g.weather != GameState.WeatherKind.CLEAR;
         for (int i = 0; i < Catalog.PORTS.length; i++) {
-            float d = Catalog.dist(g.x, g.y, Catalog.PORT_X[i], Catalog.PORT_Y[i]);
-            if (hideFar && d > 520) continue;
             f.draw(game.batch, Catalog.PORTS[i], Catalog.PORT_X[i] + 18, Catalog.PORT_Y[i] + 10);
         }
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            float d = Catalog.dist(g.x, g.y, Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i]);
-            if (hideFar && d > 520) continue;
             f.draw(game.batch, Catalog.ISLANDS[i], Catalog.ISLAND_X[i] + 20, Catalog.ISLAND_Y[i] + 8);
         }
         game.batch.end();
@@ -2080,10 +2182,7 @@ public class VoyageScreen extends ScreenAdapter {
         shapes.setColor(0.25f, 0.18f, 0.03f, 1f);
         shapes.rectLine(me[0], me[1],
                 me[0] + MathUtils.cos(rad) * 14f, me[1] + MathUtils.sin(rad) * 14f, 3.2f);
-        if (g.weather != GameState.WeatherKind.CLEAR) {
-            shapes.setColor(0.7f, 0.75f, 0.8f, g.weather == GameState.WeatherKind.FOG ? 0.45f : 0.28f);
-            shapes.rect(ix, iy, iw, ih);
-        }
+        // 0.26.2: no fog/rain dimming — the map is always fully clear.
         // 关闭 button (top-right corner inside the map)
         shapes.setColor(0.45f, 0.16f, 0.14f, 0.98f);
         shapes.rect(FM_CLOSE_X, FM_CLOSE_Y, FM_CLOSE_W, FM_CLOSE_H);
