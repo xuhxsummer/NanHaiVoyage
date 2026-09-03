@@ -78,7 +78,7 @@ public class VoyageScreen extends ScreenAdapter {
         // 0.26.0 sub-views: MARKET is the paged buy/sell screen reachable from
         // the docked actions menu; AVATAR is the paused 船长菜单 (save/load);
         // HOWTO is the first-run 玩法说明 popup shown once per install.
-        MARKET, AVATAR, HOWTO
+        MARKET, AVATAR, HOWTO, INTEL, QUESTS
     }
 
     /** 0.26.0 first-run gameplay help. Body is verbatim from howto_spec.txt:
@@ -130,6 +130,8 @@ public class VoyageScreen extends ScreenAdapter {
     private TextButton btnCargo;
     private TextButton btnCodex;
     private TextButton btnCtx;      // 港口 / 岛屿 contextual reopen
+    private TextButton btnIntel;    // 情报 market-intel overlay
+    private TextButton btnQuests;   // 任务 quest overlay
     private TextButton btnCancelAuto;
     private TextButton btnLockPirate;
     private TextButton btnCancelLock;
@@ -266,6 +268,19 @@ public class VoyageScreen extends ScreenAdapter {
         right.add(btnDecel).width(124).height(72).pad(6);
         stage.addActor(right);
 
+        // Right-side vertical quest button (任务). Opens the quest overlay.
+        btnQuests = new TextButton("任务", game.skin, "circ");
+        btnQuests.addListener(click(() -> {
+            if (overlay == Overlay.QUESTS) {
+                closePopup();
+            } else if (overlay != Overlay.MAP) {
+                overlay = Overlay.QUESTS;
+                rebuildMenu();
+            }
+        }));
+        stage.addActor(btnQuests);
+        placeQuestButton();
+
         // Far-left circular rail: 货物 / 图鉴 / 港口 on the very left edge. They are
         // real stage actors sized 70x70, stacked vertically, clear of both the
         // avatar (top-left) and the joystick (bottom-left).
@@ -305,12 +320,23 @@ public class VoyageScreen extends ScreenAdapter {
                 g.toast("不在港口或岛屿附近：靠近港口/岛屿会自动弹出菜单。");
             }
         }));
+        btnIntel = roundBtn("情报");
+        btnIntel.addListener(click(() -> {
+            if (overlay == Overlay.INTEL) {
+                closePopup();
+            } else if (overlay != Overlay.MAP) {
+                overlay = Overlay.INTEL;
+                rebuildMenu();
+            }
+        }));
         placeRailButton(btnCargo, 0);
         placeRailButton(btnCodex, 1);
         placeRailButton(btnCtx, 2);
+        placeRailButton(btnIntel, 3);
         stage.addActor(btnCargo);
         stage.addActor(btnCodex);
         stage.addActor(btnCtx);
+        stage.addActor(btnIntel);
 
         // Contextual 取消自动 / 取消锁定 — slim strip at the very top-center so no
         // popup or HUD element can swallow their touches.
@@ -350,6 +376,19 @@ public class VoyageScreen extends ScreenAdapter {
         b.setBounds(LB_X - LB_SIZE / 2f, cy - LB_SIZE / 2f, LB_SIZE, LB_SIZE);
     }
 
+    /** Right-side quest button: vertical stack near the right edge, above the
+     * accel/decel buttons and clear of the minimap on the top-right. */
+    private static final float QB_X = HUD_W - 55f;   // button center x
+    private static final float QB_SIZE = 70f;        // button diameter
+    private static final float QB_TOP = 460f;        // center y of the top
+    private static final float QB_GAP = 76f;         // center-to-center spacing
+    private int questBtnIndex = 0;
+
+    private void placeQuestButton() {
+        float cy = QB_TOP - questBtnIndex * QB_GAP;
+        btnQuests.setBounds(QB_X - QB_SIZE / 2f, cy - QB_SIZE / 2f, QB_SIZE, QB_SIZE);
+    }
+
     /** Hold-to-keep listeners for 加速/减速. Press state is tracked directly (not
      * via the button's isPressed in the render loop) so a long press survives
      * drag jitter, and the pressed visual always shows — even when the world is
@@ -360,7 +399,8 @@ public class VoyageScreen extends ScreenAdapter {
             @Override
             public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
                 boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL
-                        || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO;
+                        || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
+                        || overlay == Overlay.INTEL || overlay == Overlay.QUESTS;
                 if (modal) {
                     // A popup is open: the world pauses by design. The button still
                     // reacts (pressed feedback) and explains instead of silently
@@ -485,6 +525,10 @@ public class VoyageScreen extends ScreenAdapter {
             avatarTable(box);
         } else if (overlay == Overlay.HOWTO) {
             howtoTable(box);
+        } else if (overlay == Overlay.INTEL) {
+            intelTable(box);
+        } else if (overlay == Overlay.QUESTS) {
+            questsTable(box);
         }
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
@@ -875,6 +919,208 @@ public class VoyageScreen extends ScreenAdapter {
         box.add(act).width(MENU_W).row();
     }
 
+    /** 情报 overlay: market intel across ALL ports. Shows:
+     *  - top 3 cheapest goods (good + port + price)
+     *  - top 3 most expensive goods (good + port + price)
+     *  - for each cheapest good: where it sells highest (port + price + profit per unit)
+     * Recomputes whenever the overlay opens (prices are fixed per port, so the
+     * snapshot is fresh each time the player taps 情报). Scrollable via the
+     * ScrollPane from rebuildMenu(). */
+    private void intelTable(Table box) {
+        menuHeader(box, "情报 · 各港价格");
+        int nPorts = Catalog.PORTS.length;
+        int nGoods = Catalog.GOODS.length;
+        // Build sorted lists of all (port, good, price) triples.
+        int total = nPorts * nGoods;
+        int[] allPrices = new int[total];
+        int[] allPorts = new int[total];
+        int[] allGoods = new int[total];
+        int k = 0;
+        for (int p = 0; p < nPorts; p++) {
+            for (int g = 0; g < nGoods; g++) {
+                allPrices[k] = Catalog.goodPrice(p, g);
+                allPorts[k] = p;
+                allGoods[k] = g;
+                k++;
+            }
+        }
+        // Cheapest 3: ascending.
+        Integer[] cheapIdx = new Integer[3];
+        for (int i = 0; i < 3; i++) cheapIdx[i] = -1;
+        for (int i = 0; i < total; i++) {
+            int pr = allPrices[i];
+            if (cheapIdx[0] == -1 || pr < allPrices[cheapIdx[0]]) {
+                cheapIdx[2] = cheapIdx[1]; cheapIdx[1] = cheapIdx[0]; cheapIdx[0] = i;
+            } else if (cheapIdx[1] == -1 || pr < allPrices[cheapIdx[1]]) {
+                cheapIdx[2] = cheapIdx[1]; cheapIdx[1] = i;
+            } else if (cheapIdx[2] == -1 || pr < allPrices[cheapIdx[2]]) {
+                cheapIdx[2] = i;
+            }
+        }
+        // Most expensive 3: descending.
+        Integer[] dearIdx = new Integer[3];
+        for (int i = 0; i < 3; i++) dearIdx[i] = -1;
+        for (int i = 0; i < total; i++) {
+            int pr = allPrices[i];
+            if (dearIdx[0] == -1 || pr > allPrices[dearIdx[0]]) {
+                dearIdx[2] = dearIdx[1]; dearIdx[1] = dearIdx[0]; dearIdx[0] = i;
+            } else if (dearIdx[1] == -1 || pr > allPrices[dearIdx[1]]) {
+                dearIdx[2] = dearIdx[1]; dearIdx[1] = i;
+            } else if (dearIdx[2] == -1 || pr > allPrices[dearIdx[2]]) {
+                dearIdx[2] = i;
+            }
+        }
+        box.add(new Label("—— 最低的 3 种货 ——", game.skin, "small")).width(MENU_W).left().padTop(4).padBottom(2).row();
+        for (int i = 0; i < 3; i++) {
+            if (cheapIdx[i] < 0) break;
+            int idx = cheapIdx[i];
+            box.add(infoRow(Catalog.GOODS[allGoods[idx]] + "  「" + Catalog.PORTS[allPorts[idx]] + "」 " + allPrices[idx] + " 两"))
+                    .width(MENU_W).left().padBottom(1).row();
+        }
+        box.add(new Label("—— 最高的 3 种货 ——", game.skin, "small")).width(MENU_W).left().padTop(6).padBottom(2).row();
+        for (int i = 0; i < 3; i++) {
+            if (dearIdx[i] < 0) break;
+            int idx = dearIdx[i];
+            box.add(infoRow(Catalog.GOODS[allGoods[idx]] + "  「" + Catalog.PORTS[allPorts[idx]] + "」 " + allPrices[idx] + " 两"))
+                    .width(MENU_W).left().padBottom(1).row();
+        }
+        box.add(new Label("—— 套利提示（每个便宜货：哪儿最高） ——", game.skin, "small"))
+                .width(MENU_W).left().padTop(6).padBottom(2).row();
+        for (int i = 0; i < 3; i++) {
+            if (cheapIdx[i] < 0) break;
+            int idx = cheapIdx[i];
+            int g = allGoods[idx];
+            int buyPort = allPorts[idx];
+            int buyPrice = allPrices[idx];
+            int bestPort = 0;
+            int bestPrice = Catalog.goodPrice(0, g);
+            for (int q = 1; q < nPorts; q++) {
+                int qp = Catalog.goodPrice(q, g);
+                if (qp > bestPrice) { bestPrice = qp; bestPort = q; }
+            }
+            int profit = bestPrice - buyPrice;
+            String hint;
+            if (profit > 0) {
+                hint = Catalog.GOODS[g] + "：「" + Catalog.PORTS[buyPort] + "」买 " + buyPrice
+                        + " → 「" + Catalog.PORTS[bestPort] + "」卖 " + bestPrice
+                        + "，每份赚 " + profit + " 两";
+            } else {
+                hint = Catalog.GOODS[g] + "：「" + Catalog.PORTS[buyPort] + "」已是最低（" + buyPrice + " 两），没空子。";
+            }
+            box.add(infoRow(hint)).width(MENU_W).left().padBottom(1).row();
+        }
+    }
+
+    // ---- 任务 system (0.26.1) ----
+    private static abstract class Quest {
+        public final int id;
+        public final String title;
+        public final String goal;
+        public final String reward;
+        protected Quest(int id, String title, String goal, String reward) {
+            this.id = id; this.title = title; this.goal = goal; this.reward = reward;
+        }
+        public abstract int getProgress(GameState g);
+        public abstract boolean isComplete(GameState g);
+        public abstract boolean isClaimed(GameState g);
+        public abstract String claim(GameState g);
+    }
+    private static final Quest[] QUESTS = new Quest[] {
+        new Quest(0, "卖 50 丝绸", "卖出 50 丝绸到港口", "奖励：银 200") {
+            public int getProgress(GameState g) { return g.questSellSilk; }
+            public boolean isComplete(GameState g) { return g.questSellSilk >= 50; }
+            public boolean isClaimed(GameState g) { return g.questClaimSellSilk; }
+            public String claim(GameState g) { return g.claimSellSilk(); }
+        },
+        new Quest(1, "去 5 个港口", "靠岸去过 5 个不同港口", "奖励：银 300") {
+            public int getProgress(GameState g) { return g.questVisitPorts; }
+            public boolean isComplete(GameState g) { return g.questVisitPorts >= 5; }
+            public boolean isClaimed(GameState g) { return g.questClaimVisitPorts; }
+            public String claim(GameState g) { return g.claimVisitPorts(); }
+        },
+        new Quest(2, "打 3 条海盗", "在海上打败 3 艘海盗船", "奖励：银 150 + 补给 100") {
+            public int getProgress(GameState g) { return g.questDefeatedPirates; }
+            public boolean isComplete(GameState g) { return g.questDefeatedPirates >= 3; }
+            public boolean isClaimed(GameState g) { return g.questClaimDefeatedPirates; }
+            public String claim(GameState g) { return g.claimDefeatedPirates(); }
+        },
+        new Quest(3, "找 5 种异兽", "上岛找出 5 种异兽", "奖励：银 250") {
+            public int getProgress(GameState g) { return g.questBeastsFound; }
+            public boolean isComplete(GameState g) { return g.questBeastsFound >= 5; }
+            public boolean isClaimed(GameState g) { return g.questClaimBeastsFound; }
+            public String claim(GameState g) { return g.claimBeastsFound(); }
+        },
+        new Quest(4, "还完欠钱", "把欠的钱全还了", "奖励：银 400") {
+            public int getProgress(GameState g) { return g.debt; }
+            public boolean isComplete(GameState g) { return g.questDebtPaid; }
+            public boolean isClaimed(GameState g) { return g.questClaimDebtPaid; }
+            public String claim(GameState g) { return g.claimDebtPaid(); }
+        },
+        new Quest(5, "银到 5000", "帐上银子达到 5000 两", "奖励：补给 200 + 耐久 100") {
+            public int getProgress(GameState g) { return g.questSilverPeak; }
+            public boolean isComplete(GameState g) { return g.questSilverPeak >= 5000; }
+            public boolean isClaimed(GameState g) { return g.questClaimSilverPeak; }
+            public String claim(GameState g) { return g.claimSilverPeak(); }
+        },
+        new Quest(6, "升仓 3 次", "把共用货舱仓库升 3 次", "奖励：银 150") {
+            public int getProgress(GameState g) { return g.questWarehouseUps; }
+            public boolean isComplete(GameState g) { return g.questWarehouseUps >= 3; }
+            public boolean isClaimed(GameState g) { return g.questClaimWarehouseUps; }
+            public String claim(GameState g) { return g.claimWarehouseUps(); }
+        },
+        new Quest(7, "雇 5 个人", "总共雇了 5 人上船", "奖励：银 100") {
+            public int getProgress(GameState g) { return g.questHiredCrew; }
+            public boolean isComplete(GameState g) { return g.questHiredCrew >= 5; }
+            public boolean isClaimed(GameState g) { return g.questClaimHiredCrew; }
+            public String claim(GameState g) { return g.claimHiredCrew(); }
+        },
+    };
+
+    private void questsTable(Table box) {
+        menuHeader(box, "任务（8 条，完就拿奖）");
+        int completed = 0;
+        for (Quest q : QUESTS) {
+            if (q.isComplete(g)) completed++;
+        }
+        box.add(infoRow("做完 " + completed + "/" + QUESTS.length + " 条")).width(MENU_W).left().padBottom(4).row();
+        box.add(new Label("—— 任务表 ——", game.skin, "small")).width(MENU_W).left().padTop(2).padBottom(2).row();
+        for (Quest q : QUESTS) {
+            int prog = q.getProgress(g);
+            boolean done = q.isComplete(g);
+            boolean claimed = q.isClaimed(g);
+            int target = questTarget(q.id);
+            String line;
+            if (claimed) {
+                line = "✓ [拿过了] " + q.title + " —— " + q.goal + " （" + q.reward + "）」";
+            } else if (done) {
+                line = "✓ [没拿] " + q.title + " —— " + q.goal + " （" + q.reward + "）」";
+            } else {
+                line = "▶ " + q.title + " —— " + q.goal + "  走了 " + prog + "/" + target + "  「" + q.reward + "」";
+            }
+            box.add(infoRow(line)).width(MENU_W).left().padBottom(1).row();
+            if (!claimed && done) {
+                box.add(btn("拿奖励", () -> {
+                    g.toast(q.claim(g));
+                    persist();
+                    rebuildMenu();
+                })).width(MENU_W).height(40).left().padBottom(4).row();
+            }
+        }
+    }
+
+    private int questTarget(int id) {
+        switch (id) {
+            case 0: return 50;
+            case 1: return 5;
+            case 2: return 3;
+            case 3: return 5;
+            case 5: return 5000;
+            case 6: return 3;
+            case 7: return 5;
+            default: return -1;
+        }
+    }
+
     /** 船长菜单 (opened by tapping the top-left avatar): save now / load save /
      * close. While it is open the world is paused — VoyageScreen skips g.update()
      * for Overlay.AVATAR, so time, events and movement all stop. 保存进度 writes the
@@ -1079,7 +1325,8 @@ public class VoyageScreen extends ScreenAdapter {
         // the same applies to 市场 (MARKET), the 船长菜单 (AVATAR) and the first-run
         // 玩法说明 (HOWTO).
         boolean dockSub = overlay == Overlay.PRICE || overlay == Overlay.MARKET
-                || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO;
+                || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
+                || overlay == Overlay.INTEL || overlay == Overlay.QUESTS;
         if (overlay != Overlay.MAP && !dockSub && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             rebuildMenu();
@@ -1338,8 +1585,19 @@ public class VoyageScreen extends ScreenAdapter {
         game.batch.end();
     }
 
-    /** Round minimap with markers clipped to the circle. */
+    /** Round minimap (top-right): a viewport window follows the ship. The window
+     * is clamped to chart bounds so it never slides off the world; when the ship
+     * approaches an edge the window stops and the ship marker moves toward the edge
+     * INSIDE the frame. Out-of-chart areas (if any remain visible) are rendered as
+     * distinct outside-the-chart fill, not empty sea.
+     *
+     * Viewport size: 700x525 world units (1.333:1 aspect matches the HUD). When
+     * the ship is well inside the chart the viewport centers on it; near edges the
+     * viewport is shifted so the visible area stays within [0..WORLD_W] x [0..WORLD_H].
+     * The ship marker is always drawn at its correct relative position inside the
+     * frame (centered when away from edges, toward the edge when near one). */
     private void drawRoundMinimap() {
+        // Outer ring + background circle (dark, outside-the-chart look).
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.02f, 0.05f, 0.09f, 0.92f);
         shapes.circle(MM_CX, MM_CY, MM_R + 5f);
@@ -1347,51 +1605,133 @@ public class VoyageScreen extends ScreenAdapter {
         shapes.circle(MM_CX, MM_CY, MM_R);
         shapes.end();
 
+        // Viewport geometry: a rect inside the circle that shows a window of the
+        // world. The circle clip is handled by only drawing within rr of center.
         float rr = MM_R - 6f;
+        float vpWorldW = 700f;   // world units visible horizontally
+        float vpWorldH = vpWorldW * (Catalog.WORLD_H / Catalog.WORLD_W); // match world aspect
+        // Scale: pixels per world unit, chosen so the viewport fills the circle.
+        float scale = (2f * rr) / Math.max(vpWorldW, vpWorldH);
+        float vpW = vpWorldW * scale;
+        float vpH = vpWorldH * scale;
+
+        // Viewport center in world coords: ship position, clamped so the viewport
+        // stays within chart bounds.
+        float shipCX = g.x;
+        float shipCY = g.y;
+        float halfW = vpWorldW / 2f;
+        float halfH = vpWorldH / 2f;
+        float vpWorldCX = MathUtils.clamp(shipCX, halfW, Catalog.WORLD_W - halfW);
+        float vpWorldCY = MathUtils.clamp(shipCY, halfH, Catalog.WORLD_H - halfH);
+
+        // Viewport top-left in screen coords (centered on MM_CX, MM_CY).
+        float vpScreenX = MM_CX - vpW / 2f;
+        float vpScreenY = MM_CY - vpH / 2f;
+
+        // Outside-the-chart fill: any part of the viewport rect outside world bounds
+        // is drawn as a distinct hatch so the player sees "not sea" rather than
+        // empty water or missing markers.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        float scaleX = 2f * rr / Catalog.WORLD_W;
-        float scaleY = 2f * rr / Catalog.WORLD_H;
-        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            float px = MM_CX + (Catalog.ISLAND_X[i] - Catalog.WORLD_W / 2f) * scaleX;
-            float py = MM_CY + (Catalog.ISLAND_Y[i] - Catalog.WORLD_H / 2f) * scaleY;
-            float ddx = px - MM_CX, ddy = py - MM_CY;
-            if (ddx * ddx + ddy * ddy > (rr - 3f) * (rr - 3f)) continue;
-            shapes.setColor(0f, 0f, 0f, 0.35f);
-            shapes.circle(px + 1f, py - 1f, 4.2f);
-            shapes.setColor(ISLE_C);
-            shapes.circle(px, py, 4.2f);
-        }
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            float px = MM_CX + (Catalog.PORT_X[i] - Catalog.WORLD_W / 2f) * scaleX;
-            float py = MM_CY + (Catalog.PORT_Y[i] - Catalog.WORLD_H / 2f) * scaleY;
-            float ddx = px - MM_CX, ddy = py - MM_CY;
-            if (ddx * ddx + ddy * ddy > (rr - 3f) * (rr - 3f)) continue;
-            shapes.setColor(0f, 0f, 0f, 0.35f);
-            shapes.circle(px + 1f, py - 1f, 3.8f);
-            shapes.setColor(PORT_C);
-            shapes.circle(px, py, 3.8f);
-        }
-        // Player ship (white ring + hull dot + short heading tick, clipped).
-        float px = MM_CX + (g.x - Catalog.WORLD_W / 2f) * scaleX;
-        float py = MM_CY + (g.y - Catalog.WORLD_H / 2f) * scaleY;
-        float ddx = px - MM_CX, ddy = py - MM_CY;
-        if (ddx * ddx + ddy * ddy < (rr - 8f) * (rr - 8f)) {
-            float rad = g.headingDeg * MathUtils.degreesToRadians;
-            shapes.setColor(1f, 1f, 1f, 0.9f);
-            shapes.circle(px, py, 5.4f);
-            shapes.setColor(HULL);
-            shapes.circle(px, py, 3.4f);
-            shapes.setColor(1f, 0.95f, 0.55f, 1f);
-            float tx = px + MathUtils.cos(rad) * 9f;
-            float ty = py + MathUtils.sin(rad) * 9f;
-            if (Math.abs(tx - MM_CX) > rr - 2f || Math.abs(ty - MM_CY) > rr - 2f) {
-                tx = px + MathUtils.cos(rad) * 6f;
-                ty = py + MathUtils.sin(rad) * 6f;
-            }
-            shapes.rectLine(px, py, tx, ty, 2.2f);
+        shapes.setColor(0.02f, 0.02f, 0.04f, 0.95f); // very dark blue-grey
+        // We fill the whole viewport rect first.
+        shapes.setColor(0.03f, 0.10f, 0.18f, 1f);     // deep sea base
+        shapes.rect(vpScreenX, vpScreenY, vpW, vpH);
+
+        // Now draw the world-area sea only over the in-bounds portion. The out-of-
+        // bounds corners remain the dark outside-the-chart colour.
+        float inBndX = vpScreenX, inBndY = vpScreenY, inBndW = vpW, inBndH = vpH;
+        // Map world viewport bounds to screen.
+        float worldLeft = vpWorldCX - halfW;
+        float worldTop = vpWorldCY - halfH;
+        // Only draw sea where it's within world bounds.
+        float drawLeft = Math.max(0f, worldLeft);
+        float drawTop = Math.max(0f, worldTop);
+        float drawRight = Math.min(Catalog.WORLD_W, worldLeft + vpWorldW);
+        float drawBottom = Math.min(Catalog.WORLD_H, worldTop + vpWorldH);
+        if (drawRight > drawLeft && drawBottom > drawTop) {
+            float sx1 = vpScreenX + (drawLeft - worldLeft) * scale;
+            float sy1 = vpScreenY + (drawTop - worldTop) * scale;
+            float sw = (drawRight - drawLeft) * scale;
+            float sh = (drawBottom - drawTop) * scale;
+            shapes.setColor(0.05f, 0.16f, 0.25f, 1f);
+            shapes.rect(sx1, sy1, sw, sh);
         }
         shapes.end();
 
+        // Wave flecks on the in-bounds sea area (deterministic dots).
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.11f, 0.30f, 0.42f, 0.85f);
+        long seed = 0x9E3779B97F4A7C15L + (int) (vpWorldCX * 1000f) + (int) (vpWorldCY * 700f);
+        for (int k = 0; k < 60; k++) {
+            seed = seed * 6364136223846793005L + 1442695040888963407L;
+            double rx = ((seed >>> 33) & 0x7fffffffL) / (double) 0x7fffffffL;
+            seed = seed * 6364136223846793005L + 1442695040888963407L;
+            double ry = ((seed >>> 33) & 0x7fffffffL) / (double) 0x7fffffffL;
+            float wx = drawLeft + (float) rx * (drawRight - drawLeft);
+            float wy = drawTop + (float) ry * (drawBottom - drawTop);
+            float sx = vpScreenX + (wx - worldLeft) * scale;
+            float sy = vpScreenY + (wy - worldTop) * scale;
+            float sz = k % 3 == 0 ? 2.5f : 1.8f;
+            shapes.rect(sx, sy, sz, sz);
+        }
+        shapes.end();
+
+        // Ports and islands inside the viewport.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            float wx = Catalog.PORT_X[i], wy = Catalog.PORT_Y[i];
+            if (wx < drawLeft || wx > drawRight || wy < drawTop || wy > drawBottom) continue;
+            float sx = vpScreenX + (wx - worldLeft) * scale;
+            float sy = vpScreenY + (wy - worldTop) * scale;
+            float ddx = sx - MM_CX, ddy = sy - MM_CY;
+            if (ddx * ddx + ddy * ddy > (rr - 2f) * (rr - 2f)) continue;
+            shapes.setColor(0f, 0f, 0f, 0.4f);
+            shapes.circle(sx + 1f, sy - 1f, 3.2f);
+            shapes.setColor(PORT_C);
+            shapes.circle(sx, sy, 3.2f);
+        }
+        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+            float wx = Catalog.ISLAND_X[i], wy = Catalog.ISLAND_Y[i];
+            if (wx < drawLeft || wx > drawRight || wy < drawTop || wy > drawBottom) continue;
+            float sx = vpScreenX + (wx - worldLeft) * scale;
+            float sy = vpScreenY + (wy - worldTop) * scale;
+            float ddx = sx - MM_CX, ddy = sy - MM_CY;
+            if (ddx * ddx + ddy * ddy > (rr - 2f) * (rr - 2f)) continue;
+            shapes.setColor(0f, 0f, 0f, 0.4f);
+            shapes.circle(sx + 1f, sy - 1f, 3.6f);
+            shapes.setColor(ISLE_C);
+            shapes.circle(sx, sy, 3.6f);
+        }
+
+        // Player ship marker: always drawn at its correct relative position inside
+        // the frame. The ship is always within world bounds (clamped in move()),
+        // so it's always in the visible area; its screen position is computed from
+        // the viewport transform.
+        float shipSX = vpScreenX + (g.x - worldLeft) * scale;
+        float shipSY = vpScreenY + (g.y - worldTop) * scale;
+        float ddx = shipSX - MM_CX, ddy = shipSY - MM_CY;
+        // Ship is always visible (within world, within viewport), but clip to circle
+        // as a safety net for rounding.
+        if (ddx * ddx + ddy * ddy < (rr - 4f) * (rr - 4f)) {
+            float rad = g.headingDeg * MathUtils.degreesToRadians;
+            shapes.setColor(1f, 1f, 1f, 0.95f);
+            shapes.circle(shipSX, shipSY, 4.6f);
+            shapes.setColor(HULL);
+            shapes.circle(shipSX, shipSY, 3f);
+            shapes.setColor(1f, 0.95f, 0.55f, 1f);
+            float tx = shipSX + MathUtils.cos(rad) * 7f;
+            float ty = shipSY + MathUtils.sin(rad) * 7f;
+            shapes.rectLine(shipSX, shipSY, tx, ty, 1.8f);
+        }
+        shapes.end();
+
+        // Border around the viewport (so the player sees the frame edge).
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0.50f, 0.55f, 0.60f, 0.9f);
+        shapes.rect(vpScreenX, vpScreenY, vpW, vpH);
+        shapes.end();
+
+        // Outer circle border.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(0.80f, 0.87f, 0.95f, 0.9f);
         shapes.circle(MM_CX, MM_CY, MM_R + 5f);
@@ -1595,7 +1935,8 @@ public class VoyageScreen extends ScreenAdapter {
             // first touch undocks the ship and sailing starts immediately.
             float dx = hx - stickCX, dy = hy - stickCY;
             boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL
-                    || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO;
+                    || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
+                    || overlay == Overlay.INTEL || overlay == Overlay.QUESTS;
             if (!modal && overlay != Overlay.MAP
                     && dx * dx + dy * dy <= (stickR + 26f) * (stickR + 26f)) {
                 undockIfNeeded();

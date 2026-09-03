@@ -59,6 +59,25 @@ public class GameState {
     public float toastT;
 
     public int lastPort = 0;
+    // 0.26.1 任务 tracking (runtime; persisted via SaveData).
+    public int questSellSilk;
+    public int questVisitPorts;
+    public int questVisitPortSet = 0;   // bitmask of visited port indices
+    public int questDefeatedPirates;
+    public int questBeastsFound;
+    public boolean questDebtPaid;
+    public int questSilverPeak;
+    public int questWarehouseUps;
+    public int questHiredCrew;
+    // claim flags
+    public boolean questClaimSellSilk;
+    public boolean questClaimVisitPorts;
+    public boolean questClaimDefeatedPirates;
+    public boolean questClaimBeastsFound;
+    public boolean questClaimDebtPaid;
+    public boolean questClaimSilverPeak;
+    public boolean questClaimWarehouseUps;
+    public boolean questClaimHiredCrew;
 
     public static GameState newGame() {
         GameState g = new GameState();
@@ -102,6 +121,22 @@ public class GameState {
         s.beastFound = beastFound.clone();
         s.herbFound = herbFound.clone();
         s.lastPort = lastPort;
+        s.questSellSilk = questSellSilk;
+        s.questVisitPorts = questVisitPorts;
+        s.questDefeatedPirates = questDefeatedPirates;
+        s.questBeastsFound = questBeastsFound;
+        s.questDebtPaid = questDebtPaid;
+        s.questSilverPeak = questSilverPeak;
+        s.questWarehouseUps = questWarehouseUps;
+        s.questHiredCrew = questHiredCrew;
+        s.questClaimSellSilk = questClaimSellSilk;
+        s.questClaimVisitPorts = questClaimVisitPorts;
+        s.questClaimDefeatedPirates = questClaimDefeatedPirates;
+        s.questClaimBeastsFound = questClaimBeastsFound;
+        s.questClaimDebtPaid = questClaimDebtPaid;
+        s.questClaimSilverPeak = questClaimSilverPeak;
+        s.questClaimWarehouseUps = questClaimWarehouseUps;
+        s.questClaimHiredCrew = questClaimHiredCrew;
         return s;
     }
 
@@ -139,6 +174,22 @@ public class GameState {
             }
             g.lastPort = lp;
             g.dockedPort = lp;
+            g.questSellSilk = s.questSellSilk;
+            g.questVisitPorts = s.questVisitPorts;
+            g.questDefeatedPirates = s.questDefeatedPirates;
+            g.questBeastsFound = s.questBeastsFound;
+            g.questDebtPaid = s.questDebtPaid;
+            g.questSilverPeak = s.questSilverPeak;
+            g.questWarehouseUps = s.questWarehouseUps;
+            g.questHiredCrew = s.questHiredCrew;
+            g.questClaimSellSilk = s.questClaimSellSilk;
+            g.questClaimVisitPorts = s.questClaimVisitPorts;
+            g.questClaimDefeatedPirates = s.questClaimDefeatedPirates;
+            g.questClaimBeastsFound = s.questClaimBeastsFound;
+            g.questClaimDebtPaid = s.questClaimDebtPaid;
+            g.questClaimSilverPeak = s.questClaimSilverPeak;
+            g.questClaimWarehouseUps = s.questClaimWarehouseUps;
+            g.questClaimHiredCrew = s.questClaimHiredCrew;
             // Always respawn at the dock: any stale/NaN position is discarded.
             g.x = Catalog.PORT_X[lp] + 90f;
             g.y = Catalog.PORT_Y[lp];
@@ -196,6 +247,9 @@ public class GameState {
     public void update(float dt) {
         if (toastT > 0) {
             toastT -= dt;
+        }
+        if (silver > questSilverPeak) {
+            questSilverPeak = silver;
         }
         if (failed) {
             return;
@@ -331,6 +385,11 @@ public class GameState {
         speed = 0f;
         stopAutoSail();
         clearPirate();
+        // 任务追踪：访问新港口
+        if ((questVisitPortSet & (1 << port)) == 0) {
+            questVisitPortSet |= (1 << port);
+            questVisitPorts++;
+        }
         if (debt > 0) {
             int extra = Math.max(1, Math.round(debt * Catalog.INTEREST));
             debt += extra;
@@ -381,7 +440,10 @@ public class GameState {
         if (r < 0.58f) {
             int idx = MathUtils.random(Catalog.BEASTS.length - 1);
             beasts[idx]++;
-            beastFound[idx] = true;
+            if (!beastFound[idx]) {
+                beastFound[idx] = true;
+                questBeastsFound++;
+            }
             return "发现异兽「" + Catalog.BEASTS[idx] + "」，已入货舱与图鉴。";
         }
         int idx = MathUtils.random(Catalog.HERBS.length - 1);
@@ -413,6 +475,10 @@ public class GameState {
         int gain = Catalog.goodPrice(port, good) * qty;
         trade[good] -= qty;
         silver += gain;
+        // 任务追踪：卖出丝绸
+        if (good == 0) { // 丝绸 is GOODS[0]
+            questSellSilk += qty;
+        }
         return "卖出 " + Catalog.GOODS[good] + " x" + qty + "，得 " + gain + " 两。";
     }
 
@@ -488,6 +554,10 @@ public class GameState {
         }
         silver -= pay;
         debt -= pay;
+        if (debt <= 0) {
+            debt = 0;
+            questDebtPaid = true;
+        }
         return "还债 " + pay + " 两，剩余欠款 " + debt + "。";
     }
 
@@ -525,6 +595,7 @@ public class GameState {
         silver -= c;
         warehouseLevel++;
         cargoCap += 20;
+        questWarehouseUps++;
         return "仓库升级完成，共用货舱容量 " + cargoCap + "。";
     }
 
@@ -559,6 +630,7 @@ public class GameState {
         }
         silver -= Catalog.HIRE_COST;
         crew++;
+        questHiredCrew++;
         return "立刻雇上 1 人。船员 " + crew + "/" + crewCap + "。火力与补给按实际人数。";
     }
 
@@ -726,6 +798,7 @@ public class GameState {
     }
 
     private void winCombat() {
+        questDefeatedPirates++;
         int loot = 25 + MathUtils.random(55);
         silver += loot;
         String extra = "";
@@ -747,6 +820,70 @@ public class GameState {
         combatLock = false;
         pirateChase = false;
         muzzleFlash = 0f;
+    }
+
+    // 0.26.1 任务 reward claiming. Each returns a toast message; the screen
+    // calls the matching claim flag setter after.
+    public String claimSellSilk() {
+        if (questClaimSellSilk) return "这奖励拿过了。";
+        if (questSellSilk < 50) return "还没做完：要卖 50 丝绸。";
+        silver += 200;
+        questClaimSellSilk = true;
+        return "拿到银 +200。";
+    }
+    public String claimVisitPorts() {
+        if (questClaimVisitPorts) return "这奖励拿过了。";
+        if (questVisitPorts < 5) return "还没做完：要去 5 个港口。";
+        silver += 300;
+        questClaimVisitPorts = true;
+        return "拿到银 +300。";
+    }
+    public String claimDefeatedPirates() {
+        if (questClaimDefeatedPirates) return "这奖励拿过了。";
+        if (questDefeatedPirates < 3) return "还没做完：要打 3 条海盗。";
+        silver += 150;
+        supply += 100;
+        if (supply > supplyMax) supply = supplyMax;
+        questClaimDefeatedPirates = true;
+        return "拿到银 +150、补給 +100。";
+    }
+    public String claimBeastsFound() {
+        if (questClaimBeastsFound) return "这奖励拿过了。";
+        if (questBeastsFound < 5) return "还没做完：要找 5 种异兽。";
+        silver += 250;
+        questClaimBeastsFound = true;
+        return "拿到银 +250。";
+    }
+    public String claimDebtPaid() {
+        if (questClaimDebtPaid) return "这奖励拿过了。";
+        if (!questDebtPaid) return "还没做完：要把欠钱还了。";
+        silver += 400;
+        questClaimDebtPaid = true;
+        return "拿到银 +400。";
+    }
+    public String claimSilverPeak() {
+        if (questClaimSilverPeak) return "这奖励拿过了。";
+        if (questSilverPeak < 5000) return "还没做完：银要到 5000。";
+        supply += 200;
+        hull += 100;
+        if (supply > supplyMax) supply = supplyMax;
+        if (hull > hullMax) hull = hullMax;
+        questClaimSilverPeak = true;
+        return "拿到補給 +200、耐久 +100。";
+    }
+    public String claimWarehouseUps() {
+        if (questClaimWarehouseUps) return "这奖励拿过了。";
+        if (questWarehouseUps < 3) return "还没做完：要升仓 3 次。";
+        silver += 150;
+        questClaimWarehouseUps = true;
+        return "拿到银 +150。";
+    }
+    public String claimHiredCrew() {
+        if (questClaimHiredCrew) return "这奖励拿过了。";
+        if (questHiredCrew < 5) return "还没做完：要雇 5 人。";
+        silver += 100;
+        questClaimHiredCrew = true;
+        return "拿到银 +100。";
     }
 
     public void fail(String reason) {

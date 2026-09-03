@@ -19,8 +19,8 @@ android {
         aaptOptions {
             ignoreAssetsPattern '!.svn:!.git:!.gitignore:!.ds_store:!*.scc:.*:!ai-draft'
         }
-        versionCode 18
-        versionName '0.26.0'
+        versionCode 19
+        versionName '0.26.1'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
