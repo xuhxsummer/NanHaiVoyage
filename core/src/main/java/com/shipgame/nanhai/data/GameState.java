@@ -9,8 +9,8 @@ public class GameState {
     public enum WeatherKind { CLEAR, RAIN, FOG }
 
     public float x, y, headingDeg, speed;
-    public float hull, hullMax = 100f;
-    public float supply, supplyMax = 100f;
+    public float hull, hullMax = Catalog.HULL_MAX;
+    public float supply, supplyMax = Catalog.SUPPLY_MAX;
     public int silver;
     public int debt;
     public int cargoCap;
@@ -111,10 +111,14 @@ public class GameState {
             return newGame();
         }
         try {
-            g.hullMax = s.hullMax <= 0 ? 100f : s.hullMax;
-            g.supplyMax = s.supplyMax <= 0 ? 100f : s.supplyMax;
-            g.hull = (s.hull <= 0f || Float.isNaN(s.hull)) ? g.hullMax : s.hull;
-            g.supply = (s.supply <= 0f || Float.isNaN(s.supply)) ? g.supplyMax : s.supply;
+            float oldHullMax = s.hullMax <= 0 ? Catalog.HULL_MAX : s.hullMax;
+            float oldSupplyMax = s.supplyMax <= 0 ? Catalog.SUPPLY_MAX : s.supplyMax;
+            g.hullMax = Math.max(Catalog.HULL_MAX, oldHullMax);
+            g.supplyMax = Math.max(Catalog.SUPPLY_MAX, oldSupplyMax);
+            float loadedHull = (s.hull <= 0f || Float.isNaN(s.hull)) ? g.hullMax : s.hull;
+            float loadedSupply = (s.supply <= 0f || Float.isNaN(s.supply)) ? g.supplyMax : s.supply;
+            g.hull = Math.min(loadedHull, g.hullMax);
+            g.supply = Math.min(loadedSupply, g.supplyMax);
             g.silver = s.silver;
             g.debt = Math.max(0, s.debt);
             g.cargoCap = s.cargoCap <= 0 ? Catalog.START_CARGO_CAP : s.cargoCap;

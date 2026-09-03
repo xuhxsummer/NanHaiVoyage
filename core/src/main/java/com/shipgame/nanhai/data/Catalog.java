@@ -68,8 +68,10 @@ public final class Catalog {
     public static final float WIND_SPEED_FACTOR = 0.38f;
     public static final float SUPPLY_DRAIN_BASE = 0.55f;
     public static final float CREW_DRAIN = 0.08f;
-    public static final int START_SILVER = 520;
+    public static final int START_SILVER = 1000;
     public static final int START_CARGO_CAP = 40;
+    public static final float SUPPLY_MAX = 500f;
+    public static final float HULL_MAX = 500f;
     public static final int START_CREW = 2;
     public static final int START_CREW_CAP = 4;
     public static final int START_CANNON_DMG = 8;
