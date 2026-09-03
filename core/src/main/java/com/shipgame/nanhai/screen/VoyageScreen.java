@@ -520,8 +520,9 @@ public class VoyageScreen extends ScreenAdapter {
         pairRow(box,
                 "升编制 " + g.crewCapCost(), () -> { g.toast(g.upgradeCrewCap()); persist(); rebuildMenu(); },
                 "雇人 " + Catalog.HIRE_COST, () -> { g.toast(g.hireCrew()); persist(); rebuildMenu(); });
-        box.add(infoRow("船员 " + g.crew + "/" + g.crewCap + "    炮伤 " + g.firepower()
-                + "    耐久 " + (int) g.hull)).width(PORT_MENU_W).padTop(5).padBottom(4).row();
+        float rate = Math.round(g.firepower() * 10f) / 10f;
+        box.add(infoRow("船员 " + g.crew + "/" + g.crewCap + "    每发伤 1 · 射速 " + rate
+                + " 发/秒    耐久 " + (int) g.hull)).width(PORT_MENU_W).padTop(5).padBottom(4).row();
     }
 
     private void addPortSellRows(Table sell, int port) {
@@ -850,16 +851,19 @@ public class VoyageScreen extends ScreenAdapter {
         // the full-map modal is up, nothing auto-opens under it: the modal keeps
         // covering the whole UI until the player closes it, then the pending
         // context popup opens normally.
+        // 行情 (Overlay.PRICE) is a sub-view of the port menu: the docked auto-
+        // open must not stomp it back to PORT on the very next frame, or the
+        // 行情 button would look dead (the popup only flashed for one frame).
         if (overlay != Overlay.MAP && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             rebuildMenu();
         } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && g.dockedPort >= 0
-                && dismissedPort != g.dockedPort) {
+                && dismissedPort != g.dockedPort && overlay != Overlay.PRICE) {
             overlay = Overlay.PORT;
             persist();
             rebuildMenu();
         } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && overlay != Overlay.PORT
-                && g.islandMenu >= 0 && dismissedIsland != g.islandMenu) {
+                && overlay != Overlay.PRICE && g.islandMenu >= 0 && dismissedIsland != g.islandMenu) {
             overlay = Overlay.ISLAND;
             rebuildMenu();
         }

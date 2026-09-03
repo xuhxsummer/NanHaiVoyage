@@ -82,7 +82,11 @@ public final class Catalog {
     public static final float FIRE_INTERVAL = 0.42f;
     public static final float PIRATE_FIRE_INTERVAL = 0.85f;
     public static final int PIRATE_HP = 48;
-    public static final int PIRATE_SHOT = 5;
+    /** 0.25.9 combat balance: pirate cannonballs cost the player exactly 1 耐久
+     * each (and the player's shots cost the pirate exactly 1 HP each), so a
+     * fight wears the ship down little by little instead of sinking it in a
+     * few broadsides. */
+    public static final int PIRATE_SHOT = 1;
 
     public static int goodPrice(int port, int good) {
         int p = Math.round(GOOD_BASE[good] * GOOD_MULT_TENTHS[port][good] / 10f);

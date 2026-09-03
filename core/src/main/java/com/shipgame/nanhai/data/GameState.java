@@ -535,8 +535,8 @@ public class GameState {
         }
         silver -= c;
         cannonLevel++;
-        cannonDamage += 3;
-        return "炮火升级完成，伤害 " + cannonDamage + "（一期只加伤害）。";
+        float secs = Math.round(fireInterval() * 100f) / 100f;
+        return "炮火升级完成：每发固定伤 1 点，连发加快到约 " + secs + " 秒一发（船员越多也越快）。";
     }
 
     public String upgradeCrewCap() {
@@ -614,8 +614,19 @@ public class GameState {
         manualHeadingActive = false;
     }
 
-    public int firepower() {
-        return Math.max(1, Math.round(cannonDamage * (1f + 0.08f * crew)));
+    /** Seconds between two player cannon shots. 0.25.9 balance: every hit —
+     * from either side — costs exactly 1 point (耐久 / pirate HP), so the
+     * 升炮火 upgrade and a bigger crew no longer hit harder; they reload
+     * faster instead (each cannon level and crew member shortens the interval
+     * a bit), which keeps upgrades meaningful under the flat-1 combat rule. */
+    public float fireInterval() {
+        float rate = 1f + 0.15f * Math.max(0, cannonLevel - 1) + 0.04f * Math.max(0, crew - 1);
+        return Math.max(0.13f, Catalog.FIRE_INTERVAL / rate);
+    }
+
+    /** Shots per second, shown on the port menu as 射速. */
+    public float firepower() {
+        return 1f / fireInterval();
     }
 
     public boolean tryLockPirate(float wx, float wy) {
@@ -681,9 +692,9 @@ public class GameState {
         if (combatLock && d <= Catalog.PIRATE_RANGE) {
             playerFireCd -= dt;
             if (playerFireCd <= 0f) {
-                playerFireCd = Catalog.FIRE_INTERVAL;
+                playerFireCd = fireInterval();
                 pirateChase = true;
-                pirateHp -= firepower();
+                pirateHp -= 1f; // 0.25.9: every player hit deals a flat 1 point
                 muzzleFlash = 0.12f;
                 if (pirateHp <= 0f) {
                     winCombat();
