@@ -39,9 +39,9 @@ public class LoginScreen extends ScreenAdapter {
         title.setFontScale(1.4f);
         Label sub = new Label("本机登录 · 本机存档（关游戏不丢）", game.skin, "small");
 
-        final TextField user = new TextField("", game.skin);
+        final TextField user = new TextField("summer", game.skin);
         user.setMessageText("用户名");
-        final TextField pass = new TextField("", game.skin);
+        final TextField pass = new TextField("summer", game.skin);
         pass.setMessageText("密码");
         pass.setPasswordMode(true);
         pass.setPasswordCharacter('*');

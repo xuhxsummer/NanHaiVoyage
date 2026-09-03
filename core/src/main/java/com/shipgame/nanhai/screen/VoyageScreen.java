@@ -471,6 +471,19 @@ public class VoyageScreen extends ScreenAdapter {
             ScreenUtils.clear(WATER);
             return;
         }
+        // Corrupted save data (NaN/Inf in x/y/heading/speed) poisons the world
+        // camera and blanks the whole world pass on device. Reset to last port.
+        if (!isFinite(g.x) || !isFinite(g.y) || !isFinite(g.headingDeg) || !isFinite(g.speed)) {
+            int lp = Math.max(0, g.lastPort);
+            g.x = Catalog.PORT_X[lp] + 90f;
+            g.y = Catalog.PORT_Y[lp];
+            g.headingDeg = 0f;
+            g.speed = 0f;
+            if (g.dockedPort < 0) {
+                g.dockedPort = lp;
+            }
+            Gdx.app.error("VoyageScreen", "non-finite ship state, reset to port");
+        }
         readKeyboard();
         g.steerInput = stickActive ? stickKX : g.steerInput;
         g.onManualSteer();
@@ -575,7 +588,13 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void drawWorld() {
         game.batch.begin();
-        pixelMap.draw(game.batch, g);
+        pixelMap.drawWater(game.batch, g);
+        game.batch.end();
+        // Vector silhouette under the sprite: even if the ship texture fails
+        // to render on a device, the player ship is always visible at sea.
+        drawShipSilhouette(g.x, g.y, g.headingDeg);
+        game.batch.begin();
+        pixelMap.drawMarkers(game.batch, g);
         game.batch.end();
 
         if (g.muzzleFlash > 0 && g.pirateAlive && g.combatLock) {
@@ -599,6 +618,30 @@ public class VoyageScreen extends ScreenAdapter {
             f.draw(game.batch, Catalog.ISLANDS[i], Catalog.ISLAND_X[i] + 20, Catalog.ISLAND_Y[i] + 8);
         }
         game.batch.end();
+    }
+
+    /** Vector junk silhouette drawn under the player sprite so the ship can
+     * never disappear from the sea (texture failure, alpha issue, etc.). */
+    private void drawShipSilhouette(float x, float y, float headingDeg) {
+        float rad = headingDeg * MathUtils.degreesToRadians;
+        float ux = MathUtils.cos(rad), uy = MathUtils.sin(rad);
+        float px = -uy, py = ux;
+        float bowX = x + ux * 24f, bowY = y + uy * 24f;
+        float sternX = x - ux * 20f, sternY = y - uy * 20f;
+        shapes.setColor(0.76f, 0.62f, 0.28f, 1f); // sail tan body
+        shapes.rectLine(sternX, sternY, bowX, bowY, 13f);
+        shapes.setColor(0.45f, 0.26f, 0.12f, 1f); // dark hull deck
+        shapes.rectLine(x - px * 5f - ux * 22f, y - py * 5f - uy * 22f,
+                x + px * 5f + ux * 22f, y + py * 5f + uy * 22f, 8f);
+        shapes.setColor(0.97f, 0.94f, 0.84f, 1f); // bright sail canvas
+        shapes.rectLine(x + ux * 2f - px * 5f, y + uy * 2f - py * 5f,
+                x + ux * 2f + px * 5f, y + uy * 2f + py * 5f, 11f);
+        shapes.setColor(1f, 0.92f, 0.45f, 1f); // mast cap
+        shapes.circle(bowX, bowY, 2.6f);
+    }
+
+    private static boolean isFinite(float v) {
+        return !Float.isNaN(v) && !Float.isInfinite(v);
     }
 
     private void drawMinimapAndStick() {
@@ -648,35 +691,55 @@ public class VoyageScreen extends ScreenAdapter {
         }
         shapes.end();
         game.batch.begin();
-        game.font.draw(game.batch, "全图（只显示港和岛，无海盗）  点港口自动驶向  点空白关闭", x + 20, y + h - 8);
-        boolean hideFar = g.weather != GameState.WeatherKind.CLEAR;
+        game.font.draw(game.batch, "全图（点港口自动驶向，点空白关闭）", x + 20, y + h - 8);
+        // Ports/islands/ship are always labelled: the full map must never be blank.
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], x + 10, y + 10, w - 20, h - 20);
-            if (hideFar && Catalog.dist(g.x, g.y, Catalog.PORT_X[i], Catalog.PORT_Y[i]) > 900) continue;
-            game.fontSmall.draw(game.batch, Catalog.PORTS[i], xy[0] + 8, xy[1] + 6);
+            game.fontSmall.draw(game.batch, Catalog.PORTS[i], xy[0] + 12, xy[1] + 12);
         }
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
             float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], x + 10, y + 10, w - 20, h - 20);
-            if (hideFar && Catalog.dist(g.x, g.y, Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i]) > 900) continue;
-            game.fontSmall.draw(game.batch, Catalog.ISLANDS[i], xy[0] + 8, xy[1] + 6);
+            game.fontSmall.draw(game.batch, Catalog.ISLANDS[i], xy[0] + 14, xy[1] - 10);
         }
+        float[] me = mapToUi(g.x, g.y, x + 10, y + 10, w - 20, h - 20);
+        game.fontSmall.draw(game.batch, "本船", me[0] + 12, me[1] - 10);
         game.batch.end();
     }
 
     private void drawMapContents(float x, float y, float w, float h, boolean full) {
+        float islandR = full ? 12f : 5.5f;
+        float portR = full ? 10f : 5f;
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
             float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], x, y, w, h);
+            shapes.setColor(0f, 0f, 0f, 0.35f);
+            shapes.circle(xy[0] + 1.5f, xy[1] - 1.5f, islandR);
             shapes.setColor(ISLE_C);
-            shapes.circle(xy[0], xy[1], full ? 8 : 4);
+            shapes.circle(xy[0], xy[1], islandR);
         }
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], x, y, w, h);
+            shapes.setColor(0f, 0f, 0f, 0.35f);
+            shapes.circle(xy[0] + 1.5f, xy[1] - 1.5f, portR);
             shapes.setColor(PORT_C);
-            shapes.circle(xy[0], xy[1], full ? 7 : 3.5f);
+            shapes.circle(xy[0], xy[1], portR);
+            if (full) {
+                shapes.setColor(0.25f, 0.16f, 0.05f, 1f);
+                shapes.circle(xy[0], xy[1], portR * 0.42f);
+            }
         }
+        // Player: white-outlined hull dot + heading tick, drawn last so it can
+        // never be hidden under a port/island marker.
         float[] me = mapToUi(g.x, g.y, x, y, w, h);
+        float r = full ? 7f : 4f;
+        float rad = g.headingDeg * MathUtils.degreesToRadians;
+        shapes.setColor(1f, 1f, 1f, 0.9f);
+        shapes.circle(me[0], me[1], r + 2f);
         shapes.setColor(HULL);
-        shapes.circle(me[0], me[1], full ? 6 : 3.2f);
+        shapes.circle(me[0], me[1], r);
+        shapes.setColor(1f, 0.95f, 0.55f, 1f);
+        shapes.rectLine(me[0], me[1],
+                me[0] + MathUtils.cos(rad) * (r + (full ? 9f : 7f)),
+                me[1] + MathUtils.sin(rad) * (r + (full ? 9f : 7f)), full ? 3f : 2f);
     }
 
     private float[] mapToUi(float wx, float wy, float x, float y, float w, float h) {

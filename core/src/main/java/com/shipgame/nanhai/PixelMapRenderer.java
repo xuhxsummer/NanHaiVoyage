@@ -12,8 +12,8 @@ import com.shipgame.nanhai.data.GameState;
 
 /**
  * Top-down pixel-art world sprites. Water is tiled; ships/ports/islands are
- * icon-sized. Near-black pixels are keyed to alpha so junk sprites do not
- * leave a black box on the sea.
+ * icon-sized. Water and markers are drawn in separate passes so a vector
+ * silhouette can be layered under the ship sprite (see VoyageScreen).
  */
 public class PixelMapRenderer {
 
@@ -32,19 +32,19 @@ public class PixelMapRenderer {
     private final Texture island;
 
     public PixelMapRenderer() {
-        water = loadSafe("textures/water.png", true, false, 0.10f, 0.36f, 0.52f, 1f);
-        ship = loadSafe("textures/ship.png", false, true, 0.70f, 0.40f, 0.20f, 1f);
-        pirate = loadSafe("textures/pirate.png", false, true, 0.70f, 0.20f, 0.15f, 1f);
-        port = loadSafe("textures/port.png", false, true, 0.92f, 0.78f, 0.28f, 1f);
-        island = loadSafe("textures/island.png", false, true, 0.28f, 0.62f, 0.34f, 1f);
+        water = loadSafe("textures/water.png", true, 0.10f, 0.36f, 0.52f, 1f);
+        ship = loadSafe("textures/ship.png", false, 0.70f, 0.40f, 0.20f, 1f);
+        pirate = loadSafe("textures/pirate.png", false, 0.70f, 0.20f, 0.15f, 1f);
+        port = loadSafe("textures/port.png", false, 0.92f, 0.78f, 0.28f, 1f);
+        island = loadSafe("textures/island.png", false, 0.28f, 0.62f, 0.34f, 1f);
     }
 
     /** Loads a texture; on any failure falls back to a flat 4x4 color so the
      * game can still run instead of crashing during setScreen. */
-    private static Texture loadSafe(String path, boolean repeat, boolean keyBlack,
+    private static Texture loadSafe(String path, boolean repeat,
                                     float r, float g, float b, float a) {
         try {
-            return load(path, repeat, keyBlack);
+            return load(path, repeat);
         } catch (Exception ex) {
             Gdx.app.error("PixelMapRenderer", "texture failed: " + path, ex);
             Pixmap pm = new Pixmap(4, 4, Pixmap.Format.RGBA8888);
@@ -56,47 +56,17 @@ public class PixelMapRenderer {
         }
     }
 
-    private static Texture load(String path, boolean repeat, boolean keyBlack) {
-        Pixmap src = new Pixmap(Gdx.files.internal(path));
-        Pixmap pm = keyBlack ? keyNearBlack(src) : src;
-        if (keyBlack) {
-            src.dispose();
-        }
-        Texture t = new Texture(pm);
-        if (keyBlack || pm != src) {
-            pm.dispose();
-        } else {
-            src.dispose();
-        }
-        t.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
+    private static Texture load(String path, boolean repeat) {
+        Texture t = new Texture(Gdx.files.internal(path));
+        t.setFilter(TextureFilter.Linear, TextureFilter.Linear);
         if (repeat) {
             t.setWrap(TextureWrap.Repeat, TextureWrap.Repeat);
         }
         return t;
     }
 
-    private static Pixmap keyNearBlack(Pixmap src) {
-        int w = src.getWidth();
-        int h = src.getHeight();
-        Pixmap out = new Pixmap(w, h, Pixmap.Format.RGBA8888);
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                int p = src.getPixel(x, y);
-                int r = (p >>> 24) & 0xff;
-                int g = (p >>> 16) & 0xff;
-                int b = (p >>> 8) & 0xff;
-                int a = p & 0xff;
-                if (a > 0 && r <= 18 && g <= 18 && b <= 18) {
-                    out.drawPixel(x, y, 0);
-                } else {
-                    out.drawPixel(x, y, p);
-                }
-            }
-        }
-        return out;
-    }
-
-    public void draw(SpriteBatch batch, GameState g) {
+    /** Water tile pass (drawn first, under everything). */
+    public void drawWater(SpriteBatch batch, GameState g) {
         Color old = batch.getColor();
         if (g.weather == GameState.WeatherKind.RAIN) {
             batch.setColor(0.62f, 0.72f, 0.82f, 1f);
@@ -105,7 +75,6 @@ public class PixelMapRenderer {
         } else {
             batch.setColor(Color.WHITE);
         }
-
         float left = g.x - 720f;
         float bottom = g.y - 420f;
         float width = 1440f;
@@ -115,7 +84,12 @@ public class PixelMapRenderer {
         float u1 = (left + width) / WATER_TILE;
         float v1 = (bottom + height) / WATER_TILE;
         batch.draw(water, left, bottom, width, height, u0, v0, u1, v1);
+        batch.setColor(old);
+    }
 
+    /** Island / port / pirate / player-sprite pass (drawn over the water). */
+    public void drawMarkers(SpriteBatch batch, GameState g) {
+        Color old = batch.getColor();
         batch.setColor(Color.WHITE);
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
             drawMarker(batch, island, Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ISLAND_SIZE, ISLAND_SIZE, 0f);
@@ -128,6 +102,12 @@ public class PixelMapRenderer {
         }
         drawMarker(batch, ship, g.x, g.y, SHIP_W, SHIP_H, g.headingDeg - 90f);
         batch.setColor(old);
+    }
+
+    /** Full pass (water + markers) for callers that do not need the split. */
+    public void draw(SpriteBatch batch, GameState g) {
+        drawWater(batch, g);
+        drawMarkers(batch, g);
     }
 
     private static void drawMarker(SpriteBatch batch, Texture tex, float x, float y, float w, float h, float rot) {
