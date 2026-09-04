@@ -18,6 +18,7 @@ import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.Touchable;
 import com.badlogic.gdx.scenes.scene2d.ui.Image;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
@@ -306,23 +307,29 @@ public class VoyageScreen extends ScreenAdapter {
         stage.clear();
 
         // --- Top-left: circular captain avatar (tap opens save/load). ---
+        // 0.27.0: navy disc inside a gold Tang ring, matching the premium chrome.
         TextureRegionDrawable avatarIcon = IconLib.hud("avatar");
         Table avatarBtn = new Table();
         avatarBtn.setName("船长");
-        avatarBtn.setBackground(circleBg(new Color(0.17f, 0.12f, 0.10f, 0.96f)));
+        avatarBtn.setBackground(circleBg(new Color(0.09f, 0.15f, 0.23f, 0.96f)));
         if (avatarIcon != null) {
             avatarBtn.add(new Image(avatarIcon)).size(50, 50);
         } else {
             avatarBtn.add(new Label("船长", game.skin, "small"));
         }
+        Image avRing = new Image(game.skin.getDrawable("ringGold"));
+        avRing.setTouchable(Touchable.disabled);
+        avRing.setSize(AV_R * 2f + 8f, AV_R * 2f + 8f);
+        avatarBtn.addActor(avRing);
         avatarBtn.addListener(click(this::toggleAvatar));
         avatarBtn.setBounds(AV_X - AV_R, AV_Y - AV_R, AV_R * 2f, AV_R * 2f);
         stage.addActor(avatarBtn);
 
         // --- Stat panel right of the avatar: ICON + NUMBER per resource, each
-        // cell tappable -> detail popup (Overlay.STAT). ---
+        // cell tappable -> detail popup (Overlay.STAT). 0.27.0: gold-rimmed navy
+        // panel, gold numerals. ---
         Table statPanel = new Table();
-        statPanel.setBackground(game.skin.getDrawable("panel"));
+        statPanel.setBackground(game.skin.getDrawable("panelGold"));
         for (int i = 0; i < 4; i++) {
             final int idx = i;
             Table cell = new Table();
@@ -331,7 +338,7 @@ public class VoyageScreen extends ScreenAdapter {
             if (ico != null) {
                 cell.add(new Image(ico)).size(26, 26).padRight(4);
             }
-            statVals[i] = new Label("0", game.skin, "small");
+            statVals[i] = new Label("0", game.skin, "goldSmall");
             statVals[i].setAlignment(Align.left);
             cell.add(statVals[i]).width(52).left();
             cell.addListener(click(() -> statClicked(idx)));
@@ -342,7 +349,8 @@ public class VoyageScreen extends ScreenAdapter {
         stage.addActor(statPanel);
 
         // Caption row under the stat panel: the rest of the voyage status.
-        hudLine = new Label("", game.skin, "small");
+        // 0.27.0: pale gold so it reads as part of the ornate resource block.
+        hudLine = new Label("", game.skin, "goldSmall");
         hudLine.setAlignment(Align.left);
         hudLine.setWrap(false);
         hudLine.setBounds(16f, STAT_Y - 28f, 660f, 22f);
@@ -350,7 +358,8 @@ public class VoyageScreen extends ScreenAdapter {
 
         // 0.26.4 game clock, bottom-left corner: 第N日 HH:MM 白天/夜晚. The
         // label is small so it never collides with the toast at screen bottom.
-        hudClock = new Label("", game.skin, "small");
+        // 0.27.0: pale gold to match the HUD chrome.
+        hudClock = new Label("", game.skin, "goldSmall");
         hudClock.setAlignment(Align.left);
         hudClock.setWrap(false);
         hudClock.setBounds(14f, 12f, 340f, 20f);
@@ -360,8 +369,9 @@ public class VoyageScreen extends ScreenAdapter {
         Table right = new Table();
         right.setFillParent(true);
         right.bottom().right().pad(16);
-        btnAccel = new TextButton("加速", game.skin, "go");
-        btnDecel = new TextButton("减速", game.skin, "danger");
+        // 0.27.0: Tang chrome — jade 加速 / cinnabar 减速, gold-rimmed pills.
+        btnAccel = new TextButton("加速", game.skin, "jade");
+        btnDecel = new TextButton("减速", game.skin, "cinnabar");
         hold(btnAccel, true);
         hold(btnDecel, false);
         right.add(btnAccel).width(124).height(72).pad(6).row();
@@ -404,7 +414,7 @@ public class VoyageScreen extends ScreenAdapter {
         frame.setBackground(borderedBg());
         frame.addListener(click(this::toggleQuestOverlay));
         Table body = new Table();
-        body.setBackground(game.skin.getDrawable("panel"));
+        body.setBackground(game.skin.getDrawable("panelGold"));
         questCardLabel = new Label("", game.skin, "small");
         questCardLabel.setAlignment(Align.center);
         questCardLabel.setEllipsis(false);
@@ -510,18 +520,22 @@ public class VoyageScreen extends ScreenAdapter {
         }
     }
 
-    /** Round icon button: circle background + centered pixel icon, named after
-     * its meaning so the desktop smoke test can find it by name. */
+    /** Round icon button: navy disc + centered pixel icon inside a gold Tang
+     * ring, named after its meaning so the desktop smoke test can find it. */
     private Table iconBtn(String name, String slug, Runnable onTap) {
         Table b = new Table();
         b.setName(name);
-        b.setBackground(circleBg(new Color(0.13f, 0.27f, 0.37f, 0.96f)));
+        b.setBackground(circleBg(new Color(0.09f, 0.15f, 0.23f, 0.96f)));
         TextureRegionDrawable ico = IconLib.hud(slug);
         if (ico != null) {
             b.add(new Image(ico)).size(30, 30);
         } else {
             b.add(new Label(name, game.skin, "small"));
         }
+        Image ring = new Image(game.skin.getDrawable("ringGold"));
+        ring.setTouchable(Touchable.disabled);
+        ring.setSize(NR_D + 8f, NR_D + 8f);
+        b.addActor(ring);
         b.addListener(click(onTap));
         return b;
     }
@@ -2619,20 +2633,20 @@ public class VoyageScreen extends ScreenAdapter {
     /** Captain avatar (top-left, under the status line) + bottom-left joystick. */
     private void drawAvatarAndStick() {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        // avatar ring + round color block
-        shapes.setColor(0.03f, 0.05f, 0.09f, 0.95f);
+        // avatar ring + round color block (0.27.0 Tang gold ring, navy disc)
+        shapes.setColor(0.98f, 0.80f, 0.40f, 1f);
         shapes.circle(AV_X, AV_Y, AV_R + 3f);
-        shapes.setColor(0.55f, 0.20f, 0.18f, 1f);
+        shapes.setColor(0.16f, 0.28f, 0.44f, 1f);
         shapes.circle(AV_X, AV_Y, AV_R);
-        shapes.setColor(0.86f, 0.66f, 0.50f, 1f);
+        shapes.setColor(0.30f, 0.44f, 0.62f, 1f);
         shapes.circle(AV_X, AV_Y, AV_R * 0.55f);
 
         // virtual joystick base (bottom-left)
         shapes.setColor(0f, 0f, 0f, 0.35f);
         shapes.circle(stickCX, stickCY, stickR);
-        shapes.setColor(0.10f, 0.18f, 0.26f, 0.6f);
+        shapes.setColor(0.09f, 0.16f, 0.25f, 0.6f);
         shapes.circle(stickCX, stickCY, stickR - 7f);
-        shapes.setColor(0.85f, 0.85f, 0.85f, 0.55f);
+        shapes.setColor(0.88f, 0.82f, 0.70f, 0.55f);
         float knx = stickCX, kny = stickCY;
         if (stickActive) {
             knx = stickCX + stickKX * (stickR - 20f);
@@ -2642,9 +2656,9 @@ public class VoyageScreen extends ScreenAdapter {
         shapes.end();
 
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.8f, 0.8f, 0.8f, 0.8f);
+        shapes.setColor(0.90f, 0.78f, 0.42f, 0.85f); // gold stick rim
         shapes.circle(stickCX, stickCY, stickR);
-        shapes.setColor(0.95f, 0.9f, 0.8f, 0.9f);
+        shapes.setColor(0.98f, 0.82f, 0.46f, 0.95f);
         shapes.circle(AV_X, AV_Y, AV_R + 3f);
         shapes.end();
 
@@ -2705,18 +2719,22 @@ public class VoyageScreen extends ScreenAdapter {
             shapes.circle(MM_CX, MM_CY, rr);
         }
         shapes.end();
-        // Outer ring (thin, bright) + tiny inner glint ring.
+        // Outer ring (thin, bright gold) + tiny inner glint ring (0.27.0 chrome).
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.86f, 0.90f, 0.97f, 0.95f);
+        shapes.setColor(0.98f, 0.80f, 0.40f, 0.95f);
         shapes.circle(MM_CX, MM_CY, MM_R + 4.5f);
+        shapes.setColor(0.85f, 0.68f, 0.32f, 0.7f);
+        shapes.circle(MM_CX, MM_CY, MM_R + 8.5f);
         shapes.setColor(1f, 1f, 1f, 0.5f);
         shapes.circle(shipSX, shipSY, 5f);
         shapes.end();
 
-        // Caption above the circle (kept short; centered over the minimap only).
+        // Caption above the circle (pale gold, kept short and centered).
         game.batch.begin();
+        game.batch.setColor(0.96f, 0.88f, 0.65f, 1f);
         layout.setText(game.fontSmall, "小地图");
         game.fontSmall.draw(game.batch, "小地图", MM_CX - layout.width / 2f, MM_CY + MM_R + 22f);
+        game.batch.setColor(1f, 1f, 1f, 1f);
         game.batch.end();
     }
 

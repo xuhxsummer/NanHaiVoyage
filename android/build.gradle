@@ -17,10 +17,11 @@ android {
         minSdkVersion 21
         targetSdkVersion 33
         aaptOptions {
-            ignoreAssetsPattern '!.svn:!.git:!.gitignore:!.ds_store:!*.scc:.*:!ai-draft'
+            // ui-refs are working-reference mockups, never shipped in the APK.
+            ignoreAssetsPattern '!.svn:!.git:!.gitignore:!.ds_store:!*.scc:.*:!ai-draft:!ui-refs'
         }
-        versionCode 24
-        versionName '0.26.6'
+        versionCode 25
+        versionName '0.27.0'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
