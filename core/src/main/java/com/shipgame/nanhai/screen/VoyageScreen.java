@@ -140,6 +140,7 @@ public class VoyageScreen extends ScreenAdapter {
     private int selectedQuest = -1;
     private int selectedShip = -1;       // 0.26.4 商城：网格里点开的船（-1 = 网格）
     private int shopCat = 0;             // 0.26.4 商城左侧分类（目前仅 船只=0）
+    private boolean logoutSwitching;     // 0.26.6 退出登录防重入
     private Label hudClock;              // 0.26.4 左下 第N日 HH:MM 白天/夜晚
     private Label sunTip;                // 今日：晴 label under the minimap
 
@@ -291,10 +292,15 @@ public class VoyageScreen extends ScreenAdapter {
         pixelMap = null;
     }
 
-    // Active-quest card (0.26.5): a bordered frame under the horizontal rail
-    // row, left of the minimap, showing 标题 + 进度（如 访问一个岛屿（0/1））.
-    private static final float QP_W = 236f;
-    private static final float QP_H = 40f;
+    // Active-quest card: a bordered frame showing 标题 + 进度（如 访问一个岛屿（0/1））.
+    // 0.26.5 hung it under the rail row next to the minimap; 0.26.6 moves it to
+    // the FAR RIGHT edge, mid/lower down the screen — clear of the round minimap
+    // (top-right), the top icon rail, the bottom-right 加速/减速 buttons and the
+    // bottom-left joystick. QP_X/QP_Y are the frame's bottom-left stage corner.
+    private static final float QP_W = 248f;
+    private static final float QP_H = 54f;
+    private static final float QP_X = HUD_W - 18f - QP_W;   // far-right edge
+    private static final float QP_Y = 288f;                 // lower-middle band
 
     private void buildHud() {
         stage.clear();
@@ -389,9 +395,10 @@ public class VoyageScreen extends ScreenAdapter {
             b.setBounds(bx, NR_ROW_Y - NR_D / 2f, NR_D, NR_D);
             stage.addActor(b);
         }
-        // Active-quest card under the rail row: a bordered frame (gold rim + dark
-        // body) with the ONE current quest's title + progress. Tapping it opens
-        // the full quest popup.
+        // Active-quest card: a bordered frame (gold rim + dark body) with the ONE
+        // current quest's title + progress. Tapping it opens the full quest popup.
+        // 0.26.6 position = far right edge, mid/lower (QP_X/QP_Y), clear of the
+        // minimap, the rail row, 加速/减速 and the joystick.
         Table frame = new Table();
         frame.setName("任务卡");
         frame.setBackground(borderedBg());
@@ -404,7 +411,7 @@ public class VoyageScreen extends ScreenAdapter {
         body.add(questCardLabel).expand().fill().pad(2);
         frame.add(body).grow().pad(2);
         frame.setVisible(false);
-        frame.setBounds(MM_CX - MM_R - QP_W - 30f, NR_ROW_Y - NR_D / 2f - 12f - QP_H, QP_W, QP_H);
+        frame.setBounds(QP_X, QP_Y, QP_W, QP_H);
         stage.addActor(frame);
         questCard = frame;
         questCardLabel.setVisible(false);
@@ -517,6 +524,18 @@ public class VoyageScreen extends ScreenAdapter {
         }
         b.addListener(click(onTap));
         return b;
+    }
+
+    /** Highlight for the currently selected quest row (0.26.6): the same
+     * gold-rimmed 9-patch used by the active-quest card, so the selected quest
+     * reads clearly against the TextButton rows. */
+    private Drawable selectedRowBg() {
+        Drawable base = game.skin.getDrawable("patch");
+        if (base instanceof NinePatchDrawable) {
+            NinePatchDrawable nd = (NinePatchDrawable) base;
+            return nd.tint(new Color(0.66f, 0.55f, 0.24f, 1f));
+        }
+        return base;
     }
 
     /** Gold-rimmed card background: an 8px 9-patch white texture tinted gold
@@ -1602,19 +1621,23 @@ public class VoyageScreen extends ScreenAdapter {
                 dearIdx[2] = i;
             }
         }
-        box.add(new Label("—— 最低的 3 种货 ——", game.skin, "small")).width(MENU_W).left().padTop(4).padBottom(2).row();
+        // 0.26.6: each price row is tappable — tapping a port in the cheapest /
+        // most-expensive lists auto-sails there (reusing the same auto-sail that
+        // 前往目标 and the full-map port taps use). While docked it only hints,
+        // because a docked ship cannot sail.
+        box.add(new Label("—— 最低的 3 种货（点行自动驶往该港） ——", game.skin, "small")).width(MENU_W).left().padTop(4).padBottom(2).row();
         for (int i = 0; i < 3; i++) {
             if (cheapIdx[i] < 0) break;
             int idx = cheapIdx[i];
-            box.add(infoRow(Catalog.GOODS[allGoods[idx]] + "  「" + Catalog.PORTS[allPorts[idx]] + "」 " + allPrices[idx] + " 两"))
-                    .width(MENU_W).left().padBottom(1).row();
+            box.add(intelNavRow(Catalog.GOODS[allGoods[idx]] + "  「" + Catalog.PORTS[allPorts[idx]] + "」 " + allPrices[idx] + " 两（前往）",
+                    allPorts[idx], "情报低" + i)).width(MENU_W).left().padBottom(1).row();
         }
-        box.add(new Label("—— 最高的 3 种货 ——", game.skin, "small")).width(MENU_W).left().padTop(6).padBottom(2).row();
+        box.add(new Label("—— 最高的 3 种货（点行自动驶往该港） ——", game.skin, "small")).width(MENU_W).left().padTop(6).padBottom(2).row();
         for (int i = 0; i < 3; i++) {
             if (dearIdx[i] < 0) break;
             int idx = dearIdx[i];
-            box.add(infoRow(Catalog.GOODS[allGoods[idx]] + "  「" + Catalog.PORTS[allPorts[idx]] + "」 " + allPrices[idx] + " 两"))
-                    .width(MENU_W).left().padBottom(1).row();
+            box.add(intelNavRow(Catalog.GOODS[allGoods[idx]] + "  「" + Catalog.PORTS[allPorts[idx]] + "」 " + allPrices[idx] + " 两（前往）",
+                    allPorts[idx], "情报高" + i)).width(MENU_W).left().padBottom(1).row();
         }
         box.add(new Label("—— 套利提示（每个便宜货：哪儿最高） ——", game.skin, "small"))
                 .width(MENU_W).left().padTop(6).padBottom(2).row();
@@ -1633,14 +1656,45 @@ public class VoyageScreen extends ScreenAdapter {
             int profit = bestPrice - buyPrice;
             String hint;
             if (profit > 0) {
+                // 0.26.6: arbitrage rows navigate to their DESTINATION (sell port).
                 hint = Catalog.GOODS[gidx] + "：「" + Catalog.PORTS[buyPort] + "」买 " + buyPrice
                         + " → 「" + Catalog.PORTS[bestPort] + "」卖 " + bestPrice
-                        + "，每份赚 " + profit + " 两";
+                        + "，每份赚 " + profit + " 两（前往 " + Catalog.PORTS[bestPort] + "）";
+                box.add(intelNavRow(hint, bestPort, "情报套" + i)).width(MENU_W).left().padBottom(1).row();
             } else {
                 hint = Catalog.GOODS[gidx] + "：「" + Catalog.PORTS[buyPort] + "」已是最低（" + buyPrice + " 两），没空子。";
+                box.add(infoRow(hint)).width(MENU_W).left().padBottom(1).row();
             }
-            box.add(infoRow(hint)).width(MENU_W).left().padBottom(1).row();
         }
+    }
+
+    /** One tappable intel row (0.26.6): tapping it auto-sails the ship to the
+     * named port, exactly like the full-map port taps, then closes the popup. */
+    private Table intelNavRow(String text, int port, String rowName) {
+        Table row = new Table();
+        row.setName(rowName);
+        Label l = new Label(text, game.skin, "small");
+        l.setWrap(true);
+        l.setColor(new Color(0.86f, 0.93f, 1f, 1f));
+        row.add(l).width(MENU_W - 8f).left();
+        row.addListener(click(() -> autoSailFromIntel(port)));
+        return row;
+    }
+
+    /** Shared handler for the 0.26.6 tappable intel rows. Docked ships get a
+     * hint (they cannot sail); at sea it reuses GameState.startAutoSail — the
+     * same mechanism as the quest 前往目标 button and full-map port taps — and
+     * closes the intel popup so the voyage visibly starts. */
+    private void autoSailFromIntel(int port) {
+        if (g == null) return;
+        if (port < 0 || port >= Catalog.PORTS.length) return;
+        if (g.dockedPort >= 0 || g.worldPaused()) {
+            g.toast("先离港再点这里：会自动驶向「" + Catalog.PORTS[port] + "」。");
+            return;
+        }
+        g.startAutoSail(port);
+        g.toast("自动驶向「" + Catalog.PORTS[port] + "」。（取消自动可停）");
+        closePopup();
     }
 
     // ---- 任务 system (0.26.1) ----
@@ -1776,11 +1830,11 @@ public class VoyageScreen extends ScreenAdapter {
         g.hull += q.hullReward;
         if (g.hull > g.hullMax) g.hull = g.hullMax;
         setQuestClaimed(g, q);
-        String msg = "拿到";
-        if (q.silverReward > 0) msg += "银 +" + q.silverReward;
-        if (q.supplyReward > 0) msg += (msg.isEmpty() ? "补給 +" : ",補給 +") + q.supplyReward;
-        if (q.hullReward > 0) msg += (msg.isEmpty() ? "耐久 +" : ",耐久 +") + q.hullReward;
-        msg += "。";
+        java.util.ArrayList<String> parts = new java.util.ArrayList<String>();
+        if (q.silverReward > 0) parts.add("银 +" + q.silverReward);
+        if (q.supplyReward > 0) parts.add("补给 +" + q.supplyReward);
+        if (q.hullReward > 0) parts.add("耐久 +" + q.hullReward);
+        String msg = "拿到" + (parts.isEmpty() ? "奖励" : String.join("，", parts)) + "。";
         return msg;
     }
 
@@ -1847,7 +1901,11 @@ public class VoyageScreen extends ScreenAdapter {
                 btn.getLabel().setColor(Color.YELLOW);
             }
             if (qi == selectedQuest) {
-                btn.setBackground(game.skin.getDrawable("window"));
+                // 0.26.6: this used skin.getDrawable("window"), which the skin
+                // has never registered — every quest-popup build crashed right
+                // here (claim/complete quests crash). Use the gold-rim patch
+                // highlight instead.
+                btn.setBackground(selectedRowBg());
             }
             listTbl.add(btn).width(186).height(44).left().padBottom(2).row();
         }
@@ -1910,8 +1968,20 @@ public class VoyageScreen extends ScreenAdapter {
             boolean claimed = isQuestClaimed(g, q);
             if (done && !claimed) {
                 detTbl.add(btn("领取奖励", () -> {
-                    g.toast(claimQuest(g, q));
-                    persist();
+                    // The world keeps sailing while this popup is open at sea, so
+                    // re-check on tap: the quest may have changed underneath us.
+                    if (isQuestClaimed(g, q) || !isQuestComplete(g, q)) {
+                        g.toast("这个任务现在不能领奖。");
+                        rebuildMenu();
+                        return;
+                    }
+                    String msg = claimQuest(g, q);
+                    g.toast(msg);
+                    try {
+                        persist(); // a save failure must never crash the claim
+                    } catch (Throwable t) {
+                        Gdx.app.error("VoyageScreen", "persist after quest claim failed", t);
+                    }
                     selectedQuest = getActiveQuestIndex();
                     rebuildMenu();
                 })).width(292).height(48).left().padBottom(6).row();
@@ -1968,10 +2038,12 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     /** 船长菜单 (opened by tapping the top-left avatar): save now / load save /
-     * close. While it is open the world is paused — VoyageScreen skips g.update()
-     * for Overlay.AVATAR, so time, events and movement all stop. 保存进度 writes the
-     * live state to the account's local save immediately; 读取存档 loads the most
-     * recent docking autosave (same handler as the fail popup). */
+     * 退出登录 / close. While it is open the world is paused — VoyageScreen skips
+     * g.update() for Overlay.AVATAR, so time, events and movement all stop.
+     * 保存进度 writes the live state to the account's local save immediately;
+     * 读取存档 loads the most recent docking autosave (same handler as the fail
+     * popup). 0.26.6: 退出登录 saves once more, then returns to the login screen
+     * and clears the voyage session (never force-quits the app). */
     private void avatarTable(Table box) {
         menuHeader(box, "船长菜单 · 世界暂停");
         box.add(wrapLbl("菜单开着时停船停事件。\n保存进度 = 立刻把当前状态写入本机存档；\n读取存档 = 回最近一次靠港自动档。"))
@@ -1979,7 +2051,39 @@ public class VoyageScreen extends ScreenAdapter {
         Table act = new Table();
         act.add(btn("保存进度", this::saveNow)).width(MENU_W - 10).height(50).row();
         act.add(btn("读取存档", this::tryReloadLatestSave)).width(MENU_W - 10).height(50).padTop(8).row();
+        act.add(btn("退出登录", this::logoutToLogin)).width(MENU_W - 10).height(50).padTop(8).row();
         box.add(act).width(MENU_W).row();
+    }
+
+    /** 0.26.6 退出登录：先把当前进度写进本机存档，再回到登录页并清空会话。
+     * Uses the same deferred screen-switch pattern as LoginScreen.enterVoyage
+     * (never setScreen() from inside a click dispatch — Android surface race). */
+    private void logoutToLogin() {
+        if (logoutSwitching) {
+            return;
+        }
+        logoutSwitching = true;
+        try {
+            if (game.currentUser != null) {
+                game.accounts.save(game.currentUser, g.toSave());
+            }
+        } catch (Throwable ignored) {
+            // 存档失败不能卡住退出登录。
+        }
+        Gdx.input.setInputProcessor(null);
+        Gdx.app.postRunnable(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    game.currentUser = null;
+                    game.state = null;
+                    game.setScreen(new LoginScreen(game));
+                } catch (Throwable t) {
+                    Gdx.app.error("VoyageScreen", "logout transition failed", t);
+                    logoutSwitching = false;
+                }
+            }
+        });
     }
 
     private void saveNow() {

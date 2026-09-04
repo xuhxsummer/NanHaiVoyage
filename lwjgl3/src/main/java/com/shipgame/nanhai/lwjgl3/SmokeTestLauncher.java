@@ -146,6 +146,16 @@ public class SmokeTestLauncher {
                         }
                         require(getScreen() instanceof VoyageScreen, "expected VoyageScreen, got " + getScreen());
                         refreshStageFrom(getScreen().getClass());
+                        if (voyageOverlay() != null && voyageOverlay().name().equals("HOWTO")) {
+                            // Fresh install: the first-run 玩法说明 popup covers the
+                            // dock; close it via its top-right header button (the big
+                            // 开始航行 sits below the ScrollPane clip) and let the
+                            // docked auto-open land on PORT.
+                            require(tapButton("以后不再提示"), "could not close first-run 玩法说明");
+                            step = 3;
+                            nextStepFrame = frame + 10;
+                            break;
+                        }
                         GameState st = voyageState();
                         require(st.dockedPort == Catalog.YANGZHOU,
                                 "expected docked at 扬州(home), dockedPort=" + st.dockedPort);
@@ -221,6 +231,60 @@ public class SmokeTestLauncher {
                         require(fsState.cargoUsed() >= 1, "caught fish did not enter shared cargo");
                         System.out.println("SMOKE: docked catch ticker landed " + fsState.fishTotal()
                                 + " fish into cargo (fishing on)");
+                        step = 63;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 63: // 0.26.6: quest card far-right lower + claim quest 0
+                        // The bordered active-quest card must hang on the FAR RIGHT
+                        // edge mid/lower — NOT next to the round minimap (center
+                        // 1178,620 r 82, bottom edge 538) or the top rail row.
+                        require(findText("首次登岛") != null,
+                                "active-quest card text missing while docked (首次登岛)");
+                        Actor cardA = namedCell("任务卡");
+                        require(cardA != null && cardA.isVisible(), "quest card missing or hidden");
+                        float qx = cardA.getX(), qy = cardA.getY();
+                        require(qx > 1280f - 300f, "quest card not far right (x=" + qx + ")");
+                        require(qy > 220f && qy + cardA.getHeight() < 520f,
+                                "quest card not in the mid/lower band (y=" + qy + " h=" + cardA.getHeight() + ")");
+                        require(qy + cardA.getHeight() < 538f, "quest card overlaps the minimap column");
+                        System.out.println("SMOKE: quest card far-right lower @(" + (int) qx + "," + (int) qy
+                                + "), clear of minimap/rail/joystick/accel");
+                        // Make the tutorial quest 0 (首次登岛) complete and claim it
+                        // through the real UI — proves the claim path cannot crash.
+                        GameState qq = voyageState();
+                        qq.questIslandVisits = 1;
+                        qq.questClaimIslandVisit = false;
+                        silBefore = qq.silver;
+                        require(tapButton("任务"), "could not tap rail 任务");
+                        step = 64;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 64:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("QUESTS"),
+                                "quest popup not open, got " + voyageOverlay());
+                        require(findText("领取奖励") != null, "claim button missing for complete quest 0");
+                        require(tapButton("领取奖励"), "could not tap 领取奖励");
+                        step = 65;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 65: // claim applied: reward + flag set, next quest shown
+                        GameState claim1 = voyageState();
+                        require(claim1.questClaimIslandVisit, "claim flag not set after 领取奖励");
+                        require(claim1.silver == silBefore + 30,
+                                "quest reward not granted (silver " + silBefore + " -> " + claim1.silver + ")");
+                        require(claim1.questIslandVisits >= 1, "quest 0 progress lost");
+                        require(findText("领取奖励") == null,
+                                "claim button still present after claiming quest 0");
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("QUESTS"),
+                                "quest popup vanished after claim, got " + voyageOverlay());
+                        System.out.println("SMOKE: 领取奖励 granted +30 silver, claimed flag set, popup alive (no crash)");
+                        require(tapButton("关闭"), "could not close quest popup");
+                        step = 66;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 66:
+                        require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
+                                "quest popup did not close, got " + voyageOverlay());
                         // 0.26.2: each top stat cell is tappable and opens 说明.
                         tapScreen(STAT_X0 + STAT_W / 2, STAT_YC); // 银两
                         step = 6;
@@ -545,6 +609,32 @@ public class SmokeTestLauncher {
                     case 26:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("INTEL"),
                                 "intel popup not open, got " + voyageOverlay());
+                        require(findText("最低的 3 种货") != null, "intel cheapest list missing");
+                        // 0.26.6: tapping the cheapest-port row must auto-sail there.
+                        require(tapButton("情报低0"), "could not tap intel cheapest row 情报低0");
+                        step = 126;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 126:
+                        GameState intel = voyageState();
+                        require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
+                                "intel popup should close after tapping a price row, got " + voyageOverlay());
+                        require(intel.autoSail && intel.autoSailPort >= 0,
+                                "intel price-row tap did not start auto-sail");
+                        int cheapPort = cheapestPortOf();
+                        require(intel.autoSailPort == cheapPort,
+                                "intel row auto-sailed to " + intel.autoSailPort + " but cheapest is " + cheapPort);
+                        System.out.println("SMOKE: intel cheapest-row tap auto-sails to "
+                                + Catalog.PORTS[cheapPort] + " and closes the popup");
+                        intel.autoSail = false;
+                        intel.autoSailPort = -1;
+                        require(tapButton("情报"), "could not reopen 情报 after nav");
+                        step = 127;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 127:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("INTEL"),
+                                "intel popup not reopened, got " + voyageOverlay());
                         System.out.println("SMOKE: cargo/codex/intel open+close OK");
                         require(tapButton("关闭"), "could not tap intel 关闭");
                         step = 27;
@@ -666,6 +756,37 @@ public class SmokeTestLauncher {
                         require(tapButton("取消锁定"), "could not tap cancel lock");
                         saveShot("pirate-combat");
                         System.out.println("SMOKE: PASS - pirate tapped, auto-fire exchanged damage, cancel-lock visible");
+                        step = 70;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 70: // 0.26.6: 退出登录 from the avatar menu -> LoginScreen
+                        // Stabilise the sea state so nothing interrupts the popup.
+                        GameState lo = voyageState();
+                        lo.hull = lo.hullMax;
+                        lo.supply = lo.supplyMax;
+                        lo.pirateAlive = false;
+                        lo.combatLock = false;
+                        lo.autoSail = false;
+                        require(tapButton("船长"), "could not tap avatar to open 船长菜单");
+                        step = 71;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 71:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("AVATAR"),
+                                "avatar menu not open, got " + voyageOverlay());
+                        require(findText("退出登录") != null, "avatar menu lacks 退出登录 button");
+                        require(tapButton("退出登录"), "could not tap 退出登录");
+                        step = 72;
+                        nextStepFrame = frame + 25;
+                        break;
+                    case 72:
+                        require(getScreen() instanceof LoginScreen,
+                                "退出登录 did not return to LoginScreen, got " + getScreen());
+                        require(currentUser == null, "退出登录 did not clear currentUser (=" + currentUser + ")");
+                        require(state == null, "退出登录 did not clear the voyage session");
+                        refreshStageFrom(LoginScreen.class);
+                        require(findExactText("登录") != null, "login UI missing after 退出登录");
+                        System.out.println("SMOKE: PASS - 退出登录 cleared session and returned to login");
                         exitCode = 0;
                         flowDone = true;
                         Gdx.app.exit();
@@ -961,6 +1082,25 @@ public class SmokeTestLauncher {
             /** World -> full-map screen pixel for port i (letterboxed chart rect). */
             private float[] mapPortToScreen(int port) {
                 return worldToMapScreen(Catalog.PORT_X[port], Catalog.PORT_Y[port]);
+            }
+
+            /** Port of the globally cheapest (port, good) offer, mirroring the
+             * intel top-3 selection (strictly-less replacement keeps the first
+             * minimum in the same iteration order the popup uses). */
+            private int cheapestPortOf() throws Exception {
+                GameState st = voyageState();
+                int best = -1;
+                int bestPrice = Integer.MAX_VALUE;
+                for (int p = 0; p < Catalog.PORTS.length; p++) {
+                    for (int gg = 0; gg < Catalog.GOODS.length; gg++) {
+                        int pr = st.goodPrice(p, gg);
+                        if (best == -1 || pr < bestPrice) {
+                            bestPrice = pr;
+                            best = p;
+                        }
+                    }
+                }
+                return best;
             }
 
             private Vector2 center(Actor a) {
