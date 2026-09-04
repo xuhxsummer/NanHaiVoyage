@@ -83,7 +83,9 @@ public class VoyageScreen extends ScreenAdapter {
         // the docked actions menu; AVATAR is the paused 船长菜单 (save/load);
         // HOWTO is the first-run 玩法说明 popup shown once per install.
         // 0.26.2: STAT is the detail popup opened from a top stat cell.
-        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT
+        // 0.26.3: FISH is the 扬州-only 渔务 dock sub-view (hire fishers,
+        // start/stop fishing, upgrades, catch list + sell).
+        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH
     }
 
     /** 0.26.0 first-run gameplay help. Body is verbatim from howto_spec.txt:
@@ -116,6 +118,7 @@ public class VoyageScreen extends ScreenAdapter {
     private int selectedGood = -1;
     private int selectedBeast = -1;
     private int selectedHerb = -1;
+    private int selectedFish = -1;   // 0.26.3 渔获（丢/卖）
     private Overlay priceReturnOverlay = Overlay.CARGO;
     // Popups the player explicitly closed stay closed until the context changes
     // (docking at a different port / reaching a different island / leaving).
@@ -605,6 +608,8 @@ public class VoyageScreen extends ScreenAdapter {
             portTable(box);
         } else if (overlay == Overlay.MARKET) {
             marketTable(box);
+        } else if (overlay == Overlay.FISH) {
+            fishTable(box);
         } else if (overlay == Overlay.ISLAND) {
             islandTable(box);
         } else if (overlay == Overlay.CODEX) {
@@ -628,7 +633,7 @@ public class VoyageScreen extends ScreenAdapter {
         }
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
-        boolean wide = overlay == Overlay.PORT || overlay == Overlay.MARKET;
+        boolean wide = overlay == Overlay.PORT || overlay == Overlay.MARKET || overlay == Overlay.FISH;
         float pw = wide ? PORT_MENU_W + 24f : (overlay == Overlay.QUESTS ? 560f : 520f);
         menuRoot.add(sp).width(pw).maxHeight(560);
     }
@@ -669,6 +674,20 @@ public class VoyageScreen extends ScreenAdapter {
         mrow.add(market).width(PORT_MENU_W).height(56);
         box.add(mrow).width(PORT_MENU_W).padBottom(10).row();
 
+        // 0.26.3: 扬州独有「渔务」入口（雇渔夫/捕鱼/渔获/升级都在里面）。
+        if (p == Catalog.YANGZHOU) {
+            Table frow = new Table();
+            TextButton fish = new TextButton("渔务（雇渔夫 · 捕鱼 · 渔获）", game.skin, "go");
+            fish.getLabel().setFontScale(1.0f);
+            fish.setName("渔务");
+            fish.addListener(click(() -> {
+                overlay = Overlay.FISH;
+                rebuildMenu();
+            }));
+            frow.add(fish).width(PORT_MENU_W).height(54);
+            box.add(frow).width(PORT_MENU_W).padBottom(10).row();
+        }
+
         portPair(box,
                 "补补给", () -> { g.toast(g.refillSupply()); persist(); rebuildMenu(); },
                 "还债(全还)", () -> { g.toast(g.repay(g.debt)); persist(); rebuildMenu(); });
@@ -690,6 +709,10 @@ public class VoyageScreen extends ScreenAdapter {
         float rate = Math.round(g.firepower() * 10f) / 10f;
         box.add(infoRow("船员 " + g.crew + "/" + g.crewCap + "    每发伤 1 · 射速 " + rate
                 + " 发/秒    耐久 " + (int) g.hull)).width(PORT_MENU_W).padTop(6).padBottom(2).row();
+        if (p == Catalog.YANGZHOU) {
+            box.add(infoRow("故乡扬州：点「渔务」可雇渔夫、升级钓具/钓技并开始捕鱼（仅扬州可捕）。"))
+                    .width(PORT_MENU_W).left().padBottom(2).row();
+        }
         box.add(infoRow("点「市场」看各港价差并买卖，点「离港」开船。")).width(PORT_MENU_W).left().row();
     }
 
@@ -757,7 +780,7 @@ public class VoyageScreen extends ScreenAdapter {
         }
         pagerRow(buy, marketBuyPage, buyPages, true);
 
-        // --- right column: cargo the player can sell (goods/beasts/herbs, paged) ---
+        // --- right column: cargo the player can sell (goods/beasts/herbs/fish, paged) ---
         Table sell = new Table();
         sell.top().left();
         sell.add(infoRow("船上可卖 · 点击卖出 1 件")).width(430).left().padBottom(4).row();
@@ -765,15 +788,17 @@ public class VoyageScreen extends ScreenAdapter {
         for (int i = 0; i < Catalog.GOODS.length; i++) if (g.trade[i] > 0) n++;
         for (int i = 0; i < Catalog.BEASTS.length; i++) if (g.beasts[i] > 0) n++;
         for (int i = 0; i < Catalog.HERBS.length; i++) if (g.herbs[i] > 0) n++;
+        for (int i = 0; i < Catalog.FISH.length; i++) if (g.fish[i] > 0) n++;
         if (n == 0) {
             sell.add(infoRow("船上暂无可卖货物")).width(430).left().padBottom(6).row();
         } else {
-            int[] kind = new int[n];  // 0 = goods, 1 = beasts, 2 = herbs
+            int[] kind = new int[n];  // 0 = goods, 1 = beasts, 2 = herbs, 3 = fish
             int[] idx = new int[n];
             int k = 0;
             for (int i = 0; i < Catalog.GOODS.length; i++) if (g.trade[i] > 0) { kind[k] = 0; idx[k] = i; k++; }
             for (int i = 0; i < Catalog.BEASTS.length; i++) if (g.beasts[i] > 0) { kind[k] = 1; idx[k] = i; k++; }
             for (int i = 0; i < Catalog.HERBS.length; i++) if (g.herbs[i] > 0) { kind[k] = 2; idx[k] = i; k++; }
+            for (int i = 0; i < Catalog.FISH.length; i++) if (g.fish[i] > 0) { kind[k] = 3; idx[k] = i; k++; }
             int sellPages = Math.max(1, (n + MARKET_PAGE_SIZE - 1) / MARKET_PAGE_SIZE);
             marketSellPage = Math.max(0, Math.min(marketSellPage, sellPages - 1));
             int sStart = marketSellPage * MARKET_PAGE_SIZE;
@@ -791,10 +816,14 @@ public class VoyageScreen extends ScreenAdapter {
                     label = "异兽 · " + Catalog.BEASTS[ij] + " x" + g.beasts[ij]
                             + "  卖 " + Catalog.BEAST_PRICE[ij] + "两";
                     sellOne = () -> { g.toast(g.sellBeast(ij, 1)); persist(); rebuildMenu(); };
-                } else {
+                } else if (kj == 2) {
                     label = "草药 · " + Catalog.HERBS[ij] + " x" + g.herbs[ij]
                             + "  卖 " + Catalog.HERB_PRICE[ij] + "两";
                     sellOne = () -> { g.toast(g.sellHerb(ij, 1)); persist(); rebuildMenu(); };
+                } else {
+                    label = "渔获 · " + Catalog.FISH[ij] + " x" + g.fish[ij]
+                            + "  卖 " + Catalog.FISH_PRICE[ij] + "两";
+                    sellOne = () -> { g.toast(g.sellFish(ij, 1)); persist(); rebuildMenu(); };
                 }
                 sell.add(btn(label, sellOne)).width(430).height(36).left().padBottom(2).row();
             }
@@ -804,6 +833,103 @@ public class VoyageScreen extends ScreenAdapter {
         market.add(sell).width(438).top().padLeft(12);
         box.add(market).width(PORT_MENU_W).padBottom(4).row();
         box.add(infoRow("返回后仍在港口菜单，点「离港」才开船。")).width(PORT_MENU_W).left().row();
+    }
+
+    /** 扬州 dock sub-view：雇渔夫、升钓具/钓技/渔夫编制、开始/停止捕鱼、渔获清单。
+     * 只在扬州停靠时出现（渔夫/捕鱼/升级均扬州专属）。渔获与商货/异兽/草药共用
+     * 货舱容量，捕鱼规则：停靠扬州且渔夫≥1、点「开始捕鱼」后自动下竿，货舱满自动收网。 */
+    private void fishTable(Table box) {
+        if (g.dockedPort != Catalog.YANGZHOU) {
+            overlay = Overlay.PORT;
+            rebuildMenu();
+            return;
+        }
+        Table h = new Table();
+        Label t = new Label(Catalog.PORTS[g.dockedPort] + " · 渔务（雇渔夫 / 捕鱼 / 渔获）", game.skin);
+        t.setWrap(false);
+        TextButton back = new TextButton("返回", game.skin, "danger");
+        back.getLabel().setFontScale(0.9f);
+        back.addListener(click(() -> {
+            overlay = Overlay.PORT;
+            rebuildMenu();
+        }));
+        h.add(t).left().expandX().padLeft(2);
+        h.add(back).width(88).height(38);
+        box.add(h).width(PORT_MENU_W).padBottom(4).row();
+        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.cargoCap
+                + "    渔夫 " + g.fishers + "/" + g.fisherCap()
+                + "    钓具 Lv" + g.fishToolLevel + "    钓技 Lv" + g.fishSkillLevel))
+                .width(PORT_MENU_W).padBottom(6).row();
+
+        Table cols = new Table();
+        // --- left column: hire + upgrades + start/stop ---
+        Table act = new Table();
+        act.top().left();
+        act.add(btn("雇渔夫 " + Catalog.FISHER_HIRE_COST + "两", () -> {
+            g.toast(g.hireFisher()); persist(); rebuildMenu();
+        })).width(430).height(44).left().padBottom(6).row();
+        Table row1 = new Table();
+        row1.add(btn("升钓具 Lv" + g.fishToolLevel + " → " + g.fishToolCost() + "两", () -> {
+            g.toast(g.upgradeFishTool()); persist(); rebuildMenu();
+        })).width(210).height(46).left();
+        row1.add(btn("升钓技 Lv" + g.fishSkillLevel + " → " + g.fishSkillCost() + "两", () -> {
+            g.toast(g.upgradeFishSkill()); persist(); rebuildMenu();
+        })).width(210).height(46).left().padLeft(10);
+        act.add(row1).width(430).padBottom(6).row();
+        Table row2 = new Table();
+        row2.add(btn("升渔夫编制 → " + g.fisherCapCost() + "两", () -> {
+            g.toast(g.upgradeFisherCap()); persist(); rebuildMenu();
+        })).width(210).height(46).left();
+        row2.add(btn(g.fishingOn ? "停止捕鱼" : "开始捕鱼", () -> {
+            g.toast(g.fishingOn ? g.stopFishing() : g.startFishing());
+            persist();
+            rebuildMenu();
+        })).width(210).height(46).left().padLeft(10);
+        act.add(row2).width(430).padBottom(6).row();
+        String state;
+        if (!g.fishingOn) {
+            state = "渔夫待命。停靠扬州时点「开始捕鱼」自动下竿。";
+        } else if (g.cargoFree() <= 0) {
+            state = "货舱已满，渔夫收网中——先卖点鱼腾出空位。";
+        } else {
+            state = "捕鱼中：约每 " + (int) Math.ceil(g.catchInterval()) + " 秒一条（人多更快、钓技更高更快）。";
+        }
+        act.add(wrapLbl(state)).width(420).left().padBottom(2).row();
+        act.add(wrapLbl("离港自动收网；鱼入货舱，占容量。鱼可在此或在任意港口市场卖出（价固定）。"))
+                .width(420).left().row();
+        cols.add(act).width(438).top();
+
+        // --- right column: catch list ---
+        Table catches = new Table();
+        catches.top().left();
+        catches.add(infoRow("渔获 · 累计 " + g.fishCaughtTotal + " 条")).width(430).left().padBottom(4).row();
+        int held = 0;
+        for (int i = 0; i < Catalog.FISH.length; i++) {
+            held += g.fish[i];
+        }
+        if (held == 0) {
+            catches.add(infoRow("船上还没有鱼。")).width(430).left().padBottom(6).row();
+        } else {
+            for (int i = 0; i < Catalog.FISH.length; i++) {
+                final int fi = i;
+                if (g.fish[i] <= 0) {
+                    continue;
+                }
+                Table rr = new Table();
+                TextureRegionDrawable icon = IconLib.fish(i);
+                if (icon != null) rr.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(icon)).size(26, 26).padRight(4);
+                rr.add(infoRow(Catalog.FISH[i] + " x" + g.fish[i] + "  " + Catalog.FISH_PRICE[i] + "两/条"))
+                        .width(280).left();
+                rr.add(btn("卖1", () -> {
+                    g.toast(g.sellFish(fi, 1)); persist(); rebuildMenu();
+                })).width(78).height(36);
+                catches.add(rr).width(430).left().padBottom(2).row();
+            }
+        }
+        cols.add(catches).width(438).top().padLeft(12);
+        box.add(cols).width(PORT_MENU_W).padBottom(4).row();
+        box.add(infoRow("鱼价固定：小黄鱼 12 / 带鱼 18 / 鲈鱼 30 / 石斑 50 / 金枪鱼 80 / 大黄鱼 130 两。"))
+                .width(PORT_MENU_W).left().row();
     }
 
     /** 上一页 / 页号 / 下一页 strip under a paged market column. Buttons no-op at
@@ -862,6 +988,7 @@ public class VoyageScreen extends ScreenAdapter {
         if (cargoTab == 0 && selectedGood >= 0) m = g.dumpTrade(selectedGood, 1);
         else if (cargoTab == 1 && selectedBeast >= 0) m = g.dumpBeast(selectedBeast, 1);
         else if (cargoTab == 2 && selectedHerb >= 0) m = g.dumpHerb(selectedHerb, 1);
+        else if (cargoTab == 3 && selectedFish >= 0) m = g.dumpFish(selectedFish, 1);
         else m = "先点一种货。";
         g.toast(m);
         rebuildMenu();
@@ -1497,9 +1624,12 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void tabs(Table box) {
         Table t = new Table();
-        t.add(btn(cargoTab == 0 ? "[商货]" : "商货", () -> { cargoTab = 0; rebuildMenu(); })).width(160).height(40);
-        t.add(btn(cargoTab == 1 ? "[异兽]" : "异兽", () -> { cargoTab = 1; rebuildMenu(); })).width(160).height(40).padLeft(8);
-        t.add(btn(cargoTab == 2 ? "[草药]" : "草药", () -> { cargoTab = 2; rebuildMenu(); })).width(160).height(40).padLeft(8);
+        // 0.26.3: 渔获（扬州钓的鱼）作为第四栏，共用货舱容量。
+        int[] w = new int[]{118, 118, 118, 118};
+        t.add(btn(cargoTab == 0 ? "[商货]" : "商货", () -> { cargoTab = 0; rebuildMenu(); })).width(w[0]).height(40);
+        t.add(btn(cargoTab == 1 ? "[异兽]" : "异兽", () -> { cargoTab = 1; rebuildMenu(); })).width(w[1]).height(40).padLeft(6);
+        t.add(btn(cargoTab == 2 ? "[草药]" : "草药", () -> { cargoTab = 2; rebuildMenu(); })).width(w[2]).height(40).padLeft(6);
+        t.add(btn(cargoTab == 3 ? "[渔获]" : "渔获", () -> { cargoTab = 3; rebuildMenu(); })).width(w[3]).height(40).padLeft(6);
         box.add(t).width(MENU_W).padBottom(4).row();
     }
 
@@ -1540,7 +1670,7 @@ public class VoyageScreen extends ScreenAdapter {
                     rebuildMenu();
                 });
             }
-        } else {
+        } else if (cargoTab == 2) {
             for (int i = 0; i < Catalog.HERBS.length; i++) {
                 final int idx = i;
                 if (g.herbs[i] <= 0 && !(trading && g.herbFound[i])) {
@@ -1556,6 +1686,26 @@ public class VoyageScreen extends ScreenAdapter {
                     }
                     rebuildMenu();
                 });
+            }
+        } else { // cargoTab == 3: 渔获
+            for (int i = 0; i < Catalog.FISH.length; i++) {
+                final int idx = i;
+                if (g.fish[i] <= 0) {
+                    continue;
+                }
+                String s = Catalog.FISH[i] + "    x" + g.fish[i] + "    卖价 " + Catalog.FISH_PRICE[i] + "（只卖）";
+                final String txt = s;
+                iconRow(box, IconLib.fish(i), txt, () -> {
+                    selectedFish = idx;
+                    if (trading && g.dockedPort >= 0 && g.fish[idx] > 0) {
+                        g.toast(g.sellFish(idx, 1));
+                        persist();
+                    }
+                    rebuildMenu();
+                });
+            }
+            if (g.fishTotal() <= 0) {
+                box.add(infoRow("还没有渔获：到故乡扬州雇渔夫捕鱼。")).width(MENU_W - 10).left().row();
             }
         }
     }
@@ -1688,6 +1838,18 @@ public class VoyageScreen extends ScreenAdapter {
             g.update(delta);
         }
 
+        // 0.26.3: 捕鱼只在停靠扬州时进行（即使世界暂停/菜单开着）。钓上一条就
+        // 刷新渔务面板并保存，避免退游戏丢鱼。
+        if (g.dockedPort == Catalog.YANGZHOU) {
+            boolean caught = g.tickFishing(delta);
+            if (caught) {
+                if (overlay == Overlay.FISH) {
+                    rebuildMenu();
+                }
+                persist();
+            }
+        }
+
         // Context transitions. Explicitly dismissed popups stay dismissed until the
         // context changes; otherwise dock/island/fail auto-open their popup. While
         // the full-map modal is up, nothing auto-opens under it: the modal keeps
@@ -1699,7 +1861,8 @@ public class VoyageScreen extends ScreenAdapter {
         // 玩法说明 (HOWTO).
         boolean dockSub = overlay == Overlay.PRICE || overlay == Overlay.MARKET
                 || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
-                || overlay == Overlay.INTEL || overlay == Overlay.QUESTS;
+                || overlay == Overlay.INTEL || overlay == Overlay.QUESTS
+                || overlay == Overlay.FISH;
         if (overlay != Overlay.MAP && !dockSub && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             rebuildMenu();

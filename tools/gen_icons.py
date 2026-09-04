@@ -825,6 +825,87 @@ def i_chrysanthemum():
     outline(m)
     return m
 
+# ----------------------------------------------------------------------------
+# FISH (0.26.3, 6): 扬州钓上来的鱼获，卖价固定（与异兽/草药同一套货舱规则）。
+# 侧视图：头朝右，鳍/尾/眼清晰可辨，颜色区分六种鱼。
+# ----------------------------------------------------------------------------
+def fish_side(m, cx, cy, rx, ry, body, fin, belly):
+    """Generic side-view fish body + tail + dorsal fin + eye, painted onto m."""
+    ellipse(m, cx, cy, rx, ry, body)                # body
+    ellipse(m, cx - rx * 0.15, cy - ry * 0.35, rx * 0.55, ry * 0.55, fin)  # dorsal
+    line(m, cx - rx * 0.1, cy, cx - rx * 1.05, cy - ry * 0.9, fin, 3)      # tail top
+    line(m, cx - rx * 0.1, cy, cx - rx * 1.05, cy + ry * 0.9, fin, 3)      # tail bottom
+    ellipse(m, cx + rx * 0.75, cy - ry * 0.2, ry * 0.45, ry * 0.4, fin)    # pectoral
+    px(m, cx + rx * 0.85, cy + ry * 0.45, (20, 22, 28))                    # eye
+    px(m, cx + rx * 0.88, cy + ry * 0.55, (240, 240, 244))
+    ellipse(m, cx + rx, cy, 1.6, ry * 0.4, fin)     # mouth hint
+    return m
+
+def i_yellow_croaker():
+    m = icon()
+    fish_side(m, 36, 34, 16, 8, (226, 176, 60), (232, 190, 80), (250, 226, 130))
+    px(m, 26, 39, (250, 226, 130)); px(m, 40, 39, (250, 226, 130))  # sheen
+    px(m, 30, 29, (196, 148, 44))
+    outline(m)
+    return m
+
+def i_hairtail():
+    m = icon()
+    # 带鱼：银白细长如带
+    line(m, 8, 40, 22, 38, (208, 214, 226), 4)
+    ellipse(m, 40, 34, 20, 6.5, (226, 230, 238))
+    line(m, 40, 27, 40, 22, (214, 218, 228), 2)      # dorsal fin
+    line(m, 22, 34, 8, 30, (196, 202, 214), 3)       # tail fork top
+    line(m, 22, 34, 8, 40, (196, 202, 214), 3)       # tail fork bottom
+    px(m, 56, 33, (20, 22, 28))                      # eye
+    px(m, 33, 37, (255, 255, 255))
+    px(m, 44, 37, (246, 248, 252))
+    outline(m)
+    return m
+
+def i_bass():
+    m = icon()
+    fish_side(m, 35, 34, 15, 9, (150, 168, 130), (120, 142, 106), (196, 208, 178))
+    # 鲈鱼：三道深色横纹
+    line(m, 24, 42, 30, 26, (96, 118, 86), 2)
+    line(m, 34, 43, 40, 25, (96, 118, 86), 2)
+    line(m, 44, 41, 48, 27, (96, 118, 86), 2)
+    px(m, 28, 36, (220, 232, 202)); px(m, 45, 38, (220, 232, 202))
+    outline(m)
+    return m
+
+def i_grouper():
+    m = icon()
+    fish_side(m, 34, 35, 15, 11, (196, 140, 92), (160, 110, 70), (222, 178, 128))
+    # 石斑：体圆、褐色斑
+    for (sx, sy) in ((26, 41), (34, 43), (43, 41), (28, 30), (40, 29), (49, 36)):
+        px(m, sx, sy, (126, 78, 44))
+    px(m, 28, 36, (246, 214, 160)); px(m, 42, 38, (246, 214, 160))
+    outline(m)
+    return m
+
+def i_tuna():
+    m = icon()
+    # 金枪鱼：纺锤形深蓝大鱼，腹白
+    ellipse(m, 34, 36, 18, 10, (58, 92, 150))
+    ellipse(m, 34, 28, 14, 5, (236, 238, 244))       # white belly
+    line(m, 16, 34, 8, 24, (58, 92, 150), 4)         # crescent tail
+    line(m, 16, 34, 8, 44, (58, 92, 150), 4)
+    line(m, 34, 44, 34, 49, (58, 92, 150), 2)        # top fin
+    px(m, 51, 36, (20, 22, 28))                      # eye
+    px(m, 30, 40, (110, 150, 210)); px(m, 42, 40, (110, 150, 210))
+    outline(m)
+    return m
+
+def i_big_yellow_croaker():
+    m = icon()
+    fish_side(m, 34, 36, 17, 12, (240, 196, 84), (226, 160, 56), (255, 230, 150))
+    px(m, 22, 44, (255, 238, 170)); px(m, 30, 44, (255, 238, 170))
+    px(m, 40, 44, (255, 238, 170)); px(m, 34, 28, (255, 238, 170))
+    px(m, 24, 29, (200, 156, 60)); px(m, 45, 30, (200, 156, 60))
+    outline(m)
+    return m
+
 
 GOODS = {
     "silk": i_silk, "porcelain": i_porcelain, "tea": i_tea, "salt": i_salt,
@@ -847,6 +928,11 @@ HERBS = {
     "danggui": i_danggui, "heshouwu": i_heshouwu, "guizhi": i_guizhi,
     "gancao": i_gancao, "chrysanthemum": i_chrysanthemum,
 }
+FISH = {
+    "yellow-croaker": i_yellow_croaker, "hairtail": i_hairtail,
+    "bass": i_bass, "grouper": i_grouper, "tuna": i_tuna,
+    "big-yellow-croaker": i_big_yellow_croaker,
+}
 
 HUD = {
     "silver": i_hud_silver, "supply": i_hud_supply, "hull": i_hud_hull,
@@ -858,7 +944,7 @@ HUD = {
 if __name__ == "__main__":
     n = 0
     for folder, table in (("goods", GOODS), ("beasts", BEASTS), ("herbs", HERBS),
-                          ("hud", HUD)):
+                          ("fish", FISH), ("hud", HUD)):
         for slug, fn in table.items():
             img = fn()
             alpha = img[..., 3]

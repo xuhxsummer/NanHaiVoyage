@@ -32,6 +32,9 @@ public final class IconLib {
             "ginseng", "lingzhi", "fuling", "danggui", "heshouwu",
             "guizhi", "gancao", "chrysanthemum"
     };
+    private static final String[] FISH_SLUGS = {
+            "yellow-croaker", "hairtail", "bass", "grouper", "tuna", "big-yellow-croaker"
+    };
 
     private static final Map<String, TextureRegionDrawable> cache = new HashMap<>();
 
@@ -50,6 +53,11 @@ public final class IconLib {
     /** Drawable for Catalog.HERBS[i], or null if missing. */
     public static TextureRegionDrawable herb(int i) {
         return get("herbs", HERB_SLUGS, i);
+    }
+
+    /** Drawable for Catalog.FISH[i] (0.26.3 渔获), or null if missing. */
+    public static TextureRegionDrawable fish(int i) {
+        return get("fish", FISH_SLUGS, i);
     }
 
     /** Drawable for a 0.26.2 HUD icon by name (silver/supply/hull/crew/avatar/
@@ -98,7 +106,8 @@ public final class IconLib {
     public static void checkAgainstCatalog() {
         if (GOOD_SLUGS.length != Catalog.GOODS.length
                 || BEAST_SLUGS.length != Catalog.BEASTS.length
-                || HERB_SLUGS.length != Catalog.HERBS.length) {
+                || HERB_SLUGS.length != Catalog.HERBS.length
+                || FISH_SLUGS.length != Catalog.FISH.length) {
             Gdx.app.error("IconLib", "slug table length mismatch with Catalog");
         }
     }

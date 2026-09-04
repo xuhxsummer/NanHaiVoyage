@@ -62,4 +62,12 @@ public class SaveData {
     public boolean questClaimHiredCrew = false;
     /** 每类商货累计买入支付银两（判断盈利卖出的成本基准）。 */
     public int[] costPaid;
+    // 0.26.3 扬州渔业。旧档无此字段：GameState.fromSave 用缺省值补零。
+    public int[] fish;
+    public int fishers;
+    public int fisherCapLevel = 1;
+    public int fishToolLevel = 1;
+    public int fishSkillLevel = 1;
+    public boolean fishingOn;
+    public int fishCaughtTotal;
 }

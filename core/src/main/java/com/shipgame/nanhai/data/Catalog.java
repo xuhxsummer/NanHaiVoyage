@@ -12,16 +12,21 @@ public final class Catalog {
 
     public static final String[] PORTS = {
             "广州", "潮州", "雷州", "琼州", "崖州", "合浦", "交州", "占城", "真腊", "佛逝",
-            "泉州", "福州", "明州", "钦州", "邕州", "暹罗", "渤泥", "吕宋", "苏禄", "爪哇"
+            "泉州", "福州", "明州", "钦州", "邕州", "暹罗", "渤泥", "吕宋", "苏禄", "爪哇",
+            "扬州" // 0.26.3: 故乡，北缘海岸；新档从这里起航。附加在末尾以保持旧档港口序号
     };
     public static final float[] PORT_X = {
             3200f, 3900f, 2500f, 2400f, 2300f, 1800f, 1200f, 1400f, 900f, 1600f,
-            4150f, 4400f, 4650f, 1300f, 2050f, 550f, 2900f, 4300f, 3300f, 2300f
+            4150f, 4400f, 4650f, 1300f, 2050f, 550f, 2900f, 4300f, 3300f, 2300f,
+            3100f // 扬州：北缘沿海，四周留空不与其他港口重叠
     };
     public static final float[] PORT_Y = {
             2800f, 2700f, 2400f, 1900f, 1400f, 2200f, 1800f, 1100f, 800f, 400f,
-            3000f, 3260f, 3520f, 2450f, 3150f, 1650f, 550f, 1250f, 700f, 200f
+            3000f, 3260f, 3520f, 2450f, 3150f, 1650f, 550f, 1250f, 700f, 200f,
+            3400f // 扬州
     };
+    /** 0.26.3: 故乡港口序号（PORTS 数组末尾，追加顺序固定）。 */
+    public static final int YANGZHOU = PORTS.length - 1;
 
     public static final String[] ISLANDS = {
             "南澳屿", "琼东岛", "西沙礁",
@@ -70,7 +75,8 @@ public final class Catalog {
             {12, 11, 10, 10, 11, 9, 10, 5, 5, 6, 6, 6, 6, 5, 11, 10, 10, 8, 7, 7, 6, 6, 8, 7},           // 渤泥
             {12, 11, 11, 10, 11, 9, 10, 7, 6, 6, 5, 5, 6, 6, 12, 10, 10, 8, 7, 6, 6, 6, 7, 7},           // 吕宋
             {13, 12, 11, 11, 11, 10, 10, 6, 6, 6, 5, 4, 5, 5, 12, 11, 10, 8, 7, 6, 6, 5, 6, 6},          // 苏禄
-            {11, 11, 10, 9, 11, 8, 9, 6, 6, 5, 7, 7, 7, 4, 11, 10, 9, 8, 7, 6, 5, 5, 8, 7}               // 爪哇
+            {11, 11, 10, 9, 11, 8, 9, 6, 6, 5, 7, 7, 7, 4, 11, 10, 9, 8, 7, 6, 5, 5, 8, 7},              // 爪哇
+            {8, 9, 10, 11, 10, 10, 8, 12, 11, 13, 12, 12, 12, 9, 7, 8, 9, 10, 12, 12, 12, 12, 13, 12}   // 扬州（0.26.3，沿用江南口岸行情）
     };
 
     public static final String[] BEASTS = {
@@ -82,6 +88,37 @@ public final class Catalog {
             "人参", "灵芝", "茯苓", "当归", "何首乌", "桂枝", "甘草", "菊花"
     };
     public static final int[] HERB_PRICE = {35, 50, 20, 25, 30, 15, 12, 18};
+
+    // 0.26.3 扬州渔业：鱼获入货舱（与商货/异兽/草药共用容量），任意港口固定价卖出。
+    public static final String[] FISH = {
+            "小黄鱼", "带鱼", "鲈鱼", "石斑", "金枪鱼", "大黄鱼"
+    };
+    public static final int[] FISH_PRICE = {12, 18, 30, 50, 80, 130};
+    /** 钓具等级上限 / 钓技等级上限 / 渔夫编制等级上限（编制每级 +1 渔夫）。 */
+    public static final int FISH_TOOL_MAX = 5;
+    public static final int FISH_SKILL_MAX = 5;
+    public static final int FISHER_CAP_MAX = 5;
+    /** 雇一名渔夫的银两。 */
+    public static final int FISHER_HIRE_COST = 40;
+    /** 渔夫编制初始上限（编制等级 1 = 可雇 FISHER_START_CAP 人，每级 +1）。 */
+    public static final int FISHER_START_CAP = 2;
+    /**
+     * 每种钓具等级的可获鱼权重（行 = 钓具等级 1..5，列按 Catalog.FISH）。
+     * 高级钓具开放更大/更贵的鱼，并把权重向贵鱼倾斜（需求文档 v0.26.3 §4）。
+     */
+    public static final int[][] FISH_ODDS = {
+            {75, 25, 0, 0, 0, 0},                     // L1：小黄鱼/带鱼
+            {40, 35, 25, 0, 0, 0},                    // L2：+鲈鱼
+            {30, 28, 24, 18, 0, 0},                   // L3：+石斑
+            {18, 20, 24, 22, 16, 0},                  // L4：+金枪鱼
+            {10, 12, 18, 22, 20, 18}                  // L5：+大黄鱼
+    };
+    /** 每次渔获所需基准秒数（一名渔夫、钓技 L1）。随渔夫数与钓技缩短。 */
+    public static final float FISH_BASE_SECS = 12f;
+    /** 每次渔获基础银两回报曲线仅供参考（UI 不直接使用）。 */
+    public static int fishPrice(int i) {
+        return FISH_PRICE[i];
+    }
 
     public static final float DOCK_RANGE = 78f;
     public static final float ISLAND_RANGE = 70f;

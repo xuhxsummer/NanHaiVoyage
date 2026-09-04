@@ -26,11 +26,13 @@ import java.util.List;
  * Desktop smoke test driving the real 0.25.2 UI through the input pipeline.
  *
  * Flow (mode "register", run with a wiped account store):
- *   docked at 广州 (port popup auto-opens) ->
- *     1. port popup 关闭 closes and stays closed; the 0.26.2 top HUD is present:
+ *   docked at 扬州, the 0.26.3 home port (port popup auto-opens) ->
+ *     1. port popup 关闭 closes and stays closed; the top HUD is present:
  *        circular 船长 avatar (top-left), the four stat cells 银两/补给/耐久/船员
  *        with live numbers, the sun icon + 今日：晴 tip, and the top-right icon
  *        rail 货物/图鉴/港口/情报/任务 left of the round minimap
+ *     1b. 0.26.3: the 扬州 dock popup offers 渔务; hire one fisher, start
+ *        fishing, and let the docked catch ticker land a fish before sailing
  *     2. 港口 rail reopens the popup, 关闭 closes it again
  *     3. **docked + popup CLOSED: joystick drag undocks the ship (dockedPort
  *        becomes -1) and steers it; holding 加速 raises speed > 6 — the 0.25.2
@@ -77,6 +79,7 @@ public class SmokeTestLauncher {
     private static float h0;
     private static float pirateHp0;
     private static float hull0;
+    private static int sil0;   // silver right before hiring the fisher
 
     public static void main(String[] args) {
         if (args.length > 0) {
@@ -133,14 +136,15 @@ public class SmokeTestLauncher {
                         step = 3;
                         nextStepFrame = frame + 25;
                         break;
-                    case 3: // docked at 广州 with the port popup auto-open
+                    case 3: // docked at 扬州 (0.26.3 home port) with the popup auto-open
                         if (!(getScreen() instanceof VoyageScreen)) {
                             dumpLabels();
                         }
                         require(getScreen() instanceof VoyageScreen, "expected VoyageScreen, got " + getScreen());
                         refreshStageFrom(getScreen().getClass());
                         GameState st = voyageState();
-                        require(st.dockedPort == 0, "expected docked at 广州, dockedPort=" + st.dockedPort);
+                        require(st.dockedPort == Catalog.YANGZHOU,
+                                "expected docked at 扬州(home), dockedPort=" + st.dockedPort);
                         require(voyageOverlay() != null && voyageOverlay().name().equals("PORT"),
                                 "port popup should auto-open, got " + voyageOverlay());
                         require(countText("关闭") >= 1, "port popup 关闭 not found");
@@ -148,7 +152,49 @@ public class SmokeTestLauncher {
                         require(avatarAndStatsPresent(), "top-left avatar/stat HUD missing");
                         require(railPresent(), "top-right icon rail (货物/图鉴/港口/情报/任务) missing");
                         require(findText("今日：晴") != null, "今日：晴 weather tip missing");
-                        System.out.println("SMOKE: docked at 广州, port popup open, 0.26.2 top HUD present");
+                        // 0.26.3: 渔务 sub-view exists at 扬州; hire a fisher and start
+                        // fishing. docked catch ticker then lands fish during later steps.
+                        require(findText("渔务（雇渔夫 · 捕鱼 · 渔获）") != null,
+                                "扬州 dock menu lacks 渔务 entry");
+                        System.out.println("SMOKE: docked at 扬州(home), port popup open, top HUD present");
+                        step = 40;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 40: // open the 渔务 sub-view
+                        require(tapButton("渔务（雇渔夫 · 捕鱼 · 渔获）"), "could not tap 渔务");
+                        step = 41;
+                        nextStepFrame = frame + 8;
+                        break;
+                    case 41:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("FISH"),
+                                "渔务 sub-view not open, got " + voyageOverlay());
+                        require(findText("雇渔夫 40两") != null, "渔务 lacks 雇渔夫 button");
+                        sil0 = voyageState().silver;
+                        require(tapButton("雇渔夫 40两"), "could not tap 雇渔夫");
+                        step = 42;
+                        nextStepFrame = frame + 8;
+                        break;
+                    case 42:
+                        GameState f1 = voyageState();
+                        require(f1.fishers == 1, "hiring a fisher did not raise fishers (fishers=" + f1.fishers + ")");
+                        require(f1.silver == sil0 - 40, "hiring a fisher did not cost 40 silver");
+                        require(tapButton("开始捕鱼"), "could not tap 开始捕鱼");
+                        step = 43;
+                        nextStepFrame = frame + 8;
+                        break;
+                    case 43:
+                        GameState f2 = voyageState();
+                        require(f2.fishingOn, "开始捕鱼 did not set fishingOn");
+                        // Force the next catch to land within a few frames while docked.
+                        f2.fishTimer = 0.05f;
+                        require(tapButton("返回"), "could not return from 渔务");
+                        step = 44;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 44:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("PORT"),
+                                "渔务 返回 did not land back on PORT, got " + voyageOverlay());
+                        System.out.println("SMOKE: 扬州 渔务 hire fisher + start fishing OK");
                         step = 4;
                         nextStepFrame = frame + 6;
                         break;
@@ -163,6 +209,14 @@ public class SmokeTestLauncher {
                                 "overlay should be NONE after closing, got " + voyageOverlay());
                         require(avatarAndStatsPresent(), "stat HUD vanished after closing the popup");
                         require(railPresent(), "rail buttons vanished after closing the popup");
+                        // 0.26.3: while still docked at 扬州, the forced fish catch lands
+                        // and the catch persists into the fish hold (shared cargo).
+                        GameState fsState = voyageState();
+                        require(fsState.fishingOn, "fishing should still be on while docked");
+                        require(fsState.fishTotal() >= 1, "docked fishing did not catch a fish");
+                        require(fsState.cargoUsed() >= 1, "caught fish did not enter shared cargo");
+                        System.out.println("SMOKE: docked catch ticker landed " + fsState.fishTotal()
+                                + " fish into cargo (fishing on)");
                         // 0.26.2: each top stat cell is tappable and opens 说明.
                         tapScreen(STAT_X0 + STAT_W / 2, STAT_YC); // 银两
                         step = 6;
@@ -230,7 +284,7 @@ public class SmokeTestLauncher {
                         break;
                     case 14: // 0.25.2 fix: joystick while docked + menu CLOSED must undock
                         h0 = voyageState().headingDeg;
-                        require(voyageState().dockedPort == 0, "expected still docked before joystick, got "
+                        require(voyageState().dockedPort == Catalog.YANGZHOU, "expected still docked at 扬州 before joystick, got "
                                 + voyageState().dockedPort);
                         // 0.25.5 heading joystick: the stick aims an absolute compass
                         // heading (manualHeadingActive), not an angular steerInput.

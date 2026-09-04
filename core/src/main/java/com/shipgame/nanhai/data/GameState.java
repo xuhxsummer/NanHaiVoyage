@@ -33,6 +33,16 @@ public class GameState {
     public boolean islandGathered;
     public float leaveCooldown;
 
+    // 0.26.3 扬州渔业。渔夫只在扬州可雇；捕鱼只在停靠扬州且开始捕鱼时进行。
+    public final int[] fish = new int[Catalog.FISH.length];
+    public int fishers;              // 已雇渔夫人数
+    public int fisherCapLevel = 1;   // 编制等级：上限 = FISHER_START_CAP + (level-1)
+    public int fishToolLevel = 1;    // 钓具等级 1..FISH_TOOL_MAX
+    public int fishSkillLevel = 1;   // 钓技等级 1..FISH_SKILL_MAX
+    public boolean fishingOn;        // 是否在扬州开始捕鱼（离港自动停）
+    public int fishCaughtTotal;      // 累计渔获条数（展示用）
+    public float fishTimer;          // 距下次上钩剩余秒数（运行时）
+
     public boolean autoSail;
     public int autoSailPort = -1;   // auto-sail target port (>=0) when sailing to a port
     public int autoSailIsle = -1;   // auto-sail target island when sailing to an island
@@ -121,8 +131,10 @@ public class GameState {
 
     public static GameState newGame() {
         GameState g = new GameState();
-        g.x = Catalog.PORT_X[0] + 90f;
-        g.y = Catalog.PORT_Y[0];
+        // 0.26.3: 扬州是故乡，新档从这里起航（北缘海岸，初始渔夫编制 2）。
+        int home = Catalog.YANGZHOU;
+        g.x = Catalog.PORT_X[home] + 90f;
+        g.y = Catalog.PORT_Y[home];
         g.headingDeg = 0f;
         g.hull = g.hullMax;
         g.supply = g.supplyMax;
@@ -131,9 +143,9 @@ public class GameState {
         g.crew = Catalog.START_CREW;
         g.crewCap = Catalog.START_CREW_CAP;
         g.cannonDamage = Catalog.START_CANNON_DMG;
-        g.dockedPort = 0;
-        g.lastPort = 0;
-        g.toast("已在广州靠港。世界暂停。");
+        g.dockedPort = home;
+        g.lastPort = home;
+        g.toast("已在故乡扬州靠港。世界暂停。");
         return g;
     }
 
@@ -161,6 +173,14 @@ public class GameState {
         s.beastFound = beastFound.clone();
         s.herbFound = herbFound.clone();
         s.lastPort = lastPort;
+        // 0.26.3 fishing state
+        s.fish = fish.clone();
+        s.fishers = fishers;
+        s.fisherCapLevel = fisherCapLevel;
+        s.fishToolLevel = fishToolLevel;
+        s.fishSkillLevel = fishSkillLevel;
+        s.fishingOn = fishingOn;
+        s.fishCaughtTotal = fishCaughtTotal;
         s.questSellSilk = questSellSilk;
         s.questVisitPorts = questVisitPorts;
         s.questDefeatedPirates = questDefeatedPirates;
@@ -230,12 +250,22 @@ public class GameState {
             copy(s.herbs, g.herbs);
             copy(s.beastFound, g.beastFound);
             copy(s.herbFound, g.herbFound);
+            // 0.26.3 fishing state (absent fields on old saves keep defaults).
+            copy(s.fish, g.fish);
+            g.fishers = Math.max(0, s.fishers);
+            g.fisherCapLevel = Math.max(1, Math.min(Catalog.FISHER_CAP_MAX, s.fisherCapLevel));
+            g.fishToolLevel = Math.max(1, Math.min(Catalog.FISH_TOOL_MAX, s.fishToolLevel));
+            g.fishSkillLevel = Math.max(1, Math.min(Catalog.FISH_SKILL_MAX, s.fishSkillLevel));
+            g.fishCaughtTotal = Math.max(0, s.fishCaughtTotal);
             int lp = s.lastPort;
             if (lp < 0 || lp >= Catalog.PORTS.length) {
                 lp = 0; // corrupt port index must not throw AIOOBE
             }
             g.lastPort = lp;
             g.dockedPort = lp;
+            // 捕鱼只在扬州停靠时恢复（其它港口的存档视为已收网）。
+            g.fishingOn = s.fishingOn && lp == Catalog.YANGZHOU;
+            g.fishTimer = 0f;
             g.questSellSilk = s.questSellSilk;
             g.questVisitPorts = s.questVisitPorts;
             g.questDefeatedPirates = s.questDefeatedPirates;
@@ -316,11 +346,19 @@ public class GameState {
         for (int v : trade) n += v;
         for (int v : beasts) n += v;
         for (int v : herbs) n += v;
+        for (int v : fish) n += v;
         return n;
     }
 
     public int cargoFree() {
         return Math.max(0, cargoCap - cargoUsed());
+    }
+
+    /** 渔获总条数。 */
+    public int fishTotal() {
+        int n = 0;
+        for (int v : fish) n += v;
+        return n;
     }
 
     public void toast(String m) {
@@ -481,6 +519,9 @@ public class GameState {
         }
         int p = dockedPort;
         dockedPort = -1;
+        // 0.26.3: 离港即停捕鱼（渔夫只能在家门口作业）。
+        fishingOn = false;
+        fishTimer = 0f;
         x = Catalog.PORT_X[p] + 95f;
         y = Catalog.PORT_Y[p] + 10f;
         headingDeg = 0f;
@@ -622,6 +663,194 @@ public class GameState {
         }
         herbs[idx] -= qty;
         return "海上丢弃 " + Catalog.HERBS[idx] + " x" + qty + "。";
+    }
+
+    // ------------------------------------------------------------------
+    // 0.26.3 扬州渔业
+    // ------------------------------------------------------------------
+
+    /** 渔夫编制上限：初始 2，每级 +1（扬州专属升级）。 */
+    public int fisherCap() {
+        return Catalog.FISHER_START_CAP + (fisherCapLevel - 1);
+    }
+
+    public int fisherCapCost() {
+        return 120 * fisherCapLevel;
+    }
+
+    public int fishToolCost() {
+        return 150 * fishToolLevel;
+    }
+
+    public int fishSkillCost() {
+        return 100 * fishSkillLevel;
+    }
+
+    /** 只在扬州可雇渔夫（其他港口只雇水手）。 */
+    public String hireFisher() {
+        if (dockedPort != Catalog.YANGZHOU) {
+            return "渔夫只在故乡扬州招募。";
+        }
+        if (fishers >= fisherCap()) {
+            return "渔夫已满（上限 " + fisherCap() + "），先升级「渔夫编制」。";
+        }
+        if (silver < Catalog.FISHER_HIRE_COST) {
+            return "雇渔夫要 " + Catalog.FISHER_HIRE_COST + " 两。";
+        }
+        silver -= Catalog.FISHER_HIRE_COST;
+        fishers++;
+        return "渔夫上船，现共 " + fishers + " 人（上限 " + fisherCap() + "）。";
+    }
+
+    public String upgradeFisherCap() {
+        if (dockedPort != Catalog.YANGZHOU) {
+            return "渔夫编制只在扬州升级。";
+        }
+        if (fisherCapLevel >= Catalog.FISHER_CAP_MAX) {
+            return "渔夫编制已到顶（" + fisherCap() + " 人）。";
+        }
+        int c = fisherCapCost();
+        if (silver < c) {
+            return "银两不足（渔夫编制升级 " + c + " 两）。";
+        }
+        silver -= c;
+        fisherCapLevel++;
+        questUpgradeCount++;
+        return "渔夫编制升级，上限 " + fisherCap() + " 人（再花钱雇人）。";
+    }
+
+    public String upgradeFishTool() {
+        if (dockedPort != Catalog.YANGZHOU) {
+            return "钓具只在扬州升级。";
+        }
+        if (fishToolLevel >= Catalog.FISH_TOOL_MAX) {
+            return "钓具已是最精良（Lv" + fishToolLevel + "）。";
+        }
+        int c = fishToolCost();
+        if (silver < c) {
+            return "银两不足（钓具升级 " + c + " 两）。";
+        }
+        silver -= c;
+        fishToolLevel++;
+        questUpgradeCount++;
+        return "钓具升到 Lv" + fishToolLevel + "，可钓更大更贵的鱼。";
+    }
+
+    public String upgradeFishSkill() {
+        if (dockedPort != Catalog.YANGZHOU) {
+            return "钓技只在扬州进修。";
+        }
+        if (fishSkillLevel >= Catalog.FISH_SKILL_MAX) {
+            return "钓技已炉火纯青（Lv" + fishSkillLevel + "）。";
+        }
+        int c = fishSkillCost();
+        if (silver < c) {
+            return "银两不足（钓技升级 " + c + " 两）。";
+        }
+        silver -= c;
+        fishSkillLevel++;
+        questUpgradeCount++;
+        return "钓技升到 Lv" + fishSkillLevel + "，下竿更快。";
+    }
+
+    /** 捕鱼只在停靠扬州且渔夫≥1 时进行；此处只负责开关。 */
+    public String startFishing() {
+        if (dockedPort != Catalog.YANGZHOU) {
+            return "只在扬州家门口捕鱼。";
+        }
+        if (fishers <= 0) {
+            return "先雇一名渔夫。";
+        }
+        if (cargoFree() <= 0) {
+            return "货舱满了，先卖掉些鱼或货腾出空位。";
+        }
+        fishingOn = true;
+        if (fishTimer <= 0f) {
+            fishTimer = catchInterval();
+        }
+        return "渔夫开始下网，约每 " + (int) Math.ceil(catchInterval()) + " 秒一条。";
+    }
+
+    public String stopFishing() {
+        fishingOn = false;
+        fishTimer = 0f;
+        return "收网上岸，暂停捕鱼。";
+    }
+
+    /** 每次渔获秒数：1 渔夫/钓技 Lv1 为基准 12 秒；每多 1 名渔夫 +50% 速度，
+     * 钓技每级 -6% 耗时，最短 3 秒（需求文档 v0.26.3 §3）。 */
+    public float catchInterval() {
+        if (fishers <= 0) {
+            return Catalog.FISH_BASE_SECS;
+        }
+        float multi = 1f + 0.5f * (fishers - 1);
+        float skillCut = 1f - 0.06f * (fishSkillLevel - 1);
+        return Math.max(3f, Catalog.FISH_BASE_SECS / multi * skillCut);
+    }
+
+    /** 按钓具等级掷一条鱼（权重表 Catalog.FISH_ODDS）。 */
+    private int rollFishKind() {
+        int lv = Math.max(1, Math.min(Catalog.FISH_TOOL_MAX, fishToolLevel));
+        int[] w = Catalog.FISH_ODDS[lv - 1];
+        int total = 0;
+        for (int v : w) {
+            total += v;
+        }
+        int r = MathUtils.random(total - 1);
+        for (int i = 0; i < w.length; i++) {
+            r -= w[i];
+            if (r < 0) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    /** 每帧调用：停靠扬州 + 捕鱼中 + 有渔夫且舱未满时累积倒计时，到点入舱。
+     * 返回本帧是否钓上一条（供 UI 决定是否刷新渔获面板）。 */
+    public boolean tickFishing(float dt) {
+        boolean caught = false;
+        if (dockedPort != Catalog.YANGZHOU || !fishingOn || fishers <= 0 || failed) {
+            return false;
+        }
+        if (cargoFree() <= 0) {
+            // 舱满自动收网：不再下竿，卖鱼后才能继续。
+            if (fishingOn) {
+                fishingOn = false;
+                toast("货舱满了，渔夫收网。卖些鱼腾出空位再开始。");
+            }
+            fishTimer = 0f;
+            return false;
+        }
+        fishTimer -= dt;
+        if (fishTimer <= 0f) {
+            int kind = rollFishKind();
+            fish[kind]++;
+            fishCaughtTotal++;
+            fishTimer = catchInterval();
+            caught = true;
+            toast("渔夫钓上「" + Catalog.FISH[kind] + "」，已入货舱。");
+        }
+        return caught;
+    }
+
+    /** 任意港口可把渔获按固定价卖给市场（与异兽/草药同规则）。 */
+    public String sellFish(int idx, int qty) {
+        if (qty <= 0 || fish[idx] < qty) {
+            return "没有这种鱼。";
+        }
+        int gain = Catalog.FISH_PRICE[idx] * qty;
+        fish[idx] -= qty;
+        silver += gain;
+        return "卖出 " + Catalog.FISH[idx] + " x" + qty + "，得 " + gain + " 两。";
+    }
+
+    public String dumpFish(int idx, int qty) {
+        if (qty <= 0 || fish[idx] < qty) {
+            return "没有这么多。";
+        }
+        fish[idx] -= qty;
+        return "海上丢弃 " + Catalog.FISH[idx] + " x" + qty + "。";
     }
 
     public String refillSupply() {
