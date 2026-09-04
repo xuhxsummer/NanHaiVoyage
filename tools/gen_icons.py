@@ -289,6 +289,136 @@ def i_hud_sun():
     outline(m)
     return m
 
+def i_hud_shop():
+    m = icon()
+    # 集市摊铺：条纹遮阳棚 + 货台 + 银两
+    rect(m, 10, 44, 54, 54, (196, 108, 92))   # awning top band
+    for i in range(5):
+        x0 = 10 + i * 10
+        col = (238, 226, 190) if i % 2 else (196, 108, 92)
+        rect(m, x0, 34, x0 + 8, 44, col)
+    rect(m, 8, 18, 56, 34, TAN)               # stall counter
+    rect(m, 8, 18, 56, 22, (238, 226, 190))   # counter top
+    rect(m, 12, 12, 22, 18, DBROWN)           # table legs
+    rect(m, 42, 12, 52, 18, DBROWN)
+    disk(m, 18, 26, 3, GOLD)                  # goods on display
+    disk(m, 28, 27, 3, (240, 220, 150))
+    disk(m, 40, 26, 3, (240, 220, 150))
+    disk(m, 48, 27, 3, GOLD)
+    px(m, 32, 27, (120, 74, 38))
+    outline(m)
+    return m
+
+# ----------------------------------------------------------------------------
+# SHIPS (0.26.4 商城商品图, 9): 侧视中式帆船剪影，统一 64x64 像素风。
+# ----------------------------------------------------------------------------
+def ship_side(m, cx, keel_y, hull_c, deck_c, sail_c, mast_c, flags):
+    """Generic side-view junk: hull keel line + planked belly + masts/sails.
+    flags = list of (x, top_y, len) pennant positions."""
+    # hull: parabolic belly from stern (left) to bow (right)
+    for y in range(keel_y, keel_y + 12):
+        t = (y - keel_y) / 12.0
+        hw = 10 + 20 * math.sqrt(max(0.0, 1.0 - (1.0 - t) ** 2))
+        rect(m, cx - hw, y, cx + hw, y, hull_c if y < keel_y + 6 else deck_c)
+    line(m, cx - 28, keel_y + 11, cx + 28, keel_y + 11, (84, 54, 30), 2)  # gunwale
+    line(m, cx - 26, keel_y + 4, cx + 26, keel_y + 4, (84, 54, 30), 1)   # plank line
+    line(m, cx - 10, keel_y + 12, cx - 6, keel_y + 20, DBROWN, 2)         # mast 1
+    line(m, cx + 6, keel_y + 12, cx + 10, keel_y + 20, DBROWN, 2)         # mast 2
+    # lug sails: trapezoids
+    rect(m, cx - 16, keel_y + 13, cx - 2, keel_y + 22, sail_c)
+    line(m, cx - 15, keel_y + 13, cx - 3, keel_y + 22, mast_c, 1)
+    rect(m, cx + 2, keel_y + 13, cx + 16, keel_y + 22, sail_c)
+    for (fx, fy, fl) in flags:
+        rect(m, fx - 1, fy, fx + 1, fy + fl, (222, 168, 60))
+    return m
+
+def i_ship_xiao_shangchuan():
+    m = icon()
+    ship_side(m, 32, 34, (150, 102, 56), (112, 72, 40), (238, 226, 190), (196, 176, 130), [(20, 42, 6)])
+    px(m, 18, 40, (216, 178, 122)); px(m, 44, 40, (216, 178, 122))
+    outline(m)
+    return m
+
+def i_ship_lou_chuan():
+    m = icon()
+    ship_side(m, 32, 34, (140, 92, 50), (104, 66, 36), (196, 108, 92), (150, 60, 44), [(16, 46, 6), (44, 46, 6)])
+    rect(m, 20, 44, 44, 54, (104, 66, 36))    # 楼：上层建筑
+    rect(m, 22, 48, 42, 50, (196, 108, 92))
+    rect(m, 22, 52, 42, 54, (196, 108, 92))
+    outline(m)
+    return m
+
+def i_ship_meng_chong():
+    m = icon()
+    ship_side(m, 32, 34, (120, 84, 46), (96, 62, 34), (238, 226, 190), (196, 176, 130), [(44, 42, 6)])
+    # 蒙冲：覆盖牛皮船顶，前冲角
+    rect(m, 14, 42, 50, 52, (150, 110, 74))
+    line(m, 12, 44, 26, 42, (196, 108, 92), 2)   # 冲角
+    rect(m, 18, 46, 46, 50, (96, 62, 34))
+    outline(m)
+    return m
+
+def i_ship_cao_fang():
+    m = icon()
+    # 漕舫：平底长货船，中央货舱
+    line(m, 10, 46, 54, 46, (112, 72, 40), 3)
+    rect(m, 12, 34, 52, 46, (150, 102, 56))
+    rect(m, 24, 40, 44, 44, (196, 176, 130))
+    line(m, 18, 34, 22, 42, DBROWN, 2)
+    line(m, 30, 48, 34, 56, DBROWN, 2)
+    rect(m, 30, 52, 34, 56, (238, 226, 190))
+    outline(m)
+    return m
+
+def i_ship_dou_jian():
+    m = icon()
+    ship_side(m, 32, 34, (140, 92, 50), (104, 66, 36), (196, 108, 92), (150, 60, 44), [(20, 46, 6), (40, 46, 6)])
+    # 斗舰：女墙炮台
+    rect(m, 12, 42, 52, 50, (104, 66, 36))
+    for i in range(4):
+        rect(m, 14 + i * 10, 42, 20 + i * 10, 50, (150, 110, 74))
+    outline(m)
+    return m
+
+def i_ship_zou_ge():
+    m = icon()
+    # 走舸：轻快小船，单帆高扬
+    ship_side(m, 32, 34, (170, 130, 84), (128, 88, 48), (238, 226, 190), (196, 176, 130), [])
+    line(m, 32, 46, 32, 58, DBROWN, 2)
+    rect(m, 24, 48, 40, 58, (238, 226, 190))
+    rect(m, 20, 44, 44, 46, (128, 88, 48))
+    outline(m)
+    return m
+
+def i_ship_huo_bo():
+    m = icon()
+    # 货舶：大肚远洋货船，双帆+货堆
+    ship_side(m, 32, 34, (150, 102, 56), (112, 72, 40), (214, 208, 190), (196, 176, 130), [(16, 46, 6)])
+    rect(m, 10, 40, 22, 46, (196, 176, 130))   # 货堆
+    rect(m, 26, 40, 36, 46, (238, 226, 190))
+    rect(m, 40, 40, 52, 46, (196, 176, 130))
+    outline(m)
+    return m
+
+def i_ship_you_ting():
+    m = icon()
+    # 游艇：白身船 + 遮阳篷，船艏上扬
+    ship_side(m, 32, 34, (214, 218, 226), (178, 184, 196), (240, 240, 238), (200, 206, 216), [])
+    rect(m, 22, 44, 42, 52, (240, 240, 238))
+    rect(m, 20, 44, 24, 50, (178, 184, 196))
+    outline(m)
+    return m
+
+def i_ship_hai_gu():
+    m = icon()
+    # 海鹘：鸟形战船，船艏高扬如鸟喙
+    ship_side(m, 32, 34, (58, 92, 150), (46, 72, 120), (196, 108, 92), (150, 60, 44), [(20, 42, 6)])
+    line(m, 52, 42, 60, 52, (58, 92, 150), 3)   # 鸟喙船艏
+    rect(m, 24, 46, 44, 54, (46, 72, 120))
+    px(m, 30, 50, (110, 150, 210)); px(m, 40, 50, (110, 150, 210))
+    outline(m)
+    return m
+
 # ----------------------------------------------------------------------------
 # GOODS (14)
 # ----------------------------------------------------------------------------
@@ -934,17 +1064,25 @@ FISH = {
     "big-yellow-croaker": i_big_yellow_croaker,
 }
 
+SHIPS = {
+    "xiao-shangchuan": i_ship_xiao_shangchuan, "lou-chuan": i_ship_lou_chuan,
+    "meng-chong": i_ship_meng_chong, "cao-fang": i_ship_cao_fang,
+    "dou-jian": i_ship_dou_jian, "zou-ge": i_ship_zou_ge,
+    "huo-bo": i_ship_huo_bo, "you-ting": i_ship_you_ting,
+    "hai-gu": i_ship_hai_gu,
+}
+
 HUD = {
     "silver": i_hud_silver, "supply": i_hud_supply, "hull": i_hud_hull,
     "crew": i_hud_crew, "avatar": i_hud_avatar, "cargo": i_hud_cargo,
     "codex": i_hud_codex, "port": i_hud_port, "intel": i_hud_intel,
-    "quest": i_hud_quest, "sun": i_hud_sun,
+    "quest": i_hud_quest, "sun": i_hud_sun, "shop": i_hud_shop,
 }
 
 if __name__ == "__main__":
     n = 0
     for folder, table in (("goods", GOODS), ("beasts", BEASTS), ("herbs", HERBS),
-                          ("fish", FISH), ("hud", HUD)):
+                          ("fish", FISH), ("ships", SHIPS), ("hud", HUD)):
         for slug, fn in table.items():
             img = fn()
             alpha = img[..., 3]

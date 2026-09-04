@@ -35,6 +35,11 @@ public final class IconLib {
     private static final String[] FISH_SLUGS = {
             "yellow-croaker", "hairtail", "bass", "grouper", "tuna", "big-yellow-croaker"
     };
+    /** 0.26.4 商城船只商品图（下标与 Catalog.SHIPS 对齐，pinyin slug）。 */
+    private static final String[] SHIP_SLUGS = {
+            "xiao-shangchuan", "lou-chuan", "meng-chong", "cao-fang", "dou-jian",
+            "zou-ge", "huo-bo", "you-ting", "hai-gu"
+    };
 
     private static final Map<String, TextureRegionDrawable> cache = new HashMap<>();
 
@@ -58,6 +63,11 @@ public final class IconLib {
     /** Drawable for Catalog.FISH[i] (0.26.3 渔获), or null if missing. */
     public static TextureRegionDrawable fish(int i) {
         return get("fish", FISH_SLUGS, i);
+    }
+
+    /** Drawable for Catalog.SHIPS[i] (0.26.4 商城商品图), or null if missing. */
+    public static TextureRegionDrawable ship(int i) {
+        return get("ships", SHIP_SLUGS, i);
     }
 
     /** Drawable for a 0.26.2 HUD icon by name (silver/supply/hull/crew/avatar/
@@ -107,7 +117,8 @@ public final class IconLib {
         if (GOOD_SLUGS.length != Catalog.GOODS.length
                 || BEAST_SLUGS.length != Catalog.BEASTS.length
                 || HERB_SLUGS.length != Catalog.HERBS.length
-                || FISH_SLUGS.length != Catalog.FISH.length) {
+                || FISH_SLUGS.length != Catalog.FISH.length
+                || SHIP_SLUGS.length != Catalog.SHIPS.length) {
             Gdx.app.error("IconLib", "slug table length mismatch with Catalog");
         }
     }

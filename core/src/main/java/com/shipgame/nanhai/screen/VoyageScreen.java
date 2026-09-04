@@ -41,6 +41,7 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float HUD_H = 720f;
     private static final float MENU_W = 500f;             // popup content width
     private static final float PORT_MENU_W = 900f;
+    private static final float SHOP_W = 820f;             // 0.26.4 商城 popup width
     // Round minimap: top-right corner
     private static final float MM_CX = HUD_W - 106f;
     private static final float MM_CY = HUD_H - 104f;
@@ -85,7 +86,8 @@ public class VoyageScreen extends ScreenAdapter {
         // 0.26.2: STAT is the detail popup opened from a top stat cell.
         // 0.26.3: FISH is the 扬州-only 渔务 dock sub-view (hire fishers,
         // start/stop fishing, upgrades, catch list + sell).
-        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH
+        // 0.26.4: SHOP is the 商城 popup (buy / switch ships).
+        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH, SHOP
     }
 
     /** 0.26.0 first-run gameplay help. Body is verbatim from howto_spec.txt:
@@ -126,6 +128,9 @@ public class VoyageScreen extends ScreenAdapter {
     private int dismissedIsland = -1;
     private boolean dismissedFail;
     private int selectedQuest = -1;
+    private int selectedShip = -1;       // 0.26.4 商城：网格里点开的船（-1 = 网格）
+    private int shopCat = 0;             // 0.26.4 商城左侧分类（目前仅 船只=0）
+    private Label hudClock;              // 0.26.4 左下 第N日 HH:MM 白天/夜晚
 
     // 0.26.0 市场 pagination: rows per page in each market column, plus the two
     // independent page cursors (buy column pages over goods, sell column pages
@@ -304,6 +309,14 @@ public class VoyageScreen extends ScreenAdapter {
         hudLine.setBounds(16f, STAT_Y - 28f, 660f, 22f);
         stage.addActor(hudLine);
 
+        // 0.26.4 game clock, bottom-left corner: 第N日 HH:MM 白天/夜晚. The
+        // label is small so it never collides with the toast at screen bottom.
+        hudClock = new Label("", game.skin, "small");
+        hudClock.setAlignment(Align.left);
+        hudClock.setWrap(false);
+        hudClock.setBounds(14f, 12f, 340f, 20f);
+        stage.addActor(hudClock);
+
         // --- Bottom-right 加速 / 减速 (hold to keep sailing). ---
         Table right = new Table();
         right.setFillParent(true);
@@ -328,12 +341,13 @@ public class VoyageScreen extends ScreenAdapter {
         today.setBounds(MM_CX - 68f, MM_CY - MM_R - 30f, 150f, 20f);
         stage.addActor(today);
 
-        // --- Top-right icon rail: 货物/图鉴/港口/情报/任务 just LEFT of the round
-        // minimap (old left-edge text column is gone). ---
-        String[] railSlugs = {"cargo", "codex", "port", "intel", "quest"};
-        String[] railNames = {"货物", "图鉴", "港口", "情报", "任务"};
+        // --- Top-right icon rail: 货物/图鉴/港口/情报/任务/商城 just LEFT of the
+        // round minimap (old left-edge text column is gone). 商城 (0.26.4) opens
+        // the ship store; icon drawn by gen_icons (hud/shop.png).
+        String[] railSlugs = {"cargo", "codex", "port", "intel", "quest", "shop"};
+        String[] railNames = {"货物", "图鉴", "港口", "情报", "任务", "商城"};
         Runnable[] railActs = {this::toggleCargo, this::toggleCodex, this::contextReopen,
-                this::openIntel, this::toggleQuestOverlay};
+                this::openIntel, this::toggleQuestOverlay, this::toggleShop};
         for (int i = 0; i < railSlugs.length; i++) {
             Table b = iconBtn(railNames[i], railSlugs[i], railActs[i]);
             b.setBounds(NR_X - NR_D / 2f, railCy(i) - NR_D / 2f, NR_D, NR_D);
@@ -486,6 +500,22 @@ public class VoyageScreen extends ScreenAdapter {
         }
     }
 
+    /** 0.26.4 商城：打开时若在网格则默认停在网格，点过船则回到那条船的详情。 */
+    private void toggleShop() {
+        if (overlay == Overlay.SHOP) {
+            closePopup();
+        } else if (overlay != Overlay.MAP) {
+            overlay = Overlay.SHOP;
+            shopCat = 0;
+            rebuildMenu();
+        }
+    }
+
+    private void openShipDetail(int i) {
+        selectedShip = i;
+        rebuildMenu();
+    }
+
     /** Hold-to-keep listeners for 加速/减速. Press state is tracked directly (not
      * via the button's isPressed in the render loop) so a long press survives
      * drag jitter, and the pressed visual always shows — even when the world is
@@ -497,7 +527,7 @@ public class VoyageScreen extends ScreenAdapter {
             public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
                 boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL
                         || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
-                        || overlay == Overlay.INTEL || overlay == Overlay.QUESTS;
+                        || overlay == Overlay.INTEL || overlay == Overlay.QUESTS || overlay == Overlay.SHOP;
                 if (modal) {
                     // A popup is open: the world pauses by design. The button still
                     // reacts (pressed feedback) and explains instead of silently
@@ -630,17 +660,22 @@ public class VoyageScreen extends ScreenAdapter {
             questsTable(box);
         } else if (overlay == Overlay.STAT) {
             statTable(box);
+        } else if (overlay == Overlay.SHOP) {
+            shopTable(box);
         }
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
         boolean wide = overlay == Overlay.PORT || overlay == Overlay.MARKET || overlay == Overlay.FISH;
         float pw = wide ? PORT_MENU_W + 24f : (overlay == Overlay.QUESTS ? 560f : 520f);
+        if (overlay == Overlay.SHOP) {
+            pw = SHOP_W + 24f;
+        }
         menuRoot.add(sp).width(pw).maxHeight(560);
     }
 
     /** Popup title row: horizontal title on the left, 关闭 button top-right. */
     private void menuHeader(Table box, String title) {
-        float width = overlay == Overlay.PORT ? PORT_MENU_W : MENU_W;
+        float width = overlay == Overlay.PORT ? PORT_MENU_W : (overlay == Overlay.SHOP ? SHOP_W : MENU_W);
         Table h = new Table();
         Label t = new Label(title, game.skin);
         t.setWrap(false);
@@ -659,7 +694,7 @@ public class VoyageScreen extends ScreenAdapter {
         IconLib.checkAgainstCatalog();
         int p = g.dockedPort;
         menuHeader(box, Catalog.PORTS[p] + " · 世界暂停");
-        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.cargoCap))
+        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.holdCap()))
                 .width(PORT_MENU_W).padBottom(6).row();
 
         TextButton market = new TextButton("市场（买卖货物 · 行情）", game.skin, "go");
@@ -707,7 +742,7 @@ public class VoyageScreen extends ScreenAdapter {
                 "升编制 " + g.crewCapCost(), () -> { g.toast(g.upgradeCrewCap()); persist(); rebuildMenu(); },
                 "雇人 " + Catalog.HIRE_COST, () -> { g.toast(g.hireCrew()); persist(); rebuildMenu(); });
         float rate = Math.round(g.firepower() * 10f) / 10f;
-        box.add(infoRow("船员 " + g.crew + "/" + g.crewCap + "    每发伤 1 · 射速 " + rate
+        box.add(infoRow("船员 " + g.crew + "/" + g.crewMax() + "    每发伤 1 · 射速 " + rate
                 + " 发/秒    耐久 " + (int) g.hull)).width(PORT_MENU_W).padTop(6).padBottom(2).row();
         if (p == Catalog.YANGZHOU) {
             box.add(infoRow("故乡扬州：点「渔务」可雇渔夫、升级钓具/钓技并开始捕鱼（仅扬州可捕）。"))
@@ -748,7 +783,7 @@ public class VoyageScreen extends ScreenAdapter {
         h.add(t).left().expandX().padLeft(2);
         h.add(back).width(88).height(38);
         box.add(h).width(PORT_MENU_W).padBottom(4).row();
-        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.cargoCap
+        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.holdCap()
                 + "    「行情」看该货各港价")).width(PORT_MENU_W).padBottom(6).row();
 
         Table market = new Table();
@@ -765,7 +800,7 @@ public class VoyageScreen extends ScreenAdapter {
             Table row = new Table();
             TextureRegionDrawable icon = IconLib.good(good);
             if (icon != null) row.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(icon)).size(26, 26).padRight(4);
-            row.add(infoRow(Catalog.GOODS[good] + "  " + Catalog.goodPrice(p, good) + "两")).width(190).left();
+            row.add(infoRow(Catalog.GOODS[good] + "  " + g.goodPrice(p, good) + "两")).width(190).left();
             row.add(btn("买1", () -> {
                 g.toast(g.buyGood(p, good, 1)); persist(); rebuildMenu();
             })).width(78).height(36).padRight(4);
@@ -810,7 +845,7 @@ public class VoyageScreen extends ScreenAdapter {
                 Runnable sellOne;
                 if (kj == 0) {
                     label = "商货 · " + Catalog.GOODS[ij] + " x" + g.trade[ij]
-                            + "  卖 " + Catalog.goodPrice(p, ij) + "两";
+                            + "  卖 " + g.goodPrice(p, ij) + "两";
                     sellOne = () -> { g.toast(g.sellGood(p, ij, 1)); persist(); rebuildMenu(); };
                 } else if (kj == 1) {
                     label = "异兽 · " + Catalog.BEASTS[ij] + " x" + g.beasts[ij]
@@ -856,7 +891,7 @@ public class VoyageScreen extends ScreenAdapter {
         h.add(t).left().expandX().padLeft(2);
         h.add(back).width(88).height(38);
         box.add(h).width(PORT_MENU_W).padBottom(4).row();
-        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.cargoCap
+        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.holdCap()
                 + "    渔夫 " + g.fishers + "/" + g.fisherCap()
                 + "    钓具 Lv" + g.fishToolLevel + "    钓技 Lv" + g.fishSkillLevel))
                 .width(PORT_MENU_W).padBottom(6).row();
@@ -932,6 +967,188 @@ public class VoyageScreen extends ScreenAdapter {
                 .width(PORT_MENU_W).left().row();
     }
 
+    // ------------------------------------------------------------ 商城 (0.26.4)
+
+    /** 0.26.4 商城：左侧竖直分类列表（目前只有「船只」，后续可加）；右侧产品
+     * 网格每行 4 个（图 + 名 + 底价），点一格进详情（大图/属性/购买/返回）。
+     * 购买成功立即扣银换乘；银两不足给明确 toast 不扣款；当前船在网格标识。 */
+    private void shopTable(Table box) {
+        menuHeader(box, "商城 · 买船换船");
+        // 头部一行：银两 + 当前船 + 时钟（也顺带展示当前属性变化）
+        box.add(infoRow("银 " + g.silver + " 两    当前：" + Catalog.SHIPS[g.ship]
+                + "（货舱 " + g.holdCap() + " · 船员 " + g.crew + "/" + g.crewMax()
+                + " · 射速 " + Math.round(g.firepower() * 10f) / 10f + " 发/秒）"))
+                .width(SHOP_W).left().padBottom(6).row();
+        box.add(wrapLbl("战船提高射速与船员上限；货船加大货舱（与仓库升级叠加）。换小货舱船前请先卖掉多余货物。"))
+                .width(SHOP_W - 8).left().padBottom(8).row();
+
+        Table body = new Table();
+        // --- left vertical category list ---
+        Table cats = new Table();
+        cats.top().left();
+        cats.add(new Label("分类", game.skin)).width(128).left().padBottom(6);
+        cats.row();
+        String[] catNames = {"船只"};
+        for (int c = 0; c < catNames.length; c++) {
+            final int ci = c;
+            TextButton b = new TextButton(shopCat == c ? "[" + catNames[c] + "]" : catNames[c], game.skin,
+                    shopCat == c ? "go" : null);
+            b.getLabel().setFontScale(0.95f);
+            b.addListener(click(() -> {
+                shopCat = ci;
+                selectedShip = -1;
+                rebuildMenu();
+            }));
+            cats.add(b).width(128).height(46).left().padBottom(6);
+            cats.row();
+        }
+        body.add(cats).width(140).top().left();
+
+        // --- right: grid or detail ---
+        if (selectedShip >= 0 && selectedShip < Catalog.SHIPS.length) {
+            shopDetail(body);
+        } else {
+            shopGrid(body);
+        }
+        box.add(body).width(SHOP_W).padBottom(4).row();
+        box.add(infoRow("点船看详情；已拥有的船可以随时免费换乘。")).width(SHOP_W).left().row();
+    }
+
+    /** 商城右侧：4 列船网格。每格 图(上) + 名 + 底价（或 当前/已拥有）。 */
+    private void shopGrid(Table body) {
+        Table grid = new Table();
+        grid.top().left();
+        // 只展示船只分类：SHIPS 全部（下标 0 = 初始小商船）
+        int perRow = 4;
+        float cellW = (SHOP_W - 150f) / perRow - 10f; // 约 158
+        int n = Catalog.SHIPS.length;
+        for (int i = 0; i < n; i++) {
+            final int idx = i;
+            Table cell = new Table();
+            cell.setName("商城" + Catalog.SHIPS[idx]);
+            cell.setBackground(game.skin.getDrawable("panel"));
+            TextureRegionDrawable ico = IconLib.ship(idx);
+            if (ico != null) {
+                cell.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(ico)).size(64, 64).padTop(4).row();
+            }
+            Label nm = new Label(Catalog.SHIPS[idx], game.skin, "small");
+            nm.setWrap(false);
+            cell.add(nm).padTop(2).row();
+            String state;
+            if (idx == g.ship) {
+                state = "【当前战船】";
+            } else if (g.ownsShip(idx)) {
+                state = "已拥有";
+            } else {
+                state = Catalog.SHIP_PRICE[idx] + " 两";
+            }
+            Label pr = new Label(state, game.skin, "small");
+            pr.setWrap(false);
+            cell.add(pr).padTop(2).padBottom(4).row();
+            cell.addListener(click(() -> openShipDetail(idx)));
+            if (i % perRow == perRow - 1 || i == n - 1) {
+                grid.add(cell).width(cellW).height(112).pad(3).row();
+            } else {
+                grid.add(cell).width(cellW).height(112).pad(3);
+            }
+        }
+        body.add(grid).width(SHOP_W - 150f).top().left();
+    }
+
+    /** 商城右侧：详情页（大图 + 名称 + 描述/属性 + 银两价格 + 购买/返回）。 */
+    private void shopDetail(Table body) {
+        int idx = selectedShip;
+        Table det = new Table();
+        det.top().left();
+        // 返回网格行
+        TextButton back = new TextButton("← 返回列表", game.skin, "danger");
+        back.getLabel().setFontScale(0.9f);
+        back.addListener(click(() -> {
+            selectedShip = -1;
+            rebuildMenu();
+        }));
+        det.add(back).width(130).height(38).left().padBottom(6);
+        det.row();
+
+        Table head = new Table();
+        TextureRegionDrawable ico = IconLib.ship(idx);
+        if (ico != null) {
+            head.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(ico)).size(108, 108).padRight(14);
+        }
+        Table txt = new Table();
+        Label name = new Label(Catalog.SHIPS[idx], game.skin);
+        name.setWrap(false);
+        txt.add(name).left().padBottom(4);
+        txt.row();
+        txt.add(wrapLbl(Catalog.SHIP_DESC[idx])).width(SHOP_W - 250f).left().padBottom(4);
+        txt.row();
+        txt.add(wrapLbl(shipAttrLine(idx))).width(SHOP_W - 250f).left();
+        head.add(txt).width(SHOP_W - 250f).left();
+        det.add(head).width(SHOP_W - 150f).left().padBottom(8);
+        det.row();
+
+        // 效果对照（现有船 vs 此船的实际差异）
+        det.add(wrapLbl(shipEffectLine(idx))).width(SHOP_W - 158f).left().padBottom(8);
+        det.row();
+
+        Table actions = new Table();
+        boolean owned = g.ownsShip(idx);
+        if (owned) {
+            if (idx == g.ship) {
+                Label cur = new Label("当前战船 · 无需再买", game.skin, "small");
+                actions.add(cur).left().padRight(10);
+            } else {
+                actions.add(btn("免费换乘", () -> {
+                    g.toast(g.equipShip(idx)); persist(); rebuildMenu();
+                })).width(150).height(44);
+            }
+        } else {
+            String buyLabel = "购买 · " + Catalog.SHIP_PRICE[idx] + " 两";
+            actions.add(btn(buyLabel, () -> {
+                g.toast(g.buyShip(idx));
+                persist();
+                rebuildMenu();
+            })).width(180).height(44);
+        }
+        actions.add(btn("关闭", this::closePopup)).width(110).height(44).padLeft(10);
+        det.add(actions).width(SHOP_W - 150f).left();
+        body.add(det).width(SHOP_W - 150f).top().left();
+    }
+
+    /** 属性行：火力(+射速%)/船员上限/货舱。只显示非零加成。 */
+    private String shipAttrLine(int idx) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("火力(射速) +" + Catalog.SHIP_FIRE[idx] + "%");
+        sb.append("    船员上限 +" + Catalog.SHIP_CREW[idx]);
+        sb.append("    货舱 +" + Catalog.SHIP_HOLD[idx]);
+        if (Catalog.SHIP_SPEED[idx] > 0) {
+            sb.append("    航速 +" + Catalog.SHIP_SPEED[idx] + "%");
+        }
+        if (Catalog.SHIP_TURN[idx] > 0) {
+            sb.append("    转向 +" + Catalog.SHIP_TURN[idx] + "%");
+        }
+        return sb.toString();
+    }
+
+    /** 实际效果：当前船 → 此船 射速 / 船员上限 / 货舱的变化（按现有配置换算）。 */
+    private String shipEffectLine(int idx) {
+        float curFire = g.firepower();
+        // 估算换船后射速：保留现有炮火/船员，只换 SHIP_FIRE 系数
+        float effFire = curFire;
+        if (idx >= 0 && idx < Catalog.SHIPS.length) {
+            float oldFactor = 1f + Catalog.SHIP_FIRE[g.ship] / 100f;
+            float newFactor = 1f + Catalog.SHIP_FIRE[idx] / 100f;
+            if (oldFactor > 0f) {
+                effFire = curFire * newFactor / oldFactor;
+            }
+        }
+        int effCrewMax = g.crewCap + Catalog.SHIP_CREW[idx];
+        int effHold = g.cargoCap + Catalog.SHIP_HOLD[idx];
+        return "换乘后效果：射速约 " + Math.round(effFire * 10f) / 10f + " 发/秒"
+                + "（当前 " + Math.round(curFire * 10f) / 10f + "）   船员上限 " + effCrewMax
+                + "   货舱 " + effHold;
+    }
+
     /** 上一页 / 页号 / 下一页 strip under a paged market column. Buttons no-op at
      * the ends instead of flipping onto an empty page. */
     private void pagerRow(Table col, int page, int pages, boolean isBuy) {
@@ -972,7 +1189,7 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void cargoTable(Table box) {
-        menuHeader(box, "货舱（三栏共用容量 " + g.cargoUsed() + "/" + g.cargoCap + "）");
+        menuHeader(box, "货舱（共用容量 " + g.cargoUsed() + "/" + g.holdCap() + "）");
         tabs(box);
         listItems(box, g.dockedPort >= 0);
         if (g.dockedPort < 0) {
@@ -1012,7 +1229,7 @@ public class VoyageScreen extends ScreenAdapter {
         int here = g.dockedPort;
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             String mark = i == here ? "  <-本港" : "";
-            box.add(infoRow(Catalog.PORTS[i] + "    " + Catalog.goodPrice(i, gidx) + " 两" + mark))
+            box.add(infoRow(Catalog.PORTS[i] + "    " + g.goodPrice(i, gidx) + " 两" + mark))
                     .width(MENU_W).left().padBottom(1).row();
         }
         Table act = new Table();
@@ -1150,10 +1367,10 @@ public class VoyageScreen extends ScreenAdapter {
         int[] allGoods = new int[total];
         int k = 0;
         for (int p = 0; p < nPorts; p++) {
-            for (int g = 0; g < nGoods; g++) {
-                allPrices[k] = Catalog.goodPrice(p, g);
+            for (int gg = 0; gg < nGoods; gg++) {
+                allPrices[k] = this.g.goodPrice(p, gg);
                 allPorts[k] = p;
-                allGoods[k] = g;
+                allGoods[k] = gg;
                 k++;
             }
         }
@@ -1202,23 +1419,23 @@ public class VoyageScreen extends ScreenAdapter {
         for (int i = 0; i < 3; i++) {
             if (cheapIdx[i] < 0) break;
             int idx = cheapIdx[i];
-            int g = allGoods[idx];
+            int gidx = allGoods[idx];
             int buyPort = allPorts[idx];
             int buyPrice = allPrices[idx];
             int bestPort = 0;
-            int bestPrice = Catalog.goodPrice(0, g);
+            int bestPrice = this.g.goodPrice(0, gidx);
             for (int q = 1; q < nPorts; q++) {
-                int qp = Catalog.goodPrice(q, g);
+                int qp = this.g.goodPrice(q, gidx);
                 if (qp > bestPrice) { bestPrice = qp; bestPort = q; }
             }
             int profit = bestPrice - buyPrice;
             String hint;
             if (profit > 0) {
-                hint = Catalog.GOODS[g] + "：「" + Catalog.PORTS[buyPort] + "」买 " + buyPrice
+                hint = Catalog.GOODS[gidx] + "：「" + Catalog.PORTS[buyPort] + "」买 " + buyPrice
                         + " → 「" + Catalog.PORTS[bestPort] + "」卖 " + bestPrice
                         + "，每份赚 " + profit + " 两";
             } else {
-                hint = Catalog.GOODS[g] + "：「" + Catalog.PORTS[buyPort] + "」已是最低（" + buyPrice + " 两），没空子。";
+                hint = Catalog.GOODS[gidx] + "：「" + Catalog.PORTS[buyPort] + "」已是最低（" + buyPrice + " 两），没空子。";
             }
             box.add(infoRow(hint)).width(MENU_W).left().padBottom(1).row();
         }
@@ -1597,7 +1814,7 @@ public class VoyageScreen extends ScreenAdapter {
                         + "与海盗交手时拉开距离或击沉对方，都能少挨打。";
                 break;
             default:
-                value = g.crew + " / " + g.crewCap;
+                value = g.crew + " / " + g.crewMax();
                 desc = "船员越多开炮越快、补给消耗也越快。先在港口「升编制」提高上限，再点「雇人」招人上船。";
                 break;
         }
@@ -1640,7 +1857,7 @@ public class VoyageScreen extends ScreenAdapter {
                 final int idx = i;
                 String s = Catalog.GOODS[i] + "   持有 " + g.trade[i];
                 if (g.dockedPort >= 0) {
-                    s += "    本港 " + Catalog.goodPrice(port, i) + " 两";
+                    s += "    本港 " + g.goodPrice(port, i) + " 两";
                 }
                 final String txt = s;
                 iconRow(box, IconLib.good(i), txt, () -> {
@@ -1792,7 +2009,10 @@ public class VoyageScreen extends ScreenAdapter {
         statVals[0].setText(String.valueOf(g.silver));
         statVals[1].setText(String.valueOf((int) g.supply));
         statVals[2].setText(String.valueOf((int) g.hull));
-        statVals[3].setText(g.crew + "/" + g.crewCap);
+        statVals[3].setText(g.crew + "/" + g.crewMax());
+        if (hudClock != null) {
+            hudClock.setText(g.timeLabel());
+        }
     }
 
     private void persist() {
@@ -1862,7 +2082,7 @@ public class VoyageScreen extends ScreenAdapter {
         boolean dockSub = overlay == Overlay.PRICE || overlay == Overlay.MARKET
                 || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
                 || overlay == Overlay.INTEL || overlay == Overlay.QUESTS
-                || overlay == Overlay.FISH;
+                || overlay == Overlay.FISH || overlay == Overlay.SHOP;
         if (overlay != Overlay.MAP && !dockSub && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             rebuildMenu();
@@ -1928,7 +2148,7 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private String statusText() {
-        String s = "欠" + g.debt + " 舱 " + g.cargoUsed() + "/" + g.cargoCap
+        String s = "欠" + g.debt + " 舱 " + g.cargoUsed() + "/" + g.holdCap()
                 + "   " + g.windLabel() + " 速" + (int) g.speed;
         if (g.autoSailPort >= 0) {
             s += " 自动->" + Catalog.PORTS[g.autoSailPort];

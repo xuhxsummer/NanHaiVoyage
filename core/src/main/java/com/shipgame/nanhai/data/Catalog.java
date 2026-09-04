@@ -89,6 +89,35 @@ public final class Catalog {
     };
     public static final int[] HERB_PRICE = {35, 50, 20, 25, 30, 15, 12, 18};
 
+    // 0.26.4 商城：可购船只。SHIPS[0] 是初始默认船（永远拥有、无加成），旧档
+    // 未存船字段时即此船；其余按下标升序即价格升序。属性含义：
+    //   FIRE  = 火力加成（开炮射速百分比）
+    //   CREW  = 船员上限附加（人）
+    //   HOLD  = 货舱容量附加（格，与仓库升级叠加）
+    //   SPEED = 航速百分比加成
+    //   TURN  = 转向/机动百分比加成
+    public static final String[] SHIPS = {
+            "小商船", "楼船", "蒙冲", "漕舫", "斗舰", "走舸", "货舶", "游艇", "海鹘"
+    };
+    public static final int[] SHIP_PRICE = {0, 900, 1400, 1800, 2100, 3000, 3600, 4200, 6000};
+    public static final int[] SHIP_FIRE = {0, 18, 26, 0, 38, 12, 0, 8, 52};
+    public static final int[] SHIP_CREW = {0, 20, 12, 0, 18, 8, 0, 6, 24};
+    public static final int[] SHIP_HOLD = {0, 0, 0, 28, 0, 0, 55, 0, 0};
+    public static final int[] SHIP_SPEED = {0, 0, 0, 0, 0, 15, 0, 12, 0};
+    public static final int[] SHIP_TURN = {0, 0, 0, 0, 0, 25, 0, 0, 0};
+    /** 每艘船一句卖点说明（商城详情页，与属性行分开显示）。 */
+    public static final String[] SHIP_DESC = {
+            "祖传小商船：没有加成，胜在便宜可靠。",
+            "楼式大船：船身高大，开炮更密、可载更多船员。",
+            "蒙皮快船：轻便灵活，火力船员兼顾的突击船。",
+            "漕运货船：舱大身稳，专跑大宗货物。",
+            "斗舰：带女墙的战船，火力船员双双占优。",
+            "走舸：快得能追上海鸟，转向也格外灵活。",
+            "远洋货舶：巨大的货舱是它唯一的追求。",
+            "游艇：船东的玩物，轻快舒适、航速出色。",
+            "海鹘：形如海鸟的顶级战船，火力冠绝南海。"
+    };
+
     // 0.26.3 扬州渔业：鱼获入货舱（与商货/异兽/草药共用容量），任意港口固定价卖出。
     public static final String[] FISH = {
             "小黄鱼", "带鱼", "鲈鱼", "石斑", "金枪鱼", "大黄鱼"

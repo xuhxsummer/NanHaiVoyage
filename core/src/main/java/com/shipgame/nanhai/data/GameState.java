@@ -85,6 +85,22 @@ public class GameState {
     public String toast = "";
     public float toastT;
 
+    // 0.26.4 商城：当前船 + 已拥有船（bit i 置位 = 已拥有 SHIPS[i]）。
+    // 旧档无此字段：fromSave 补默认 = 0 号初始船且仅拥有它。
+    public int ship = 0;
+    public int shipOwned = 1; // bit0 = 初始小商船，永远置位
+
+    // 0.26.4 游戏时钟：只在世界不暂停时推进（停靠/菜单/教学/失败等暂停）。
+    // dayMin 是从当天 00:00 起的游戏分钟数；新档从第 1 天 06:00 起航。
+    // 1 游戏日 = 15 现实分钟 = 900 秒；即 1 现实秒 = 1.6 游戏分钟。
+    public static final float GAME_MIN_PER_SEC = 1440f / 900f;
+    public int gameDay = 1;
+    public float dayMin = 360f; // 06:00
+
+    // 0.26.4 行情：每港每货的基准价偏移（千分位，±100 = ±10%）。
+    // 只在每个游戏黎明 06:00 重摇一次；途中稳定。旧档缺省全 0（基准价）。
+    public int[] marketOff; // [port * GOODS.length + good]，为 null 时视作全 0
+
     public int lastPort = 0;
     // 0.26.1 任务 tracking (runtime; persisted via SaveData).
     public int questSellSilk;
@@ -145,6 +161,11 @@ public class GameState {
         g.cannonDamage = Catalog.START_CANNON_DMG;
         g.dockedPort = home;
         g.lastPort = home;
+        g.ship = 0;
+        g.shipOwned = 1;
+        g.gameDay = 1;
+        g.dayMin = 360f; // 第 1 天 06:00 天亮启航
+        g.refreshMarket(); // 新档行情也按基准价±5~8% 摇一次，情报所见即当前价
         g.toast("已在故乡扬州靠港。世界暂停。");
         return g;
     }
@@ -173,6 +194,14 @@ public class GameState {
         s.beastFound = beastFound.clone();
         s.herbFound = herbFound.clone();
         s.lastPort = lastPort;
+        // 0.26.4 商城 / 时钟 / 行情
+        s.ship = ship;
+        s.shipOwned = shipOwned;
+        s.gameDay = gameDay;
+        s.dayMin = dayMin;
+        if (marketOff != null) {
+            s.marketOff = marketOff.clone();
+        }
         // 0.26.3 fishing state
         s.fish = fish.clone();
         s.fishers = fishers;
@@ -263,6 +292,19 @@ public class GameState {
             }
             g.lastPort = lp;
             g.dockedPort = lp;
+            // 0.26.4 船 / 时钟 / 行情（旧档缺省：初始船、第 1 天 06:00、基准价）
+            g.ship = s.ship >= 0 && s.ship < Catalog.SHIPS.length ? s.ship : 0;
+            g.shipOwned = (s.shipOwned | 1); // 初始船永远拥有
+            if (!g.ownsShip(g.ship)) {
+                g.ship = 0;
+            }
+            g.gameDay = Math.max(1, s.gameDay);
+            g.dayMin = (s.dayMin >= 0f && s.dayMin < 1440f) ? s.dayMin : 360f;
+            if (s.marketOff == null || s.marketOff.length != Catalog.PORTS.length * Catalog.GOODS.length) {
+                g.refreshMarket();
+            } else {
+                g.marketOff = s.marketOff.clone();
+            }
             // 捕鱼只在扬州停靠时恢复（其它港口的存档视为已收网）。
             g.fishingOn = s.fishingOn && lp == Catalog.YANGZHOU;
             g.fishTimer = 0f;
@@ -341,6 +383,85 @@ public class GameState {
         return dockedPort >= 0 || islandMenu >= 0 || failed;
     }
 
+    /** 当前船在 SHIPS 里是否已拥有。 */
+    public boolean ownsShip(int i) {
+        return i >= 0 && i < 32 && (shipOwned & (1 << i)) != 0;
+    }
+
+    /** 货舱容量（仓库基础 + 当前船加成）。 */
+    public int holdCap() {
+        return cargoCap + Catalog.SHIP_HOLD[ship];
+    }
+
+    /** 船员上限（编制基础 + 当前船加成）。 */
+    public int crewMax() {
+        return crewCap + Catalog.SHIP_CREW[ship];
+    }
+
+    /** 航速倍率（当前船）。 */
+    public float speedMult() {
+        return 1f + Catalog.SHIP_SPEED[ship] / 100f;
+    }
+
+    /** 转向倍率（当前船，走舸更灵活）。 */
+    public float turnMult() {
+        return 1f + Catalog.SHIP_TURN[ship] / 100f;
+    }
+
+    /** 行情：当前（含黎明偏移后的）某港某货价。 */
+    public int goodPrice(int port, int good) {
+        int base = Catalog.goodPrice(port, good);
+        if (marketOff == null || marketOff.length == 0) {
+            return base;
+        }
+        int off = marketOff[port * Catalog.GOODS.length + good];
+        if (off == 0) {
+            return base;
+        }
+        return Math.max(1, Math.round(base * (1000 + off) / 1000f));
+    }
+
+    /** 游戏时间文案：第N日 HH:MM 白天/夜晚（06:00-18:00 白天）。 */
+    public String timeLabel() {
+        int total = (int) dayMin;
+        int hh = (total / 60) % 24;
+        int mm = total % 60;
+        boolean day = total >= 360 && total < 1080;
+        return String.format("第%d日 %02d:%02d %s", gameDay, hh, mm, day ? "白天" : "夜晚");
+    }
+
+    /** 每个游戏黎明 06:00 重摇各港各货价格偏移（±5%~±8%，硬上限 ±10%）。 */
+    public void refreshMarket() {
+        int n = Catalog.PORTS.length * Catalog.GOODS.length;
+        if (marketOff == null || marketOff.length != n) {
+            marketOff = new int[n];
+        }
+        for (int i = 0; i < n; i++) {
+            int sign = MathUtils.randomBoolean() ? 1 : -1;
+            // 幅度 50..80 千分位（5%~8%），符号随机
+            int mag = 50 + MathUtils.random(30);
+            marketOff[i] = sign * mag;
+        }
+    }
+
+    /** 只在世界不暂停时被 update() 调用：推进时钟并在跨过 06:00 时刷新行情。 */
+    private void advanceClock(float dt) {
+        float prev = dayMin;
+        dayMin += dt * GAME_MIN_PER_SEC;
+        while (dayMin >= 1440f) {
+            dayMin -= 1440f;
+            gameDay++;
+        }
+        if (dayMin < 0f) {
+            dayMin = 0f;
+        }
+        // 同一游戏日内跨过 06:00（360 分钟）或过午夜后再次到达 06:00
+        boolean crossedDawn = prev < 360f && dayMin >= 360f;
+        if (crossedDawn) {
+            refreshMarket();
+        }
+    }
+
     public int cargoUsed() {
         int n = 0;
         for (int v : trade) n += v;
@@ -351,7 +472,7 @@ public class GameState {
     }
 
     public int cargoFree() {
-        return Math.max(0, cargoCap - cargoUsed());
+        return Math.max(0, holdCap() - cargoUsed());
     }
 
     /** 渔获总条数。 */
@@ -403,6 +524,8 @@ public class GameState {
                 tryApproach();
             }
         }
+        // 0.26.4 游戏时钟只在世界真实运行时推进；停靠/菜单/教学/失败等暂停。
+        advanceClock(dt);
     }
 
     private void applySteerAndSpeed(float dt) {
@@ -416,23 +539,23 @@ public class GameState {
                 ty = Catalog.ISLAND_Y[autoSailIsle];
             }
             float want = MathUtils.atan2(ty - y, tx - x) * MathUtils.radiansToDegrees;
-            headingDeg = approachAngle(headingDeg, want, Catalog.TURN_RATE * dt);
+            headingDeg = approachAngle(headingDeg, want, Catalog.TURN_RATE * turnMult() * dt);
             holdAccel = true;
             holdDecel = false;
         } else if (manualHeadingActive) {
             // The stick represents an absolute direction, not angular velocity.
             // approachAngle follows the shortest arc and becomes a no-op once
             // aligned, so holding the stick cannot make the ship spin forever.
-            headingDeg = approachAngle(headingDeg, desiredHeadingDeg, Catalog.TURN_RATE * dt);
+            headingDeg = approachAngle(headingDeg, desiredHeadingDeg, Catalog.TURN_RATE * turnMult() * dt);
         } else {
             if (Math.abs(steerInput) > 0.08f) {
-                headingDeg += steerInput * Catalog.TURN_RATE * dt;
+                headingDeg += steerInput * Catalog.TURN_RATE * turnMult() * dt;
             }
         }
         headingDeg = wrapDeg(headingDeg);
         float windAlign = MathUtils.cosDeg(headingDeg - windDeg);
         float windMul = 1f + Catalog.WIND_SPEED_FACTOR * windStr * windAlign;
-        float max = Catalog.MAX_SPEED * windMul;
+        float max = Catalog.MAX_SPEED * windMul * speedMult();
         if (holdAccel) {
             speed += Catalog.ACCEL * dt;
         } else if (holdDecel) {
@@ -578,7 +701,7 @@ public class GameState {
         if (cargoFree() < qty) {
             return "货舱已满，不能再买。";
         }
-        int cost = Catalog.goodPrice(port, good) * qty;
+        int cost = goodPrice(port, good) * qty;
         if (silver < cost) {
             return "银两不足。";
         }
@@ -597,7 +720,7 @@ public class GameState {
         if (qty <= 0 || trade[good] < qty) {
             return "没有这么多货。";
         }
-        int gain = Catalog.goodPrice(port, good) * qty;
+        int gain = goodPrice(port, good) * qty;
         // 赚个差价：卖出价高于买入均价即为盈利（成本基准 costPaid 随买卖维护）。
         if (trade[good] > 0) {
             int avgCost = costPaid[good] / trade[good];
@@ -930,7 +1053,8 @@ public class GameState {
         cargoCap += 20;
         questWarehouseUps++;
         questUpgradeCount++;
-        return "仓库升级完成，共用货舱容量 " + cargoCap + "。";
+        return "仓库升级完成，共用货舱容量 " + holdCap()
+                + (Catalog.SHIP_HOLD[ship] != 0 ? "（含本船 +" + Catalog.SHIP_HOLD[ship] + "）" : "") + "。";
     }
 
     public String upgradeCannon() {
@@ -954,12 +1078,13 @@ public class GameState {
         crewCapLevel++;
         crewCap += 1;
         questUpgradeCount++;
-        return "人数上限升到 " + crewCap + "。再花钱雇人上船。";
+        return "人数上限升到 " + crewMax()
+                + (Catalog.SHIP_CREW[ship] != 0 ? "（含本船 +" + Catalog.SHIP_CREW[ship] + "）" : "") + "。再花钱雇人上船。";
     }
 
     public String hireCrew() {
-        if (crew >= crewCap) {
-            return "已满员，先升编制。";
+        if (crew >= crewMax()) {
+            return "已满员，先升编制或换更大船。";
         }
         if (silver < Catalog.HIRE_COST) {
             return "雇人要 " + Catalog.HIRE_COST + " 两。";
@@ -967,7 +1092,55 @@ public class GameState {
         silver -= Catalog.HIRE_COST;
         crew++;
         questHiredCrew++;
-        return "立刻雇上 1 人。船员 " + crew + "/" + crewCap + "。火力与补给按实际人数。";
+        return "立刻雇上 1 人。船员 " + crew + "/" + crewMax() + "。火力与补给按实际人数。";
+    }
+
+    // ------------------------------------------------------------ 商城 / 船
+
+    /** 买一艘船：扣款、标记拥有并立刻换乘。银两不足不扣款、返回原因。 */
+    public String buyShip(int i) {
+        if (i < 0 || i >= Catalog.SHIPS.length) {
+            return "没有这条船。";
+        }
+        if (ownsShip(i)) {
+            return equipShip(i);
+        }
+        int price = Catalog.SHIP_PRICE[i];
+        if (silver < price) {
+            return "银两不足：" + Catalog.SHIPS[i] + " 要 " + price + " 两，还差 " + (price - silver) + " 两。";
+        }
+        if (cargoUsed() > cargoCap + Catalog.SHIP_HOLD[i]) {
+            return "货舱放不下现有货物：" + Catalog.SHIPS[i] + " 的容量只有 "
+                    + (cargoCap + Catalog.SHIP_HOLD[i]) + "，船上现有 " + cargoUsed() + " 件。先卖掉一些再买。";
+        }
+        silver -= price;
+        shipOwned |= (1 << i);
+        ship = i;
+        return "购得「" + Catalog.SHIPS[i] + "」并立刻换乘（花 " + price + " 两）。";
+    }
+
+    /** 换乘到已拥有的船（不花钱）。换到货舱更小的船时先检查装得下。 */
+    public String equipShip(int i) {
+        if (i < 0 || i >= Catalog.SHIPS.length) {
+            return "没有这条船。";
+        }
+        if (!ownsShip(i)) {
+            return "还没有「" + Catalog.SHIPS[i] + "」，先购买再换乘。";
+        }
+        if (i == ship) {
+            return "现在开的就是「" + Catalog.SHIPS[i] + "」。";
+        }
+        if (cargoUsed() > cargoCap + Catalog.SHIP_HOLD[i]) {
+            return "货舱放不下现有货物：" + Catalog.SHIPS[i] + " 的容量只有 "
+                    + (cargoCap + Catalog.SHIP_HOLD[i]) + "，船上现有 " + cargoUsed() + " 件。先卖掉一些再换。";
+        }
+        ship = i;
+        return "换乘「" + Catalog.SHIPS[i] + "」完成。";
+    }
+
+    /** 是否禁止某条船（当前不在航行/货舱容量检查提示用）。 */
+    public boolean shipFitsCargo(int i) {
+        return cargoUsed() <= cargoCap + Catalog.SHIP_HOLD[i];
     }
 
     public void startAutoSail(int port) {
@@ -1029,7 +1202,8 @@ public class GameState {
      * a bit), which keeps upgrades meaningful under the flat-1 combat rule. */
     public float fireInterval() {
         float rate = 1f + 0.15f * Math.max(0, cannonLevel - 1) + 0.04f * Math.max(0, crew - 1);
-        return Math.max(0.13f, Catalog.FIRE_INTERVAL / rate);
+        float shipFire = 1f + Catalog.SHIP_FIRE[ship] / 100f;
+        return Math.max(0.13f, Catalog.FIRE_INTERVAL / (rate * shipFire));
     }
 
     /** Shots per second, shown on the port menu as 射速. */

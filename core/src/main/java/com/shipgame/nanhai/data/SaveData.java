@@ -19,6 +19,13 @@ public class SaveData {
     public boolean[] beastFound;
     public boolean[] herbFound;
     public int lastPort = 0;
+    // 0.26.4 商城：当前船下标 + 已拥有位掩码；时钟：第 N 天 + 当日分钟；行情偏移表。
+    // 旧档无这些字段：GameState.fromSave 补默认（初始船、第 1 天 06:00、基准价）。
+    public int ship = 0;
+    public int shipOwned = 1;
+    public int gameDay = 1;
+    public float dayMin = 360f;
+    public int[] marketOff;
     // 0.26.1 任务 system: per-quest progress + claim state.
     // Quest IDs match QuestDef IDs.
     public int questSellSilk = 0;       // 卖出丝绸数量

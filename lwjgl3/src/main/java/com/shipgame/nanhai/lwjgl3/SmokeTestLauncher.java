@@ -80,6 +80,9 @@ public class SmokeTestLauncher {
     private static float pirateHp0;
     private static float hull0;
     private static int sil0;   // silver right before hiring the fisher
+    private static int poor0;   // silver before the insufficient 海鹘 attempt
+    private static int sumOff0; // 0.26.4 market-offset checksum before dawn
+    private static int silBefore; // silver before buying 楼船
 
     public static void main(String[] args) {
         if (args.length > 0) {
@@ -279,6 +282,81 @@ public class SmokeTestLauncher {
                         require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
                                 "overlay should be NONE after 2nd close, got " + voyageOverlay());
                         System.out.println("SMOKE: 港口 rail reopens the popup; 关闭 works (docked, no menu)");
+                        // 0.26.4: 商城 — buy a ship, check insufficient-silver no-charge,
+                        // then continue to the joystick test with the new ship equipped.
+                        step = 45;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 45: // open 商城 from the top-right rail (docked, popup closed)
+                        require(tapButton("商城"), "could not tap rail 商城");
+                        step = 46;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 46:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("SHOP"),
+                                "商城 popup not open, got " + voyageOverlay());
+                        require(findText("船只") != null || findText("[船只]") != null, "商城 category list missing");
+                        require(findText("购买 · 900 两") == null, "detail should not be open yet");
+                        GameState shop0 = voyageState();
+                        require(shop0.ship == 0, "new game should sail the default 小商船 (ship=" + shop0.ship + ")");
+                        require(shop0.silver >= 900, "no silver to buy 楼船 (silver=" + shop0.silver + ")");
+                        // open 楼船 detail from the grid
+                        require(tapButton("商城楼船"), "could not tap 楼船 cell");
+                        step = 47;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 47:
+                        require(findText("购买 · 900 两") != null, "楼船 detail lacks 购买 · 900 两");
+                        require(findText("火力(射速) +18%") != null, "楼船 detail lacks firepower bonus");
+                        silBefore = voyageState().silver;
+                        require(tapButton("购买 · 900 两"), "could not tap 购买 楼船");
+                        step = 48;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 48:
+                        GameState after = voyageState();
+                        require(after.silver == silBefore - 900, "购买 楼船 did not deduct 900 silver");
+                        require(after.ship == 1, "buying 楼船 did not equip it (ship=" + after.ship + ")");
+                        require(after.ownsShip(1), "楼船 not marked owned after purchase");
+                        System.out.println("SMOKE: bought 楼船 for 900 silver, equipped (silver=" + after.silver + ")");
+                        require(tapButton("← 返回列表"), "could not return to shop grid");
+                        step = 49;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 49:
+                        require(tapButton("商城海鹘"), "could not tap 海鹘 cell");
+                        step = 50;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 50:
+                        require(findText("购买 · 6000 两") != null, "海鹘 detail lacks 购买 · 6000 两");
+                        poor0 = voyageState().silver;
+                        require(poor0 < 6000, "expected insufficient silver for 海鹘, have " + poor0);
+                        require(tapButton("购买 · 6000 两"), "could not tap 购买 海鹘");
+                        step = 51;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 51:
+                        GameState poor = voyageState();
+                        require(poor.silver == poor0, "insufficient-silver buy still charged (silver=" + poor.silver + ")");
+                        require(poor.ship == 1, "insufficient-silver buy changed ship (ship=" + poor.ship + ")");
+                        require(!poor.ownsShip(8), "海鹘 marked owned without purchase");
+                        System.out.println("SMOKE: insufficient silver for 海鹘 — no charge, ship unchanged");
+                        require(tapButton("关闭"), "could not close 商城");
+                        step = 52;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 52:
+                        require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
+                                "商城 did not close, got " + voyageOverlay());
+                        // 0.26.4 clock: docked -> frozen; label shows 第1日 06:00 白天
+                        GameState clk = voyageState();
+                        require(clk.gameDay == 1 && clk.dayMin == 360f,
+                                "clock should be frozen at day1 06:00 while docked (day=" + clk.gameDay
+                                        + " min=" + clk.dayMin + ")");
+                        require(findText("第1日") != null, "bottom-left clock label missing 第1日");
+                        require(findText("白天") != null, "bottom-left clock label missing 白天 at 06:00");
+                        System.out.println("SMOKE: docked clock frozen at 第1日 06:00 白天; 商城 buy/silver-guard OK");
                         step = 14;
                         nextStepFrame = frame + 6;
                         break;
@@ -329,6 +407,52 @@ public class SmokeTestLauncher {
                         require(spd < 12f, "holding 减速 did not cut speed (speed=" + spd + ")");
                         System.out.println("SMOKE: 减速 cut speed to " + (int) spd);
                         releaseDecel();
+                        // 0.26.4 clock/market: while sailing the clock advances
+                        // 1.6 game-min per real second; crossing 06:00 refreshes the
+                        // market once. Drive the model directly for determinism.
+                        GameState clk0 = voyageState();
+                        clk0.dayMin = 359.5f; // just before dawn
+                        clk0.refreshMarket(); // not auto — we force a refresh anyway
+                        int sum0 = 0;
+                        for (int oi = 0; oi < clk0.marketOff.length; oi++) sum0 += clk0.marketOff[oi];
+                        sumOff0 = sum0;
+                        step = 55;
+                        nextStepFrame = frame + 2;
+                        break;
+                    case 55: // hold a moment at 359.5: no crossing, market unchanged
+                        GameState mid = voyageState();
+                        int sumMid = 0;
+                        for (int oi = 0; oi < mid.marketOff.length; oi++) sumMid += mid.marketOff[oi];
+                        require(mid.dayMin >= 359.5f && mid.dayMin < 360.5f,
+                                "clock jumped across dawn too early (min=" + mid.dayMin + ")");
+                        require(sumMid == sumOff0, "market changed without crossing 06:00");
+                        // force the clock across 06:00 and let update() advance it
+                        mid.dayMin = 359.9f;
+                        step = 56;
+                        nextStepFrame = frame + 20; // ~0.33s real = ~0.53 game-min
+                        break;
+                    case 56:
+                        GameState dawn = voyageState();
+                        int sum1 = 0;
+                        for (int oi = 0; oi < dawn.marketOff.length; oi++) sum1 += dawn.marketOff[oi];
+                        require(dawn.dayMin >= 360f, "clock did not cross 06:00 (min=" + dawn.dayMin + ")");
+                        require(dawn.gameDay >= 1, "gameDay regressed (day=" + dawn.gameDay + ")");
+                        require(dawn.marketOff != null && dawn.marketOff.length > 0, "marketOff missing");
+                        require(sum1 != sumOff0, "market did not refresh at dawn (sum unchanged)");
+                        require(findText("白天") != null, "06:xx should show 白天");
+                        System.out.println("SMOKE: dawn 06:00 refresh fired — market offsets changed; clock label 白天");
+                        // night check: 18:30 -> 夜晚
+                        dawn.dayMin = 1110f;
+                        step = 57;
+                        nextStepFrame = frame + 4;
+                        break;
+                    case 57:
+                        GameState night = voyageState();
+                        require(night.dayMin >= 1110f, "clock did not advance to night (min=" + night.dayMin + ")");
+                        require(night.timeLabel().contains("夜晚"), "18:30 should be 夜晚: " + night.timeLabel());
+                        require(findText("夜晚") != null, "bottom-left clock label missing 夜晚");
+                        night.dayMin = 700f; // back to mid-day, keep sailing tests stable
+                        System.out.println("SMOKE: night label 夜晚 at 18:30; clock HUD OK");
                         step = 19;
                         nextStepFrame = frame + 6;
                         break;
@@ -562,13 +686,14 @@ public class SmokeTestLauncher {
                 return null;
             }
 
-            /** All five rail buttons present anywhere in the stage. */
+            /** All six rail buttons present anywhere in the stage (0.26.4 adds 商城). */
             private boolean railPresent() throws Exception {
                 return findExactButton("货物") != null
                         && findExactButton("图鉴") != null
                         && findExactButton("港口") != null
                         && findExactButton("情报") != null
-                        && findExactButton("任务") != null;
+                        && findExactButton("任务") != null
+                        && findExactButton("商城") != null;
             }
 
             /** Under the modal the stage root is invisible, so hits on the rail /
@@ -582,6 +707,7 @@ public class SmokeTestLauncher {
                         {RAIL_X, RAIL_TOP_Y + 112},
                         {RAIL_X, RAIL_TOP_Y + 168},
                         {RAIL_X, RAIL_TOP_Y + 224},
+                        {RAIL_X, RAIL_TOP_Y + 280},
                         {AVATAR_X, AVATAR_YC},
                         {1200, 620}
                 };
