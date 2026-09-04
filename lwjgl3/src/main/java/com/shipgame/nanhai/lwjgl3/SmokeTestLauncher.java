@@ -57,16 +57,17 @@ public class SmokeTestLauncher {
     private static final int FM_CLOSE_X = 90 + 1100 - 124 + 52;      // modal 关闭 center
     private static final int FM_CLOSE_Y = HUD_H - (90 + 540 - 36 + 14);
     private static final int TARGET_PORT = 5;                        // 合浦 (not 广州)
-    // 0.26.2 top HUD mirrors VoyageScreen (stage y-up, 720 tall): the stat
+    // 0.26.5 top HUD mirrors VoyageScreen (stage y-up, 720 tall): the stat
     // panel spans stage y 654..710 (screen y-down 10..66) at x 82..474, the
     // avatar circle centers on stage (44,682) -> screen (44,38), and the icon
-    // rail column sits left of the minimap (stage x 1023, y-down 106..326).
+    // rail is a HORIZONTAL row of 7 buttons just left of the round minimap
+    // (stage y 664 = screen y 56; right edge 1090 = screen x).
     private static final int STAT_X0 = (int) (44 + 28 + 10);         // panel left (screen x)
     private static final int STAT_YC = HUD_H - (654 + 56 / 2);       // row center (y-down)
     private static final int STAT_W = 98;
     private static final int AVATAR_X = 44, AVATAR_YC = HUD_H - 682; // 船长 circle center
-    private static final int RAIL_X = (int) (1174 - 80 - 44);        // column center (screen x)
-    private static final int RAIL_TOP_Y = HUD_H - 664;               // 货物 center (y-down)
+    private static final int NR_ROW_Y = 664;                          // rail row center (stage y-up)
+    private static final int NR_RIGHT_EDGE = (int) (1178 - 82 - 4);   // row right edge (stage x)
 
     private static int frame;
     private static int exitCode = 97;
@@ -357,6 +358,46 @@ public class SmokeTestLauncher {
                         require(findText("第1日") != null, "bottom-left clock label missing 第1日");
                         require(findText("白天") != null, "bottom-left clock label missing 白天 at 06:00");
                         System.out.println("SMOKE: docked clock frozen at 第1日 06:00 白天; 商城 buy/silver-guard OK");
+                        step = 58;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 58: // 0.26.5: open 我的 from the rail (docked, popup closed)
+                        require(tapButton("我的"), "could not tap rail 我的");
+                        step = 59;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 59:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("MINE"),
+                                "我的 popup not open, got " + voyageOverlay());
+                        require(findText("我的 · 船与家当") != null, "我的 header missing");
+                        require(findText("当前：楼船") != null, "我的 does not show the bought 楼船 as current");
+                        require(findText("已拥有船只") != null, "我的 owned-ships list missing");
+                        // current = 楼船 (1); the owned list also has 小商船 (0)
+                        require(findExactButton("更换") != null, "我的 lacks a 更换 button");
+                        GameState mine0 = voyageState();
+                        require(mine0.ship == 1 && mine0.ownsShip(0), "my-ship state wrong before swap");
+                        System.out.println("SMOKE: 我的 shows 当前：楼船 + owned ships");
+                        step = 60;
+                        nextStepFrame = frame + 6;
+                        break;
+                    case 60: // swap back to the default 小商船 through 我的 更换
+                        require(tapButton("更换小商船"), "could not tap 更换小商船 in 我的");
+                        step = 61;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 61:
+                        GameState mine1 = voyageState();
+                        require(mine1.ship == 0, "我的 更换 did not equip 小商船 (ship=" + mine1.ship + ")");
+                        require(findText("当前：小商船") != null, "我的 did not update 当前 after swap");
+                        System.out.println("SMOKE: 我的 更换 equipped 小商船 (still owned by default)");
+                        require(tapButton("关闭"), "could not close 我的");
+                        step = 62;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 62:
+                        require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
+                                "我的 did not close, got " + voyageOverlay());
+                        System.out.println("SMOKE: 我的 popup open/swap/close OK");
                         step = 14;
                         nextStepFrame = frame + 6;
                         break;
@@ -686,28 +727,32 @@ public class SmokeTestLauncher {
                 return null;
             }
 
-            /** All six rail buttons present anywhere in the stage (0.26.4 adds 商城). */
+            /** All SEVEN rail buttons present anywhere in the stage (0.26.5 adds 我的). */
             private boolean railPresent() throws Exception {
                 return findExactButton("货物") != null
                         && findExactButton("图鉴") != null
                         && findExactButton("港口") != null
                         && findExactButton("情报") != null
                         && findExactButton("任务") != null
-                        && findExactButton("商城") != null;
+                        && findExactButton("商城") != null
+                        && findExactButton("我的") != null;
             }
 
             /** Under the modal the stage root is invisible, so hits on the rail /
              * accel areas must return null (nothing below is clickable). */
             private boolean noStageHitAtRail() throws Exception {
-                // 0.26.2 rail column centers (top-right), plus the avatar and the
-                // bottom-right accel/decel stack.
+                // 0.26.5 horizontal rail row (7 icons just left of the minimap),
+                // the active-quest card under it, the avatar and the bottom-right
+                // accel/decel stack.
+                int ry = HUD_H - NR_ROW_Y; // rail row center, screen y-down
                 int[][] pts = {
-                        {RAIL_X, RAIL_TOP_Y},
-                        {RAIL_X, RAIL_TOP_Y + 56},
-                        {RAIL_X, RAIL_TOP_Y + 112},
-                        {RAIL_X, RAIL_TOP_Y + 168},
-                        {RAIL_X, RAIL_TOP_Y + 224},
-                        {RAIL_X, RAIL_TOP_Y + 280},
+                        {NR_RIGHT_EDGE - 23, ry},
+                        {NR_RIGHT_EDGE - 23 - 52, ry},
+                        {NR_RIGHT_EDGE - 23 - 104, ry},
+                        {NR_RIGHT_EDGE - 23 - 156, ry},
+                        {NR_RIGHT_EDGE - 23 - 208, ry},
+                        {NR_RIGHT_EDGE - 23 - 260, ry},
+                        {NR_RIGHT_EDGE - 23 - 312, ry},
                         {AVATAR_X, AVATAR_YC},
                         {1200, 620}
                 };
@@ -722,9 +767,10 @@ public class SmokeTestLauncher {
                 return true;
             }
 
-            /** 0.25.6 chart visibility: the saved full-map frame must contain deep
-             * sea pixels, khaki land pixels and the RED radar pulse anchored at the
-             * player's real projected position (not a corner legend). */
+            /** 0.26.5 chart visibility: the saved full-map shot must contain the
+             * generated pixel chart's deep-sea pixels and land pixels plus the RED
+             * radar pulse anchored at the player's real projected position.
+             * (chart.png palette: sea ~ (13..36, 45..90, 74..115), land khaki.) */
             private void verifyMapShot() throws Exception {
                 java.io.File f = new java.io.File("/tmp/shots/map-modal.png");
                 require(f.exists(), "map-modal.png missing");
@@ -736,8 +782,11 @@ public class SmokeTestLauncher {
                     for (int x = 0; x < img.getWidth(); x++) {
                         int rgb = img.getRGB(x, y);
                         int r = (rgb >> 16) & 0xff, g2 = (rgb >> 8) & 0xff, b = rgb & 0xff;
-                        if (Math.abs(r - 13) <= 8 && Math.abs(g2 - 38) <= 8 && Math.abs(b - 61) <= 8) sea++;
-                        else if (Math.abs(r - 148) <= 10 && Math.abs(g2 - 125) <= 10 && Math.abs(b - 82) <= 10) land++;
+                        // deep sea base (chart DEEP ~22,58,86, graded to ~16,48,74)
+                        if (Math.abs(r - 20) <= 8 && Math.abs(g2 - 55) <= 9 && Math.abs(b - 82) <= 12) sea++;
+                        // land khaki (chart LAND 148,126,80 and its dark/light blends)
+                        else if (Math.abs(r - 148) <= 22 && Math.abs(g2 - 126) <= 22
+                                && Math.abs(b - 80) <= 26 && r > b + 20) land++;
                     }
                 }
                 // Red radar center dot sits exactly on the player's projected world
@@ -760,15 +809,6 @@ public class SmokeTestLauncher {
                         + "," + (int) me[1] + ") radar=" + radar);
                 System.out.println("SMOKE: sea chart + red radar at ship visible: sea=" + sea
                         + " land=" + land + " radar(red)=" + radar + " @(" + (int) me[0] + "," + (int) me[1] + ")");
-            }
-
-            /** World coords -> full-map screen pixel (modal rect from VoyageScreen). */
-            private float[] worldToMapScreen(float wx, float wy) {
-                float x = 90f, y = 90f, w = 1100f, h = 540f;
-                float ix = x + 10f, iy = y + 10f, iw = w - 20f, ih = h - 20f;
-                float px = ix + (wx / Catalog.WORLD_W) * iw;
-                float py = iy + (wy / Catalog.WORLD_H) * ih;
-                return new float[] {px, HUD_H - py};
             }
 
             private void saveShot(String name) {
@@ -905,13 +945,22 @@ public class SmokeTestLauncher {
                 return (Enum<?>) f.get(getScreen());
             }
 
-            /** World -> full-map screen pixel for port i (modal rect from VoyageScreen). */
-            private float[] mapPortToScreen(int port) {
+            /** World coords -> full-map screen pixel (letterboxed chart rect,
+             * mirrors VoyageScreen.fullMapChartBox: the 4:3 world fills the
+             * modal's height and is centered horizontally). */
+            private float[] worldToMapScreen(float wx, float wy) {
                 float x = 90f, y = 90f, w = 1100f, h = 540f;
-                float ix = x + 10f, iy = y + 10f, iw = w - 20f, ih = h - 20f;
-                float px = ix + (Catalog.PORT_X[port] / Catalog.WORLD_W) * iw;
-                float py = iy + (Catalog.PORT_Y[port] / Catalog.WORLD_H) * ih;
+                float iy = y + 10f, ih = h - 20f;
+                float iw = ih * (Catalog.WORLD_W / Catalog.WORLD_H);
+                float ix = x + (w - iw) / 2f;
+                float px = ix + (wx / Catalog.WORLD_W) * iw;
+                float py = iy + (wy / Catalog.WORLD_H) * ih;
                 return new float[] {px, HUD_H - py};
+            }
+
+            /** World -> full-map screen pixel for port i (letterboxed chart rect). */
+            private float[] mapPortToScreen(int port) {
+                return worldToMapScreen(Catalog.PORT_X[port], Catalog.PORT_Y[port]);
             }
 
             private Vector2 center(Actor a) {

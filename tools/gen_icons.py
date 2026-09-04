@@ -309,6 +309,33 @@ def i_hud_shop():
     outline(m)
     return m
 
+def i_hud_mine():
+    """我的 (0.26.5): a small ship's wheel with a glowing centre — the "my
+    ship & belongings" panel icon, distinct from the plain rail icons."""
+    m = icon()
+    # wheel rim + 8 spokes
+    disk(m, 32, 32, 19, (150, 96, 50))
+    disk(m, 32, 32, 16, (196, 138, 74))
+    disk(m, 32, 32, 15, (168, 112, 58))
+    for ang in range(0, 360, 45):
+        rad = math.radians(ang)
+        x, y = 32 + math.cos(rad) * 11, 32 + math.sin(rad) * 11
+        px(m, x, y, (150, 96, 50))
+        px(m, 32 + math.cos(rad) * 8, 32 + math.sin(rad) * 8, (238, 226, 190))
+    # spokes to the rim
+    for ang in range(0, 360, 45):
+        rad = math.radians(ang)
+        for i in range(11, 16):
+            x, y = 32 + math.cos(rad) * i, 32 + math.sin(rad) * i
+            px(m, x, y, (218, 160, 88))
+    # centre hub: brass + glow
+    disk(m, 32, 32, 6, (196, 148, 52))
+    disk(m, 32, 32, 4, (244, 214, 130))
+    disk(m, 32, 32, 2, (110, 74, 30))
+    px(m, 31, 33, (255, 250, 220)); px(m, 33, 31, (255, 250, 220))
+    outline(m)
+    return m
+
 # ----------------------------------------------------------------------------
 # SHIPS (0.26.4 商城商品图, 9): 侧视中式帆船剪影，统一 64x64 像素风。
 # ----------------------------------------------------------------------------
@@ -1076,7 +1103,7 @@ HUD = {
     "silver": i_hud_silver, "supply": i_hud_supply, "hull": i_hud_hull,
     "crew": i_hud_crew, "avatar": i_hud_avatar, "cargo": i_hud_cargo,
     "codex": i_hud_codex, "port": i_hud_port, "intel": i_hud_intel,
-    "quest": i_hud_quest, "sun": i_hud_sun, "shop": i_hud_shop,
+    "quest": i_hud_quest, "sun": i_hud_sun, "shop": i_hud_shop, "mine": i_hud_mine,
 }
 
 if __name__ == "__main__":

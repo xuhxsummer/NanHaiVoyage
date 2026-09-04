@@ -6,7 +6,10 @@ import com.badlogic.gdx.InputAdapter;
 import com.badlogic.gdx.InputMultiplexer;
 import com.badlogic.gdx.ScreenAdapter;
 import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -23,6 +26,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
+import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.ScreenUtils;
@@ -42,10 +46,13 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float MENU_W = 500f;             // popup content width
     private static final float PORT_MENU_W = 900f;
     private static final float SHOP_W = 820f;             // 0.26.4 商城 popup width
-    // Round minimap: top-right corner
-    private static final float MM_CX = HUD_W - 106f;
-    private static final float MM_CY = HUD_H - 104f;
-    private static final float MM_R = 80f;
+    // Round minimap: far top-right corner (0.26.5). The whole chart is drawn
+    // inside the circle (no rectangular viewport window/frustum); 7 rail icons
+    // sit in one horizontal row just LEFT of it, and the active-quest card sits
+    // under that row.
+    private static final float MM_CX = HUD_W - 102f;
+    private static final float MM_CY = HUD_H - 100f;
+    private static final float MM_R = 82f;
     // Captain avatar (top-left): tap opens the 船长菜单 (save/load). Right of it
     // sits the stat panel with ICON+NUMBER for 银两/补给/耐久/船员; each cell
     // opens a short detail popup.
@@ -55,12 +62,14 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float STAT_Y = 654f;    // bottom edge of the stat panel
     private static final float STAT_CELL_W = 98f;
     private static final float STAT_CELL_H = 56f;
-    // Top-right icon rail: five round icon buttons in a column just LEFT of the
-    // round minimap (replaces the old left-edge text rail).
-    private static final float NR_X = MM_CX - MM_R - 44f;  // column center x
-    private static final float NR_D = 54f;                 // button diameter
-    private static final float NR_TOP = 664f;              // top button center y
-    private static final float NR_GAP = 56f;               // center-to-center
+    // Top-right icon rail (0.26.5): SEVEN round icon buttons in one horizontal
+    // row at the top, just LEFT of the round minimap (rows never wrap; the
+    // HUD is 1280 wide so a straight 7-button row fits between the top-left
+    // stat panel and the minimap). NR_ROW_Y is the buttons' center y.
+    private static final float NR_D = 46f;                 // button diameter
+    private static final float NR_GAP = 6f;                // pixel gap between buttons
+    private static final float NR_RIGHT_EDGE = MM_CX - MM_R - 4f; // row right edge
+    private static final float NR_ROW_Y = 664f;            // row center y (top band)
     // Full-map modal geometry (overlay == Overlay.MAP): the map is a fullscreen
     // dimmed rect with the map area centered; its 关闭 button sits top-right.
     private static final float FM_X = 90f, FM_Y = 90f, FM_W = 1100f, FM_H = 540f;
@@ -87,7 +96,8 @@ public class VoyageScreen extends ScreenAdapter {
         // 0.26.3: FISH is the 扬州-only 渔务 dock sub-view (hire fishers,
         // start/stop fishing, upgrades, catch list + sell).
         // 0.26.4: SHOP is the 商城 popup (buy / switch ships).
-        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH, SHOP
+        // 0.26.5: MINE is the 我的 popup (current/owned ships + resources).
+        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH, SHOP, MINE
     }
 
     /** 0.26.0 first-run gameplay help. Body is verbatim from howto_spec.txt:
@@ -131,6 +141,7 @@ public class VoyageScreen extends ScreenAdapter {
     private int selectedShip = -1;       // 0.26.4 商城：网格里点开的船（-1 = 网格）
     private int shopCat = 0;             // 0.26.4 商城左侧分类（目前仅 船只=0）
     private Label hudClock;              // 0.26.4 左下 第N日 HH:MM 白天/夜晚
+    private Label sunTip;                // 今日：晴 label under the minimap
 
     // 0.26.0 市场 pagination: rows per page in each market column, plus the two
     // independent page cursors (buy column pages over goods, sell column pages
@@ -142,7 +153,8 @@ public class VoyageScreen extends ScreenAdapter {
     private Table menuRoot;
     private Label hudLine;
     private Label[] statVals = new Label[4];   // live numbers in the top stat cells
-    private TextButton btnQuestState;          // active-quest pill under the rail
+    private Table questCard;                   // 0.26.5 active-quest bordered card
+    private Label questCardLabel;               // its 标题（进度） text
     private TextButton btnCancelAuto;
     private TextButton btnLockPirate;
     private TextButton btnCancelLock;
@@ -160,6 +172,10 @@ public class VoyageScreen extends ScreenAdapter {
     private boolean accelDown, decelDown;
     private boolean loggedFirstFrame;
     private float radarT;   // seconds the full map has been open (radar pulse clock)
+    private Pixmap miniChartPm; // 0.26.5 baked minimap chart (promoted to a texture)
+    private Texture miniChartTex;
+    private Texture chartTex;         // 0.26.5 pixel 南海海图 (full-map artwork)
+    private static final int miniHalf = 80;
 
     public VoyageScreen(NanHaiVoyage game) {
         this.game = game;
@@ -244,6 +260,21 @@ public class VoyageScreen extends ScreenAdapter {
         }
     }
 
+    private void disposeMiniChart() {
+        try {
+            if (miniChartTex != null) { miniChartTex.dispose(); }
+        } catch (Throwable ignored) {}
+        try {
+            if (miniChartPm != null) { miniChartPm.dispose(); }
+        } catch (Throwable ignored) {}
+        try {
+            if (chartTex != null) { chartTex.dispose(); }
+        } catch (Throwable ignored) {}
+        miniChartTex = null;
+        miniChartPm = null;
+        chartTex = null;
+    }
+
     private void disposeQuietly() {
         try {
             if (stage != null) { stage.dispose(); }
@@ -254,13 +285,15 @@ public class VoyageScreen extends ScreenAdapter {
         try {
             if (pixelMap != null) { pixelMap.dispose(); }
         } catch (Throwable ignored) {}
+        disposeMiniChart();
         stage = null;
         shapes = null;
         pixelMap = null;
     }
 
-    // Active-quest pill parked under the top-right rail column.
-    private static final float QP_W = 210f;
+    // Active-quest card (0.26.5): a bordered frame under the horizontal rail
+    // row, left of the minimap, showing 标题 + 进度（如 访问一个岛屿（0/1））.
+    private static final float QP_W = 236f;
     private static final float QP_H = 40f;
 
     private void buildHud() {
@@ -330,38 +363,51 @@ public class VoyageScreen extends ScreenAdapter {
         stage.addActor(right);
 
         // --- Sun weather icon + 今日：晴 tip under the round minimap (0.26.2:
-        // no rain, no fog). ---
+        // no rain, no fog).
         TextureRegionDrawable sun = IconLib.hud("sun");
         if (sun != null) {
             Image sunImg = new Image(sun);
-            sunImg.setBounds(MM_CX - 98f, MM_CY - MM_R - 34f, 24f, 24f);
+            sunImg.setBounds(MM_CX - 100f, MM_CY - MM_R - 34f, 22f, 22f);
             stage.addActor(sunImg);
         }
-        Label today = new Label("今日：晴", game.skin, "small");
-        today.setBounds(MM_CX - 68f, MM_CY - MM_R - 30f, 150f, 20f);
-        stage.addActor(today);
+        sunTip = new Label("今日：晴", game.skin, "small");
+        sunTip.setBounds(MM_CX - 72f, MM_CY - MM_R - 30f, 150f, 20f);
+        stage.addActor(sunTip);
 
-        // --- Top-right icon rail: 货物/图鉴/港口/情报/任务/商城 just LEFT of the
-        // round minimap (old left-edge text column is gone). 商城 (0.26.4) opens
-        // the ship store; icon drawn by gen_icons (hud/shop.png).
-        String[] railSlugs = {"cargo", "codex", "port", "intel", "quest", "shop"};
-        String[] railNames = {"货物", "图鉴", "港口", "情报", "任务", "商城"};
-        Runnable[] railActs = {this::toggleCargo, this::toggleCodex, this::contextReopen,
-                this::openIntel, this::toggleQuestOverlay, this::toggleShop};
+        // --- Top-right icon rail (0.26.5): SEVEN round icon buttons in one
+        // horizontal row just LEFT of the round minimap: 货物/图鉴/港口/情报/
+        // 任务/商城/我的. Row is right-aligned against the minimap circle so the
+        // minimap stays at the far top-right; built right-to-left so the row can
+        // never wrap and buttons stay exactly one screen width apart.
+        String[] railSlugs = {"mine", "shop", "quest", "intel", "port", "codex", "cargo"};
+        String[] railNames = {"我的", "商城", "任务", "情报", "港口", "图鉴", "货物"};
+        Runnable[] railActs = {this::toggleMine, this::toggleShop, this::toggleQuestOverlay,
+                this::openIntel, this::contextReopen, this::toggleCodex, this::toggleCargo};
         for (int i = 0; i < railSlugs.length; i++) {
             Table b = iconBtn(railNames[i], railSlugs[i], railActs[i]);
-            b.setBounds(NR_X - NR_D / 2f, railCy(i) - NR_D / 2f, NR_D, NR_D);
+            float bx = NR_RIGHT_EDGE - i * (NR_D + NR_GAP) - NR_D;
+            b.setBounds(bx, NR_ROW_Y - NR_D / 2f, NR_D, NR_D);
             stage.addActor(b);
         }
-        // Active-quest pill under the rail column: the single current active
-        // quest (first incomplete/unclaimed) with its progress.
-        btnQuestState = new TextButton("", game.skin);
-        btnQuestState.getLabel().setFontScale(0.8f);
-        btnQuestState.addListener(click(this::toggleQuestOverlay));
-        btnQuestState.setVisible(false);
-        float pillTop = railCy(railSlugs.length - 1) - NR_D / 2f - 8f;
-        btnQuestState.setBounds(NR_X - QP_W / 2f, pillTop - QP_H, QP_W, QP_H);
-        stage.addActor(btnQuestState);
+        // Active-quest card under the rail row: a bordered frame (gold rim + dark
+        // body) with the ONE current quest's title + progress. Tapping it opens
+        // the full quest popup.
+        Table frame = new Table();
+        frame.setName("任务卡");
+        frame.setBackground(borderedBg());
+        frame.addListener(click(this::toggleQuestOverlay));
+        Table body = new Table();
+        body.setBackground(game.skin.getDrawable("panel"));
+        questCardLabel = new Label("", game.skin, "small");
+        questCardLabel.setAlignment(Align.center);
+        questCardLabel.setEllipsis(false);
+        body.add(questCardLabel).expand().fill().pad(2);
+        frame.add(body).grow().pad(2);
+        frame.setVisible(false);
+        frame.setBounds(MM_CX - MM_R - QP_W - 30f, NR_ROW_Y - NR_D / 2f - 12f - QP_H, QP_W, QP_H);
+        stage.addActor(frame);
+        questCard = frame;
+        questCardLabel.setVisible(false);
 
         // Contextual 取消自动 / 取消锁定 — slim strip at the very top-center so no
         // popup or HUD element can swallow their touches.
@@ -473,8 +519,15 @@ public class VoyageScreen extends ScreenAdapter {
         return b;
     }
 
-    private float railCy(int i) {
-        return NR_TOP - i * NR_GAP;
+    /** Gold-rimmed card background: an 8px 9-patch white texture tinted gold
+     * under the dark panel, padded 2px, so the quest card has a real frame. */
+    private Drawable borderedBg() {
+        Drawable base = game.skin.getDrawable("patch");
+        if (base instanceof NinePatchDrawable) {
+            NinePatchDrawable nd = (NinePatchDrawable) base;
+            return nd.tint(new Color(0.93f, 0.78f, 0.28f, 1f));
+        }
+        return base;
     }
 
     /** Tinted copy of the white circle texture (never mutates the skin copy). */
@@ -485,7 +538,7 @@ public class VoyageScreen extends ScreenAdapter {
         return d;
     }
 
-    /** The round rail 任务 icon and the active-quest pill both open/close the
+    /** The round rail 任务 icon and the active-quest card both open/close the
      * quest popup. */
     private void toggleQuestOverlay() {
         if (overlay == Overlay.QUESTS) {
@@ -496,6 +549,16 @@ public class VoyageScreen extends ScreenAdapter {
             if (selectedQuest < 0 || selectedQuest >= QUESTS.length) {
                 selectedQuest = getActiveQuestIndex();
             }
+            rebuildMenu();
+        }
+    }
+
+    /** 0.26.5 我的：当前船 + 已拥有船只（随时免费换乘）+ 资源/货物汇总。 */
+    private void toggleMine() {
+        if (overlay == Overlay.MINE) {
+            closePopup();
+        } else if (overlay != Overlay.MAP) {
+            overlay = Overlay.MINE;
             rebuildMenu();
         }
     }
@@ -527,7 +590,8 @@ public class VoyageScreen extends ScreenAdapter {
             public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
                 boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL
                         || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
-                        || overlay == Overlay.INTEL || overlay == Overlay.QUESTS || overlay == Overlay.SHOP;
+                        || overlay == Overlay.INTEL || overlay == Overlay.QUESTS || overlay == Overlay.SHOP
+                        || overlay == Overlay.MINE;
                 if (modal) {
                     // A popup is open: the world pauses by design. The button still
                     // reacts (pressed feedback) and explains instead of silently
@@ -662,12 +726,14 @@ public class VoyageScreen extends ScreenAdapter {
             statTable(box);
         } else if (overlay == Overlay.SHOP) {
             shopTable(box);
+        } else if (overlay == Overlay.MINE) {
+            mineTable(box);
         }
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
         boolean wide = overlay == Overlay.PORT || overlay == Overlay.MARKET || overlay == Overlay.FISH;
         float pw = wide ? PORT_MENU_W + 24f : (overlay == Overlay.QUESTS ? 560f : 520f);
-        if (overlay == Overlay.SHOP) {
+        if (overlay == Overlay.SHOP || overlay == Overlay.MINE) {
             pw = SHOP_W + 24f;
         }
         menuRoot.add(sp).width(pw).maxHeight(560);
@@ -1147,6 +1213,142 @@ public class VoyageScreen extends ScreenAdapter {
         return "换乘后效果：射速约 " + Math.round(effFire * 10f) / 10f + " 发/秒"
                 + "（当前 " + Math.round(curFire * 10f) / 10f + "）   船员上限 " + effCrewMax
                 + "   货舱 " + effHold;
+    }
+
+    /** 0.26.5 我的：当前船 + 已拥有船只（随时免费换乘）+ 银两/补给/耐久/船员/
+     * 货舱与主要货物（商货/渔获/异兽/草药）汇总。打开时世界暂停。 */
+    private void mineTable(Table box) {
+        menuHeader(box, "我的 · 船与家当");
+        // 顶部资源行：直接给出数字，点击对应顶栏格子能看说明。
+        box.add(infoRow("银 " + g.silver + " 两    补给 " + (int) g.supply + "/" + (int) g.supplyMax
+                + "    耐久 " + (int) g.hull + "/" + (int) g.hullMax))
+                .width(SHOP_W).left().padBottom(3).row();
+        int holdUsed = g.cargoUsed();
+        box.add(infoRow("船员 " + g.crew + "/" + g.crewMax() + "    货舱占用 " + holdUsed + "/" + g.holdCap()))
+                .width(SHOP_W).left().padBottom(6).row();
+
+        // 当前船卡（大图 + 名字 + 属性一句）。
+        int cur = g.ship;
+        Table curCard = new Table();
+        curCard.setBackground(game.skin.getDrawable("panel"));
+        curCard.pad(8f);
+        TextureRegionDrawable curIco = IconLib.ship(cur);
+        if (curIco != null) {
+            curCard.add(new Image(curIco)).size(72, 72).padRight(12);
+        }
+        Table curTxt = new Table();
+        curTxt.add(new Label("当前：" + Catalog.SHIPS[cur], game.skin)).left().padBottom(3);
+        curTxt.row();
+        curTxt.add(wrapLbl(shipAttrLine(cur))).width(SHOP_W - 160f).left().padBottom(2);
+        curTxt.row();
+        curTxt.add(wrapLbl("射速 " + Math.round(g.firepower() * 10f) / 10f + " 发/秒 · 货舱 "
+                + g.holdCap() + " · 船员上限 " + g.crewMax())).width(SHOP_W - 160f).left();
+        curCard.add(curTxt).width(SHOP_W - 160f).left();
+        box.add(curCard).width(SHOP_W).left().padBottom(10).row();
+
+        // 已拥有船只清单：可随时免费换乘（装备）。
+        box.add(new Label("已拥有船只（点「更换」随时免费换乘）", game.skin, "small"))
+                .width(SHOP_W).left().padBottom(4).row();
+        Table owned = new Table();
+        owned.top().left();
+        int cols = 0;
+        for (int i = 0; i < Catalog.SHIPS.length; i++) {
+            if (!g.ownsShip(i)) continue;
+            final int idx = i;
+            Table row = new Table();
+            row.setName("我的" + Catalog.SHIPS[idx]);
+            row.setBackground(game.skin.getDrawable("panel"));
+            row.pad(6f);
+            TextureRegionDrawable ico = IconLib.ship(idx);
+            if (ico != null) {
+                row.add(new Image(ico)).size(52, 52).padRight(10);
+            }
+            row.add(new Label(Catalog.SHIPS[idx], game.skin, "small")).width(96).left().padRight(6);
+            if (idx == cur) {
+                row.add(new Label("【正在开】", game.skin, "small")).width(150).left().padRight(6);
+                row.add(new Label("", game.skin, "small")).width(120).left(); // spacer
+            } else {
+                row.add(new Label(shipMiniAttr(idx), game.skin, "small")).width(150).left().padRight(6);
+                TextButton swap = btn("更换", () -> {
+                    g.toast(g.equipShip(idx));
+                    persist();
+                    rebuildMenu();
+                });
+                swap.setName("更换" + Catalog.SHIPS[idx]);
+                row.add(swap).width(110).height(36);
+            }
+            owned.add(row).width(400).height(66).left().pad(3);
+            cols++;
+            if (cols % 2 == 0) {
+                owned.row();
+            }
+        }
+        box.add(owned).width(SHOP_W).left().padBottom(10).row();
+
+        // 货物/渔获/异兽/草药汇总。
+        box.add(new Label("货舱明细", game.skin, "small")).width(SHOP_W).left().padBottom(3).row();
+        StringBuilder goodsSb = new StringBuilder();
+        int shown = 0;
+        for (int i = 0; i < Catalog.GOODS.length; i++) {
+            if (g.trade[i] > 0) {
+                if (shown > 0) goodsSb.append("、");
+                goodsSb.append(Catalog.GOODS[i]).append("x").append(g.trade[i]);
+                shown++;
+                if (shown >= 6) break;
+            }
+        }
+        StringBuilder beastSb = new StringBuilder();
+        shown = 0;
+        for (int i = 0; i < Catalog.BEASTS.length; i++) {
+            if (g.beasts[i] > 0) {
+                if (shown > 0) beastSb.append("、");
+                beastSb.append(Catalog.BEASTS[i]).append("x").append(g.beasts[i]);
+                shown++;
+                if (shown >= 4) break;
+            }
+        }
+        StringBuilder herbSb = new StringBuilder();
+        shown = 0;
+        for (int i = 0; i < Catalog.HERBS.length; i++) {
+            if (g.herbs[i] > 0) {
+                if (shown > 0) herbSb.append("、");
+                herbSb.append(Catalog.HERBS[i]).append("x").append(g.herbs[i]);
+                shown++;
+                if (shown >= 4) break;
+            }
+        }
+        StringBuilder fishSb = new StringBuilder();
+        shown = 0;
+        for (int i = 0; i < Catalog.FISH.length; i++) {
+            if (g.fish[i] > 0) {
+                if (shown > 0) fishSb.append("、");
+                fishSb.append(Catalog.FISH[i]).append("x").append(g.fish[i]);
+                shown++;
+                if (shown >= 4) break;
+            }
+        }
+        String goodsLine = "商货：" + (goodsSb.length() == 0 ? "空" : goodsSb.toString());
+        String beastLine = "异兽：" + (beastSb.length() == 0 ? "空" : beastSb.toString());
+        String herbLine = "草药：" + (herbSb.length() == 0 ? "空" : herbSb.toString());
+        String fishLine = "渔获：" + (fishSb.length() == 0 ? "空" : fishSb.toString());
+        box.add(infoRow(goodsLine)).width(SHOP_W).left().padBottom(2).row();
+        box.add(infoRow(fishLine)).width(SHOP_W).left().padBottom(2).row();
+        box.add(infoRow(beastLine)).width(SHOP_W).left().padBottom(2).row();
+        box.add(infoRow(herbLine)).width(SHOP_W).left().padBottom(2).row();
+        box.add(infoRow("换船不换货、不花银两；货舱不够时会提示先卖货。"))
+                .width(SHOP_W).left().padTop(4).row();
+    }
+
+    /** 船只迷你属性：只列非零加成，节省「我的」清单宽度。 */
+    private String shipMiniAttr(int idx) {
+        StringBuilder sb = new StringBuilder();
+        if (Catalog.SHIP_FIRE[idx] > 0) sb.append("火力+" + Catalog.SHIP_FIRE[idx] + "% ");
+        if (Catalog.SHIP_CREW[idx] > 0) sb.append("船员+" + Catalog.SHIP_CREW[idx] + " ");
+        if (Catalog.SHIP_HOLD[idx] > 0) sb.append("货舱+" + Catalog.SHIP_HOLD[idx] + " ");
+        if (Catalog.SHIP_SPEED[idx] > 0) sb.append("航速+" + Catalog.SHIP_SPEED[idx] + "% ");
+        if (Catalog.SHIP_TURN[idx] > 0) sb.append("转向+" + Catalog.SHIP_TURN[idx] + "% ");
+        String s = sb.toString();
+        return s.isEmpty() ? "无加成" : s.trim();
     }
 
     /** 上一页 / 页号 / 下一页 strip under a paged market column. Buttons no-op at
@@ -1974,25 +2176,29 @@ public class VoyageScreen extends ScreenAdapter {
         return b;
     }
 
-    /** Active-quest pill under the rail: the ONE current active quest (first
-     * incomplete/unclaimed) with its progress. The pill hides while any popup
-     * is open so it never collides with overlays. */
+    /** Active-quest card under the rail (0.26.5): the ONE current active quest
+     * (first incomplete/unclaimed) shown as 标题（进度）. The card hides while any
+     * popup is open so it never collides with overlays. */
     private void updateQuestButtonLabel() {
-        if (g == null || btnQuestState == null) return;
+        if (g == null || questCard == null || questCardLabel == null) return;
         int activeIdx = getActiveQuestIndex();
         if (activeIdx >= 0 && activeIdx < QUESTS.length) {
             QuestDef q = QUESTS[activeIdx];
             int prog = getQuestProgress(g, q.progressType);
             int target = q.targetAmount > 0 ? q.targetAmount : 1;
+            String body;
             if (isQuestComplete(g, q)) {
-                btnQuestState.setText(q.title + " 可领奖");
+                body = q.title + "（可领奖）";
             } else if (q.targetAmount <= 0) {
-                btnQuestState.setText(q.title + " 欠" + prog + "两");
+                body = q.title + "（欠 " + prog + " 两）";
             } else {
-                btnQuestState.setText(q.title + " " + prog + "/" + target);
+                body = q.title + "（" + prog + "/" + target + "）";
             }
+            questCardLabel.setText(body);
         }
-        btnQuestState.setVisible(activeIdx >= 0 && overlay == Overlay.NONE);
+        boolean show = activeIdx >= 0 && overlay == Overlay.NONE;
+        questCard.setVisible(show);
+        questCardLabel.setVisible(show);
     }
 
     /** 任务追踪：看过一次「情报」或某货的「行情」即完成 tutorial quest 6. */
@@ -2082,7 +2288,7 @@ public class VoyageScreen extends ScreenAdapter {
         boolean dockSub = overlay == Overlay.PRICE || overlay == Overlay.MARKET
                 || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
                 || overlay == Overlay.INTEL || overlay == Overlay.QUESTS
-                || overlay == Overlay.FISH || overlay == Overlay.SHOP;
+                || overlay == Overlay.FISH || overlay == Overlay.SHOP || overlay == Overlay.MINE;
         if (overlay != Overlay.MAP && !dockSub && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             rebuildMenu();
@@ -2344,200 +2550,207 @@ public class VoyageScreen extends ScreenAdapter {
         game.batch.end();
     }
 
-    /** Round minimap (top-right): a viewport window follows the ship. The window
-     * is clamped to chart bounds so it never slides off the world; when the ship
-     * approaches an edge the window stops and the ship marker moves toward the edge
-     * INSIDE the frame. Out-of-chart areas (if any remain visible) are rendered as
-     * distinct outside-the-chart fill, not empty sea.
-     *
-     * Viewport size: 700x525 world units (1.333:1 aspect matches the HUD). When
-     * the ship is well inside the chart the viewport centers on it; near edges the
-     * viewport is shifted so the visible area stays within [0..WORLD_W] x [0..WORLD_H].
-     * The ship marker is always drawn at its correct relative position inside the
-     * frame (centered when away from edges, toward the edge when near one). */
+    /** Round minimap (0.26.5): a whole-chart miniature — no rectangular camera
+     * frustum/window anymore. The ENTIRE world (sea + land + ports + islands)
+     * is drawn at a fixed scale inside the circle, so the player always sees
+     * where they are relative to every port. The ship is a small marker with a
+     * heading tick and a soft glow; the circle rim is a soft gradient edge, and
+     * a single thin outer ring finishes it off. The chart itself is static, so
+     * it is drawn once into a cached texture (miniChartTex) at full res and the
+     * ship marker is drawn live on top every frame. */
     private void drawRoundMinimap() {
-        // Outer ring + background circle (dark, outside-the-chart look).
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.02f, 0.05f, 0.09f, 0.92f);
-        shapes.circle(MM_CX, MM_CY, MM_R + 5f);
-        shapes.setColor(0.06f, 0.19f, 0.27f, 0.97f);
-        shapes.circle(MM_CX, MM_CY, MM_R);
-        shapes.end();
-
-        // Viewport geometry: a rect inside the circle that shows a window of the
-        // world. The circle clip is handled by only drawing within rr of center.
-        float rr = MM_R - 6f;
-        float vpWorldW = 700f;   // world units visible horizontally
-        float vpWorldH = vpWorldW * (Catalog.WORLD_H / Catalog.WORLD_W); // match world aspect
-        // Scale: pixels per world unit, chosen so the viewport fills the circle.
-        float scale = (2f * rr) / Math.max(vpWorldW, vpWorldH);
-        float vpW = vpWorldW * scale;
-        float vpH = vpWorldH * scale;
-
-        // Viewport center in world coords: ship position, clamped so the viewport
-        // stays within chart bounds.
-        float shipCX = g.x;
-        float shipCY = g.y;
-        float halfW = vpWorldW / 2f;
-        float halfH = vpWorldH / 2f;
-        float vpWorldCX = MathUtils.clamp(shipCX, halfW, Catalog.WORLD_W - halfW);
-        float vpWorldCY = MathUtils.clamp(shipCY, halfH, Catalog.WORLD_H - halfH);
-
-        // Viewport top-left in screen coords (centered on MM_CX, MM_CY).
-        float vpScreenX = MM_CX - vpW / 2f;
-        float vpScreenY = MM_CY - vpH / 2f;
-
-        // Outside-the-chart fill: any part of the viewport rect outside world bounds
-        // is drawn as a distinct hatch so the player sees "not sea" rather than
-        // empty water or missing markers.
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.02f, 0.02f, 0.04f, 0.95f); // very dark blue-grey
-        // We fill the whole viewport rect first.
-        shapes.setColor(0.03f, 0.10f, 0.18f, 1f);     // deep sea base
-        shapes.rect(vpScreenX, vpScreenY, vpW, vpH);
-
-        // Now draw the world-area sea only over the in-bounds portion. The out-of-
-        // bounds corners remain the dark outside-the-chart colour.
-        float inBndX = vpScreenX, inBndY = vpScreenY, inBndW = vpW, inBndH = vpH;
-        // Map world viewport bounds to screen.
-        float worldLeft = vpWorldCX - halfW;
-        float worldTop = vpWorldCY - halfH;
-        // Only draw sea where it's within world bounds.
-        float drawLeft = Math.max(0f, worldLeft);
-        float drawTop = Math.max(0f, worldTop);
-        float drawRight = Math.min(Catalog.WORLD_W, worldLeft + vpWorldW);
-        float drawBottom = Math.min(Catalog.WORLD_H, worldTop + vpWorldH);
-        if (drawRight > drawLeft && drawBottom > drawTop) {
-            float sx1 = vpScreenX + (drawLeft - worldLeft) * scale;
-            float sy1 = vpScreenY + (drawTop - worldTop) * scale;
-            float sw = (drawRight - drawLeft) * scale;
-            float sh = (drawBottom - drawTop) * scale;
-            shapes.setColor(0.05f, 0.16f, 0.25f, 1f);
-            shapes.rect(sx1, sy1, sw, sh);
-        }
-        shapes.end();
-
-        // Wave flecks on the in-bounds sea area (deterministic dots).
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.11f, 0.30f, 0.42f, 0.85f);
-        long seed = 0x9E3779B97F4A7C15L + (int) (vpWorldCX * 1000f) + (int) (vpWorldCY * 700f);
-        for (int k = 0; k < 60; k++) {
-            seed = seed * 6364136223846793005L + 1442695040888963407L;
-            double rx = ((seed >>> 33) & 0x7fffffffL) / (double) 0x7fffffffL;
-            seed = seed * 6364136223846793005L + 1442695040888963407L;
-            double ry = ((seed >>> 33) & 0x7fffffffL) / (double) 0x7fffffffL;
-            float wx = drawLeft + (float) rx * (drawRight - drawLeft);
-            float wy = drawTop + (float) ry * (drawBottom - drawTop);
-            float sx = vpScreenX + (wx - worldLeft) * scale;
-            float sy = vpScreenY + (wy - worldTop) * scale;
-            float sz = k % 3 == 0 ? 2.5f : 1.8f;
-            shapes.rect(sx, sy, sz, sz);
-        }
-        shapes.end();
-
-        // Ports and islands inside the viewport.
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            float wx = Catalog.PORT_X[i], wy = Catalog.PORT_Y[i];
-            if (wx < drawLeft || wx > drawRight || wy < drawTop || wy > drawBottom) continue;
-            float sx = vpScreenX + (wx - worldLeft) * scale;
-            float sy = vpScreenY + (wy - worldTop) * scale;
-            float ddx = sx - MM_CX, ddy = sy - MM_CY;
-            if (ddx * ddx + ddy * ddy > (rr - 2f) * (rr - 2f)) continue;
-            shapes.setColor(0f, 0f, 0f, 0.4f);
-            shapes.circle(sx + 1f, sy - 1f, 3.2f);
-            shapes.setColor(PORT_C);
-            shapes.circle(sx, sy, 3.2f);
-        }
-        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            float wx = Catalog.ISLAND_X[i], wy = Catalog.ISLAND_Y[i];
-            if (wx < drawLeft || wx > drawRight || wy < drawTop || wy > drawBottom) continue;
-            float sx = vpScreenX + (wx - worldLeft) * scale;
-            float sy = vpScreenY + (wy - worldTop) * scale;
-            float ddx = sx - MM_CX, ddy = sy - MM_CY;
-            if (ddx * ddx + ddy * ddy > (rr - 2f) * (rr - 2f)) continue;
-            shapes.setColor(0f, 0f, 0f, 0.4f);
-            shapes.circle(sx + 1f, sy - 1f, 3.6f);
-            shapes.setColor(ISLE_C);
-            shapes.circle(sx, sy, 3.6f);
-        }
-
-        // Player ship marker: always drawn at its correct relative position inside
-        // the frame. The ship is always within world bounds (clamped in move()),
-        // so it's always in the visible area; its screen position is computed from
-        // the viewport transform.
-        float shipSX = vpScreenX + (g.x - worldLeft) * scale;
-        float shipSY = vpScreenY + (g.y - worldTop) * scale;
-        float ddx = shipSX - MM_CX, ddy = shipSY - MM_CY;
-        // Ship is always visible (within world, within viewport), but clip to circle
-        // as a safety net for rounding.
-        if (ddx * ddx + ddy * ddy < (rr - 4f) * (rr - 4f)) {
-            float rad = g.headingDeg * MathUtils.degreesToRadians;
-            shapes.setColor(1f, 1f, 1f, 0.95f);
-            shapes.circle(shipSX, shipSY, 4.6f);
-            shapes.setColor(HULL);
-            shapes.circle(shipSX, shipSY, 3f);
-            shapes.setColor(1f, 0.95f, 0.55f, 1f);
-            float tx = shipSX + MathUtils.cos(rad) * 7f;
-            float ty = shipSY + MathUtils.sin(rad) * 7f;
-            shapes.rectLine(shipSX, shipSY, tx, ty, 1.8f);
-        }
-        shapes.end();
-
-        // Border around the viewport (so the player sees the frame edge).
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.50f, 0.55f, 0.60f, 0.9f);
-        shapes.rect(vpScreenX, vpScreenY, vpW, vpH);
-        shapes.end();
-
-        // Outer circle border.
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.80f, 0.87f, 0.95f, 0.9f);
-        shapes.circle(MM_CX, MM_CY, MM_R + 5f);
-        shapes.end();
-
+        finishMiniChartTexture(); // promote the just-baked pixmap to a texture
+        ensureMiniChartTexture();
+        // Soft outer glow ring, then the chart texture clipped by an alpha-fade
+        // donut so no rectangle/frustum edge shows inside the circle.
+        game.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA); // (default)
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         game.batch.begin();
-        layout.setText(game.fontSmall, "小地图(点开全图)");
-        game.fontSmall.draw(game.batch, "小地图(点开全图)", MM_CX - layout.width / 2f, MM_CY + MM_R + 20f);
+        if (miniChartTex != null) {
+            game.batch.draw(miniChartTex, MM_CX - miniHalf, MM_CY - miniHalf,
+                    miniHalf * 2f, miniHalf * 2f);
+        }
         game.batch.end();
+
+        // Ship marker + soft rim fade are drawn with the shape renderer.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        // Mini-chart world->screen mapping (matches the texture generation).
+        float scale = miniHalf * 2f / Catalog.WORLD_W;
+        float offX = MM_CX - miniHalf;
+        float offY = MM_CY - miniHalf;
+        float shipSX = offX + g.x * scale;
+        float shipSY = offY + g.y * scale;
+        // Soft white glow under the marker so it pops against sea and land alike.
+        shapes.setColor(1f, 1f, 1f, 0.10f);
+        shapes.circle(shipSX, shipSY, 8.5f);
+        shapes.setColor(1f, 1f, 1f, 0.22f);
+        shapes.circle(shipSX, shipSY, 6f);
+        shapes.setColor(1f, 1f, 1f, 1f);
+        shapes.circle(shipSX, shipSY, 3.6f);
+        float rad = g.headingDeg * MathUtils.degreesToRadians;
+        shapes.rectLine(shipSX, shipSY, shipSX + MathUtils.cos(rad) * 9f,
+                shipSY + MathUtils.sin(rad) * 9f, 2f);
+        // Soft rim: concentric translucent rings that fade the chart's hard edge
+        // into the dark ring — the "soft edge" instead of a rect frustum.
+        for (int k = 0; k < 10; k++) {
+            float t = k / 10f;
+            float rr = MM_R - 2f - 2f * t;
+            float alpha = 0.15f * (1f - t);
+            shapes.setColor(0.03f, 0.09f, 0.14f, alpha);
+            shapes.circle(MM_CX, MM_CY, rr);
+        }
+        shapes.end();
+        // Outer ring (thin, bright) + tiny inner glint ring.
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0.86f, 0.90f, 0.97f, 0.95f);
+        shapes.circle(MM_CX, MM_CY, MM_R + 4.5f);
+        shapes.setColor(1f, 1f, 1f, 0.5f);
+        shapes.circle(shipSX, shipSY, 5f);
+        shapes.end();
+
+        // Caption above the circle (kept short; centered over the minimap only).
+        game.batch.begin();
+        layout.setText(game.fontSmall, "小地图");
+        game.fontSmall.draw(game.batch, "小地图", MM_CX - layout.width / 2f, MM_CY + MM_R + 22f);
+        game.batch.end();
+    }
+
+    /** Lazily bakes the static whole-chart minimap (sea, land blocks, islands,
+     * port dots) into a square texture once, so per-frame minimap drawing is a
+     * single textured quad + the live ship marker. */
+    private void ensureMiniChartTexture() {
+        if (miniChartTex != null || miniChartPm != null) return;
+        int half = miniHalf;
+        // Base: deep sea across the whole square (circle clip comes at draw time
+        // via the fade donut, so corners just look like dark open water).
+        Pixmap pm = new Pixmap(half * 2, half * 2, Pixmap.Format.RGBA8888);
+        pm.setColor(0.05f, 0.155f, 0.235f, 1f);
+        pm.fill();
+        float scale = (float) (half * 2) / Catalog.WORLD_W;
+        float off = (half * 2 - Catalog.WORLD_H * scale) / 2f; // y offset (4:3 world)
+        // Land masses (must mirror the full-map chart land shapes).
+        pm.setColor(0.52f, 0.44f, 0.29f, 1f);
+        fillChartLandPix(pm, scale, off);
+        // Island blobs.
+        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+            int px = Math.round(Catalog.ISLAND_X[i] * scale);
+            int py = Math.round(off + Catalog.ISLAND_Y[i] * scale);
+            fillPixCircle(pm, px, py, 1.6f, 0.26f, 0.56f, 0.31f, 1f);
+        }
+        // Port dots: tiny gold squares with a dark outline, every port visible.
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            int px = Math.round(Catalog.PORT_X[i] * scale);
+            int py = Math.round(off + Catalog.PORT_Y[i] * scale);
+            fillPixCircle(pm, px, py, 2.6f, 0f, 0f, 0f, 0.55f);
+            fillPixCircle(pm, px, py, 1.7f, 0.93f, 0.80f, 0.28f, 1f);
+        }
+        miniChartPm = pm; // promoted to a GL texture on the next frame
+    }
+
+    /** Flood-fill helpers used only for baking the static mini-chart texture. */
+    private void fillPixCircle(Pixmap pm, int cx, int cy, float r, float r2, float g2, float b, float a) {
+        int r0 = Math.max(0, (int) (cx - r - 1)), r1 = Math.min(pm.getWidth() - 1, (int) (cx + r + 1));
+        int s0 = Math.max(0, (int) (cy - r - 1)), s1 = Math.min(pm.getHeight() - 1, (int) (cy + r + 1));
+        for (int yy = s0; yy <= s1; yy++) {
+            for (int xx = r0; xx <= r1; xx++) {
+                float dx = xx - cx, dy = yy - cy;
+                if (dx * dx + dy * dy <= r * r) {
+                    pm.setColor(r2, g2, b, a);
+                    pm.drawPixel(xx, yy);
+                }
+            }
+        }
+    }
+
+    /** Draws the same land masses the full map uses, into the Pixmap (y-up flips
+     * to y-down pixel rows here). Land rects are small, so blitting them onto the
+     * texture is exact and cheap. */
+    private void fillChartLandPix(Pixmap pm, float scale, float off) {
+        float[][] rects = new float[][] {
+                {0f, 2350f, 4800f, 3600f}, // mainland China band (top edge)
+                {0f, 700f, 1500f, 2350f},  // Indochina west block
+                {1150f, 900f, 1500f, 1300f}, // 占城 coast finger
+                {0f, 500f, 1150f, 800f},   // Mekong south bulge
+                {2150f, 1300f, 2550f, 2050f}, // Hainan
+                {3050f, 3300f, 3400f, 3600f}  // 扬州 (north river mouth)
+        };
+        for (float[] rc : rects) {
+            int x0 = Math.round(rc[0] * scale);
+            int x1 = Math.round(rc[2] * scale);
+            int yTop = Math.round(off + rc[3] * scale); // world y up -> pix y down
+            int yBot = Math.round(off + rc[1] * scale);
+            if (x1 < 0 || x0 >= pm.getWidth() || yBot < 0 || yTop >= pm.getHeight()) continue;
+            x0 = Math.max(0, x0);
+            x1 = Math.min(pm.getWidth() - 1, x1);
+            yTop = Math.max(0, yTop);
+            yBot = Math.min(pm.getHeight() - 1, yBot);
+            for (int yy = yTop; yy <= yBot; yy++) {
+                for (int xx = x0; xx <= x1; xx++) {
+                    pm.drawPixel(xx, yy);
+                }
+            }
+        }
+        // Coastal ruffles keep the pixel look (deterministic, mirrors the full
+        // map's circle blobs scaled to this texture).
+        float[][] blobs = new float[][] {
+                {1800f, 2250f, 46f}, {2550f, 2440f, 38f}, {4300f, 2520f, 38f},
+                {900f, 650f, 44f}, {2350f, 1700f, 62f}, {2350f, 1420f, 56f},
+                {3100f, 3400f, 22f}
+        };
+        for (float[] bl : blobs) {
+            fillPixCircle(pm, Math.round(bl[0] * scale), Math.round(off + bl[1] * scale),
+                    bl[2] * scale * 0.5f, 0.52f, 0.44f, 0.29f, 1f);
+        }
+    }
+
+    /** Promote the just-baked minimap pixmap to a GL texture exactly once. */
+    private void finishMiniChartTexture() {
+        if (miniChartPm == null) return;
+        miniChartTex = new Texture(miniChartPm);
+        miniChartTex.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
+        // (non-POT sizes are fine on GLES2+; Nearest keeps the pixel chart crisp)
+        miniChartPm.dispose();
+        miniChartPm = null;
     }
 
 
 
-    /** Fullscreen modal full map: a dim veil covers the whole HUD (the stage is
-     * hidden while overlay == Overlay.MAP, so no other control is visible or
-     * clickable). 关闭 sits top-right inside the map; blank taps keep it open.
-     * 0.25.3: rendered as a top-down pixel sea chart — deep sea + wave flecks,
-     * simplified mainland/Indochina/Hainan/Xisha land blocks aligned to Catalog
-     * world coords (广州/潮州 NE, 佛逝/真腊/占城 SW, 琼州/崖州 on Hainan), golden
-     * town icons with names, green island blobs, bright yellow player marker. */
+    /** Fullscreen modal full map (0.26.5): a dim veil covers the whole HUD (the
+     * stage is hidden while overlay == Overlay.MAP, so no other control is
+     * visible or clickable). The chart artwork (assets/textures/chart.png,
+     * generated by tools/gen_chart.py) is drawn as a true 4:3 world projection
+     * across the whole map; 港口/岛屿 markers, labels, the player marker + radar
+     * pulse and the 关闭 button are drawn on top at matching world coords. */
     private void drawFullMap() {
-        float ix = FM_X + 10f, iy = FM_Y + 10f, iw = FM_W - 20f, ih = FM_H - 20f;
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        ensureChartTexture();
+        float[] box = fullMapChartBox();
+        float ix = box[0], iy = box[1], iw = box[2], ih = box[3];
         // fullscreen dim veil over the entire screen
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.02f, 0.04f, 0.07f, 0.96f);
         shapes.rect(0f, 0f, HUD_W, HUD_H);
-        // map frame + deep sea base
+        // map frame (dark) + soft inner mat
         shapes.setColor(0.02f, 0.08f, 0.13f, 1f);
         shapes.rect(FM_X, FM_Y, FM_W, FM_H);
-        shapes.setColor(0.05f, 0.15f, 0.24f, 1f);
-        shapes.rect(ix, iy, iw, ih);
-        // wave flecks: deterministic pseudo-random lighter dots across the sea
-        shapes.setColor(0.11f, 0.29f, 0.40f, 0.85f);
-        long s = 0x9E3779B97F4A7C15L;
-        for (int k = 0; k < 130; k++) {
-            s = s * 6364136223846793005L + 1442695040888963407L;
-            double rx = ((s >>> 33) & 0x7fffffffL) / (double) 0x7fffffffL;
-            s = s * 6364136223846793005L + 1442695040888963407L;
-            double ry = ((s >>> 33) & 0x7fffffffL) / (double) 0x7fffffffL;
-            float wx = (float) (ix + rx * iw);
-            float wy = (float) (iy + ry * ih);
-            float sz = k % 3 == 0 ? 4.2f : 2.8f;
-            shapes.rect(wx, wy, sz, sz);
+        shapes.setColor(0.03f, 0.07f, 0.10f, 1f);
+        shapes.rect(FM_X + 4f, FM_Y + 4f, FM_W - 8f, FM_H - 8f);
+        shapes.end();
+        // Chart artwork: textured base exactly matching the world projection.
+        game.batch.begin();
+        if (chartTex != null) {
+            game.batch.draw(chartTex, ix, iy, iw, ih);
+        } else {
+            // texture missing: fall back to the old vector sea+land base
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.05f, 0.15f, 0.24f, 1f);
+            shapes.rect(ix, iy, iw, ih);
+            shapes.end();
+            drawChartLand(ix, iy, iw, ih);
         }
-        // simplified land blocks (world coords -> chart, so ports stay put)
-        drawChartLand(ix, iy, iw, ih);
+        game.batch.end();
         // island blobs + golden town icons (drawn over land/sea, under labels)
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
             float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ix, iy, iw, ih);
             shapes.setColor(0f, 0f, 0f, 0.4f);
@@ -2617,6 +2830,29 @@ public class VoyageScreen extends ScreenAdapter {
         game.batch.end();
     }
 
+    /** 0.26.5 letterboxed chart area inside the full-map frame: the world is
+     * 4:3 and the frame is wider, so the chart fills the full height and the
+     * leftover side margins stay mat-dark (no distortion of the artwork). */
+    private float[] fullMapChartBox() {
+        float iy = FM_Y + 10f, ih = FM_H - 20f;
+        float worldRatio = Catalog.WORLD_W / Catalog.WORLD_H; // 4:3
+        float iw = ih * worldRatio;
+        float ix = FM_X + (FM_W - iw) / 2f;
+        return new float[] {ix, iy, iw, ih};
+    }
+
+    /** Loads the generated pixel chart (assets/textures/chart.png) once. */
+    private void ensureChartTexture() {
+        if (chartTex != null) return;
+        try {
+            chartTex = new Texture(Gdx.files.internal("textures/chart.png"));
+            chartTex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+        } catch (Throwable ex) {
+            Gdx.app.error("VoyageScreen", "chart.png failed to load, using vector chart", ex);
+            chartTex = null;
+        }
+    }
+
     /** Simplified land blocks: mainland China band + Indochina coast + Leizhou
      * peninsula + Hainan island + Xisha reef dots, projected from Catalog world
      * coords so ports/islands keep their relative positions (广州/潮州 NE on the
@@ -2692,7 +2928,7 @@ public class VoyageScreen extends ScreenAdapter {
             float dx = hx - stickCX, dy = hy - stickCY;
             boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL
                     || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
-                    || overlay == Overlay.INTEL || overlay == Overlay.QUESTS;
+                    || overlay == Overlay.INTEL || overlay == Overlay.QUESTS || overlay == Overlay.MINE;
             if (!modal && overlay != Overlay.MAP
                     && dx * dx + dy * dy <= (stickR + 26f) * (stickR + 26f)) {
                 undockIfNeeded();
@@ -2778,7 +3014,10 @@ public class VoyageScreen extends ScreenAdapter {
             rebuildMenu();
             return true;
         }
-        float ix = FM_X + 10f, iy = FM_Y + 10f, iw = FM_W - 20f, ih = FM_H - 20f;
+        // Letterboxed chart box: port/island markers are drawn there, so the
+        // hit radius must follow the same projection (0.26.5 full-map artwork).
+        float[] cb = fullMapChartBox();
+        float ix = cb[0], iy = cb[1], iw = cb[2], ih = cb[3];
         // Tap a port -> auto-sail to it (radius covers the icon + name label).
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], ix, iy, iw, ih);
