@@ -201,7 +201,7 @@ public final class UiFactory {
         }
         Texture trg = new Texture(rg);
         rg.dispose();
-        skin.add("ringGold", new TextureRegionDrawable(new TextureRegion(trg)));
+        skin.add("ringGold", new TextureRegionDrawable(new TextureRegion(trg)), Drawable.class);
 
         // 4. Rounded gold-bordered button styles: cinnabar (登录/减速), navy (注册),
         //    jade (加速). Pill base tinted with the fill, gold border preserved.
@@ -258,12 +258,12 @@ public final class UiFactory {
         }
         Texture tdp = new Texture(dp);
         dp.dispose();
-        skin.add("dotGold", new TextureRegionDrawable(new TextureRegion(tdp)));
+        skin.add("dotGold", new TextureRegionDrawable(new TextureRegion(tdp)), Drawable.class);
 
         // 7. Tang check (login agreement): gold ring unchecked, gold ring + jade
         //    fill checked. Rings are drawn as fat annuli scoped to 24px.
         TextureRegionDrawable checkOff = ringDrawable(24, 24, 7.2f, 8.8f, GOLDB);
-        skin.add("checkOff", checkOff);
+        skin.add("checkOff", checkOff, Drawable.class);
         Pixmap ckp = new Pixmap(24, 24, Pixmap.Format.RGBA8888);
         ckp.setColor(Color.CLEAR);
         ckp.fill();
@@ -284,7 +284,7 @@ public final class UiFactory {
         }
         Texture tck = new Texture(ckp);
         ckp.dispose();
-        skin.add("checkOn", new TextureRegionDrawable(new TextureRegion(tck)));
+        skin.add("checkOn", new TextureRegionDrawable(new TextureRegion(tck)), Drawable.class);
 
         CheckBox.CheckBoxStyle tangCheck = new CheckBox.CheckBoxStyle();
         tangCheck.checkboxOff = skin.getDrawable("checkOff");
