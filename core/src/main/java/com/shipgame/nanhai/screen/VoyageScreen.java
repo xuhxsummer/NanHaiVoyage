@@ -7,12 +7,9 @@ import com.badlogic.gdx.InputMultiplexer;
 import com.badlogic.gdx.ScreenAdapter;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
-import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
-import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector3;
@@ -35,7 +32,6 @@ import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 import com.shipgame.nanhai.NanHaiVoyage;
-import com.shipgame.nanhai.PixelMapRenderer;
 import com.shipgame.nanhai.data.Catalog;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.data.SaveData;
@@ -50,7 +46,7 @@ import com.shipgame.nanhai.ui.CodexPanel;
 import com.badlogic.gdx.scenes.scene2d.Group;
 import com.shipgame.nanhai.ui.WorldMapOverlay;
 import com.shipgame.nanhai.ui.VoyageHud;
-import com.shipgame.nanhai.ui.VoyageSceneArt;
+import com.shipgame.nanhai.render.VoyageWorldRenderer;
 
 public class VoyageScreen extends ScreenAdapter {
 
@@ -90,11 +86,6 @@ public class VoyageScreen extends ScreenAdapter {
     // dimmed rect with the map area centered; its 关闭 button sits top-right.
 
     private static final Color WATER = new Color(0.10f, 0.36f, 0.52f, 1f); // 0.26.2: 常年晴
-    private static final Color GRID = new Color(0.14f, 0.42f, 0.58f, 1f);
-    private static final Color HULL = new Color(0.70f, 0.38f, 0.18f, 1f);
-    private static final Color SAIL = new Color(0.93f, 0.90f, 0.80f, 1f);
-    private static final Color PORT_C = new Color(0.92f, 0.78f, 0.28f, 1f);
-    private static final Color ISLE_C = new Color(0.28f, 0.62f, 0.34f, 1f);
     private static final Color PIRATE_C = new Color(0.72f, 0.16f, 0.14f, 1f);
     private static final Color PANEL = new Color(0f, 0f, 0f, 0.55f);
 
@@ -127,12 +118,10 @@ public class VoyageScreen extends ScreenAdapter {
     private final NanHaiVoyage game;
     private GameState g;
 
-    private OrthographicCamera worldCam;
-    private Viewport worldVp;
+    private VoyageWorldRenderer world3d;
     private Viewport hudVp;
     private Stage stage;
     private ShapeRenderer shapes;
-    private PixelMapRenderer pixelMap;
     private final Vector3 tmp = new Vector3();
     private final GlyphLayout layout = new GlyphLayout();
 
@@ -170,8 +159,6 @@ public class VoyageScreen extends ScreenAdapter {
     private int shopCat = 0;             // 船只 / 战船 / 货船 / 特种船
     private boolean logoutSwitching;     // 0.26.6 退出登录防重入
     private VoyageHud voyageHud;
-    private VoyageSceneArt voyageArt;
-    private float seaTime;
     private final int[] trackedQuests = {-1, -1};
     private Label hudClock;              // 0.26.4 左下 第N日 HH:MM 白天/夜晚
     private Label sunTip;                // 今日：晴 label under the minimap
@@ -229,17 +216,15 @@ public class VoyageScreen extends ScreenAdapter {
             Gdx.app.error("VoyageScreen", "show failed", t);
             disposeQuietly();
             g = (g != null) ? g : GameState.newGame();
-            worldCam = new OrthographicCamera();
-            worldVp = new ExtendViewport(960, 540, worldCam); // 0.27.4: no side bars
             hudVp = new ExtendViewport(HUD_W, HUD_H);
             stage = new Stage(hudVp, game.batch);
             shapes = new ShapeRenderer();
-            pixelMap = null; // vector fallbacks still render the ship + map
+            world3d = null; // HUD remains usable if the GPU cannot initialize the world.
             buildHud();
             Gdx.input.setInputProcessor(new InputMultiplexer(new WorldInput(), stage));
             overlay = Overlay.NONE;
             rebuildMenu();
-            g.toast("画面组件加载失败，已启用简化渲染。");
+            g.toast("画面组件加载失败，请退出后重试。");
         }
         if (game.state != null) {
             g = game.state;
@@ -249,15 +234,13 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void buildAll() {
         g = game.state;
-        worldCam = new OrthographicCamera();
-        worldVp = new ExtendViewport(960, 540, worldCam); // 0.27.4: fills the screen
-        Gdx.app.error("VoyageEnter", "world camera+viewport created");
+        world3d = new VoyageWorldRenderer();
+        Gdx.app.error("VoyageEnter", "perspective chase renderer created");
         hudVp = new ExtendViewport(HUD_W, HUD_H);
         stage = new Stage(hudVp, game.batch);
         Gdx.app.error("VoyageEnter", "hud viewport+stage created");
         shapes = new ShapeRenderer();
-        pixelMap = new PixelMapRenderer();
-        Gdx.app.error("VoyageEnter", "shape renderer + pixel map textures created");
+        Gdx.app.error("VoyageEnter", "3D world + HUD shape renderer created");
 
         buildHud();
         // World hit-testing goes first. It consumes only joystick/minimap/enemy
@@ -310,7 +293,7 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void disposeQuietly() {
         if (voyageHud != null) { voyageHud.dispose(); voyageHud = null; }
-        if (voyageArt != null) { voyageArt.dispose(); voyageArt = null; }
+        if (world3d != null) { world3d.dispose(); world3d = null; }
         if (questUi != null) { questUi.dispose(); questUi = null; }
         if (intelUi != null) { intelUi.dispose(); intelUi = null; }
         if (shopPanel != null) { shopPanel.dispose(); shopPanel = null; }
@@ -327,13 +310,9 @@ public class VoyageScreen extends ScreenAdapter {
         try {
             if (shapes != null) { shapes.dispose(); }
         } catch (Throwable ignored) {}
-        try {
-            if (pixelMap != null) { pixelMap.dispose(); }
-        } catch (Throwable ignored) {}
         disposeMiniChart();
         stage = null;
         shapes = null;
-        pixelMap = null;
     }
 
     // Active-quest card: a bordered frame showing 标题 + 进度（如 访问一个岛屿（0/1））.
@@ -349,7 +328,6 @@ public class VoyageScreen extends ScreenAdapter {
     private void buildHud() {
         stage.clear();
         if (voyageHud != null) voyageHud.dispose();
-        if (voyageArt == null) voyageArt = new VoyageSceneArt();
         Runnable world = () -> {
             if (overlay == Overlay.NONE) { overlay = Overlay.MAP; rebuildMenu(); }
         };
@@ -2187,23 +2165,15 @@ public class VoyageScreen extends ScreenAdapter {
         int activeQuest = getActiveQuestIndex();
         voyageHud.update(g, overlay == Overlay.NONE,
                 activeQuest >= 0 && isQuestComplete(g, QUESTS[activeQuest]), stickKX, stickKY);
-        seaTime += delta;
 
-        ScreenUtils.clear(WATER); // 0.26.2: 无雨雾，永远晴天
-        // (dead RAIN/FOG water tints removed; weather is permanently CLEAR)
-        Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
-        Gdx.gl.glBlendFunc(com.badlogic.gdx.graphics.GL20.GL_SRC_ALPHA, com.badlogic.gdx.graphics.GL20.GL_ONE_MINUS_SRC_ALPHA);
-
-        worldCam.position.set(g.x, g.y + 56f, 0);
-        worldCam.update();
-        worldVp.apply();
-        shapes.setProjectionMatrix(worldCam.combined);
-        game.batch.setProjectionMatrix(worldCam.combined);
-        drawWorld();
+        if (world3d != null) world3d.render(g, delta);
+        else ScreenUtils.clear(WATER);
 
         hudVp.apply();
         shapes.setProjectionMatrix(hudVp.getCamera().combined);
         game.batch.setProjectionMatrix(hudVp.getCamera().combined);
+
+        if (world3d != null && overlay != Overlay.MAP) drawWorldLabels();
 
         // Full-map modal: covers the ENTIRE screen. The HUD stage is hidden (not
         // drawn and not hit-testable) so every button below — cargo/codex/port
@@ -2265,120 +2235,45 @@ public class VoyageScreen extends ScreenAdapter {
         }
     }
 
-    private void drawWorld() {
-        if (pixelMap != null) {
-            game.batch.begin();
-            voyageArt.sea(game.batch, g, seaTime);
-            game.batch.end();
-            // Islands / ports / pirate only — the player ship is layered last.
-            game.batch.begin();
-            pixelMap.drawMarkers(game.batch, g, false);
-            voyageArt.ports(game.batch, g);
-            game.batch.end();
-        }
-        // The camera centers on the ship (see render) and the ship is always drawn
-        // ABOVE the island/port tiles: vector hull outline first (never hidden),
-        // then the sprite on top when the texture really loaded. If the texture
-        // failed, the outline is enlarged 1.5x and stands alone. Without the
-        // begin()/end() pass below every frame throws "begin must be called first"
-        // and the app dies on the first voyage frame (the 0.24.x login crash).
-        boolean shipSpriteOk = pixelMap != null && pixelMap.shipSpriteOk;
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        if (voyageArt == null) drawShipSilhouette(g.x, g.y, g.headingDeg, shipSpriteOk ? 0.94f : 1.5f);
-        shapes.end();
-        if (voyageArt != null || shipSpriteOk) {
-            game.batch.begin();
-            if (voyageArt != null) voyageArt.ship(game.batch, g);
-            else pixelMap.drawShip(game.batch, g);
-            game.batch.end();
-        }
-
-        // 0.26.2: discrete flying cannonballs (no continuous laser line).
-        // Player's shots are WHITE, pirate's are BLACK, 1 point of damage on hit.
-        if (g.ballCount > 0) {
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            for (int i = 0; i < g.ballCount; i++) {
-                if (g.ballFromPlayer[i]) {
-                    shapes.setColor(0f, 0f, 0f, 0.6f);
-                    shapes.circle(g.ballX[i], g.ballY[i], 4.4f);
-                    shapes.setColor(1f, 1f, 1f, 1f);
-                    shapes.circle(g.ballX[i], g.ballY[i], 3.4f);
-                } else {
-                    shapes.setColor(0.75f, 0.82f, 0.9f, 0.4f);
-                    shapes.circle(g.ballX[i], g.ballY[i], 4.2f);
-                    shapes.setColor(0.03f, 0.03f, 0.03f, 1f);
-                    shapes.circle(g.ballX[i], g.ballY[i], 3.0f);
-                }
-            }
-            shapes.end();
-        }
-
-        if (g.pirateAlive) {
-            // Always-visible encounter feedback in world space: selection ring,
-            // enemy HP bar and gun-range ring. This makes combat legible even if
-            // the texture is tiny on a phone.
-            float hp = g.pirateHpMax <= 0f ? 0f : MathUtils.clamp(g.pirateHp / g.pirateHpMax, 0f, 1f);
-            // 0.27.5: own-ship durability bar mirrors the pirate bar (dark tray
-            // + red fill) under the player hull, live-bound to hull/hullMax.
-            // Same visibility gate as the pirate bar: only while the pirate is
-            // alive, gone the moment combat ends.
-            float selfHp = g.hullMax <= 0f ? 0f : MathUtils.clamp(g.hull / g.hullMax, 0f, 1f);
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(0.08f, 0.03f, 0.03f, 0.95f);
-            shapes.rect(g.pirateX - 34f, g.pirateY + 30f, 68f, 8f);
-            shapes.setColor(PIRATE_C);
-            shapes.rect(g.pirateX - 32f, g.pirateY + 32f, 64f * hp, 4f);
-            shapes.setColor(0.08f, 0.03f, 0.03f, 0.95f);
-            shapes.rect(g.x - 34f, g.y - 46f, 68f, 8f);
-            shapes.setColor(PIRATE_C);
-            shapes.rect(g.x - 32f, g.y - 44f, 64f * selfHp, 4f);
-            shapes.end();
-            shapes.begin(ShapeRenderer.ShapeType.Line);
-            shapes.setColor(g.combatLock ? Color.YELLOW : PIRATE_C);
-            shapes.circle(g.pirateX, g.pirateY, g.combatLock ? 42f : 34f);
-            shapes.end();
-            game.batch.begin();
-            game.fontSmall.draw(game.batch,
-                    g.combatLock ? "海盗 已锁定" : "海盗 点船锁定",
-                    g.pirateX - 42f, g.pirateY + 56f);
-            // Tiny 「我」 tag under the own bar so the two red bars in combat
-            // can never be confused (pirate = above enemy, 我 = under player).
-            game.fontSmall.draw(game.batch, "我", g.x - 8f, g.y - 60f);
-            game.batch.end();
-        }
-
-        game.batch.begin();
-        BitmapFont f = game.fontSmall;
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            if (i == g.dockedPort || i == g.nearestPortInRange()) continue;
-            f.draw(game.batch, Catalog.PORTS[i], Catalog.PORT_X[i] + 18, Catalog.PORT_Y[i] + 10);
-        }
-        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            f.draw(game.batch, Catalog.ISLANDS[i], Catalog.ISLAND_X[i] + 20, Catalog.ISLAND_Y[i] + 8);
-        }
-        game.batch.end();
+    /** World labels are projected onto the HUD plane, below the existing Scene2D overlay. */
+    private boolean worldAnchor(float x, float y, float height) {
+        if (!world3d.project(x, y, height, tmp)) return false;
+        hudVp.unproject(tmp.set(tmp.x, Gdx.graphics.getHeight() - tmp.y, 0));
+        return true;
     }
 
-    /** Vector junk silhouette of the player ship. It is drawn above islands/water
-     * but under the ship sprite (or alone, enlarged, when the sprite texture is
-     * missing) so the ship can never disappear from the sea. scale 1.0 ≈ sprite
-     * footprint; bigger values are the texture-failure fallback. */
-    private void drawShipSilhouette(float x, float y, float headingDeg, float scale) {
-        float rad = headingDeg * MathUtils.degreesToRadians;
-        float ux = MathUtils.cos(rad), uy = MathUtils.sin(rad);
-        float px = -uy, py = ux;
-        float bowX = x + ux * 24f * scale, bowY = y + uy * 24f * scale;
-        float sternX = x - ux * 20f * scale, sternY = y - uy * 20f * scale;
-        shapes.setColor(0.76f, 0.62f, 0.28f, 1f); // sail tan body
-        shapes.rectLine(sternX, sternY, bowX, bowY, 13f * scale);
-        shapes.setColor(0.45f, 0.26f, 0.12f, 1f); // dark hull deck
-        shapes.rectLine(x - px * 5f * scale - ux * 22f * scale, y - py * 5f * scale - uy * 22f * scale,
-                x + px * 5f * scale + ux * 22f * scale, y + py * 5f * scale + uy * 22f * scale, 8f * scale);
-        shapes.setColor(0.97f, 0.94f, 0.84f, 1f); // bright sail canvas
-        shapes.rectLine(x + ux * 2f * scale - px * 5f * scale, y + uy * 2f * scale - py * 5f * scale,
-                x + ux * 2f * scale + px * 5f * scale, y + uy * 2f * scale + py * 5f * scale, 11f * scale);
-        shapes.setColor(1f, 0.92f, 0.45f, 1f); // mast cap
-        shapes.circle(bowX, bowY, 2.6f * scale);
+    private void drawWorldLabels() {
+        game.batch.begin();
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            if (Catalog.dist(g.x,g.y,Catalog.PORT_X[i],Catalog.PORT_Y[i]) < 1800
+                    && worldAnchor(Catalog.PORT_X[i], Catalog.PORT_Y[i], 42)) {
+                game.fontSmall.draw(game.batch, Catalog.PORTS[i], tmp.x - 22, tmp.y);
+            }
+        }
+        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+            if (Catalog.dist(g.x,g.y,Catalog.ISLAND_X[i],Catalog.ISLAND_Y[i]) < 1200
+                    && worldAnchor(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], 50)) {
+                game.fontSmall.draw(game.batch, Catalog.ISLANDS[i], tmp.x - 22, tmp.y);
+            }
+        }
+        if (g.pirateAlive && worldAnchor(g.pirateX,g.pirateY,74)) {
+            game.fontSmall.draw(game.batch, g.combatLock ? "海盗 已锁定" : "海盗 点船锁定",tmp.x-45,tmp.y+20);
+        }
+        game.batch.end();
+        if (g.pirateAlive) {
+            drawHealth(g.x,g.y,68,g.hull,g.hullMax,false);
+            drawHealth(g.pirateX,g.pirateY,74,g.pirateHp,g.pirateHpMax,g.combatLock);
+        }
+    }
+
+    private void drawHealth(float x,float y,float height,float hp,float max,boolean selected) {
+        if (!worldAnchor(x,y,height)) return;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(selected ? Color.GOLD : Color.DARK_GRAY);
+        shapes.rect(tmp.x-35,tmp.y-9,70,9);
+        shapes.setColor(PIRATE_C);
+        shapes.rect(tmp.x-33,tmp.y-7,66*MathUtils.clamp(hp/Math.max(1,max),0,1),5);
+        shapes.end();
     }
 
     private static boolean isFinite(float v) {
@@ -2427,11 +2322,8 @@ public class VoyageScreen extends ScreenAdapter {
             // when the ship is within the existing dock/search range. Proximity
             // alone never opens anything; closing never moves the ship.
             if (overlay == Overlay.NONE) {
-                worldVp.unproject(tmp.set(screenX, screenY, 0));
-                float wx = tmp.x, wy = tmp.y;
                 for (int i = 0; i < Catalog.PORTS.length; i++) {
-                    float ddx = wx - Catalog.PORT_X[i], ddy = wy - Catalog.PORT_Y[i];
-                    if (ddx * ddx + ddy * ddy <= Catalog.DOCK_RANGE * Catalog.DOCK_RANGE
+                    if (world3d != null && world3d.hit(screenX, screenY, Catalog.PORT_X[i], Catalog.PORT_Y[i], 15, 38)
                             && Catalog.dist(g.x, g.y, Catalog.PORT_X[i], Catalog.PORT_Y[i]) < Catalog.DOCK_RANGE) {
                         g.dock(i);
                         overlay = Overlay.PORT;
@@ -2441,8 +2333,7 @@ public class VoyageScreen extends ScreenAdapter {
                     }
                 }
                 for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-                    float ddx = wx - Catalog.ISLAND_X[i], ddy = wy - Catalog.ISLAND_Y[i];
-                    if (ddx * ddx + ddy * ddy <= Catalog.ISLAND_RANGE * Catalog.ISLAND_RANGE
+                    if (world3d != null && world3d.hit(screenX, screenY, Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], 20, 30)
                             && Catalog.dist(g.x, g.y, Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i]) < Catalog.ISLAND_RANGE) {
                         g.enterIsland(i);
                         overlay = Overlay.ISLAND;
@@ -2453,8 +2344,10 @@ public class VoyageScreen extends ScreenAdapter {
             }
             // Lock a pirate ship: tap near it while sailing.
             if (g.pirateAlive && overlay == Overlay.NONE) {
-                worldVp.unproject(tmp.set(screenX, screenY, 0));
-                return g.tryLockPirate(tmp.x, tmp.y);
+                if (world3d != null && world3d.hit(screenX, screenY, g.pirateX, g.pirateY, 27, 36)) {
+                    if (g.combatLock) g.cancelLock(); else g.lockPirate();
+                    return true;
+                }
             }
             return false;
         }
@@ -2524,14 +2417,15 @@ public class VoyageScreen extends ScreenAdapter {
 
     @Override
     public void resize(int width, int height) {
-        if (worldVp != null) {
-            worldVp.update(width, height);
-        }
+        if (world3d != null) world3d.resize(width, height);
         if (hudVp != null) {
             hudVp.update(width, height, true);
         }
         applyHudScale();
     }
+
+    @Override
+    public void dispose() { disposeQuietly(); }
 
     @Override
     public void pause() { persist(); }
@@ -2540,7 +2434,7 @@ public class VoyageScreen extends ScreenAdapter {
     public void hide() {
         persist();
         if (voyageHud != null) { voyageHud.dispose(); voyageHud = null; }
-        if (voyageArt != null) { voyageArt.dispose(); voyageArt = null; }
+        if (world3d != null) { world3d.dispose(); world3d = null; }
         if (questUi != null) { questUi.dispose(); questUi = null; }
         if (intelUi != null) { intelUi.dispose(); intelUi = null; }
         if (shopPanel != null) { shopPanel.dispose(); shopPanel = null; }
@@ -2562,10 +2456,6 @@ public class VoyageScreen extends ScreenAdapter {
         if (shapes != null) {
             shapes.dispose();
             shapes = null;
-        }
-        if (pixelMap != null) {
-            pixelMap.dispose();
-            pixelMap = null;
         }
     }
 }

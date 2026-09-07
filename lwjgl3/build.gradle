@@ -44,3 +44,11 @@ jar {
         attributes 'Main-Class': project.mainClassName
     }
 }
+
+// Unsaved voyage exercising the actual GL renderer and perspective input path.
+tasks.register('voyage3dSmoke', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.Voyage3dSmokeLauncher')
+    workingDir = rootProject.file('assets').path
+}

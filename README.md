@@ -1,6 +1,6 @@
 # 南海航程 · libGDX（Java）
 
-依据 `/home/box/shipgame/需求文档.md` **v0.23**：引擎 **libGDX / Java**，交付 Android APK。画面为俯视像素风，贴图在 `assets/textures/`。
+依据 `/home/box/shipgame/需求文档.md` **v0.23**：引擎 **libGDX / Java**，交付 Android APK。0.28.0 航行画面使用真正的 3D 船后跟拍镜头，Scene2D HUD 与二维海图保持原样。贴图在 `assets/textures/`。
 
 原 Unity 半成品在 `废弃-unity/`。需求文档与 `需求文档历史/` 未改。
 
@@ -44,7 +44,7 @@ cd /home/box/shipgame
 - 岛搜采；图鉴；草药只卖
 - 回港立刻花钱修船；升仓库=共用容量；升炮火只加伤害；先升编制再雇人，火力与补给按实际人数
 
-未点名的数字均为占位。画面为俯视像素风：海水平铺，船/海盗/港/岛用贴图图标。
+未点名的数字均为占位。航行采用程序化船体、海面及港岛占位网格；遇海盗镜头平滑拉远，战后恢复。详见 [3D 首版说明与验证](docs/voyage-3d-slice.md)。
 
 ## Android APK
 
