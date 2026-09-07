@@ -33,7 +33,7 @@ import struct
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC_DIRS = ["core/src/main/java", "android/src", "lwjgl3/src"]
+SRC_DIRS = ["shared/src/main/java", "core/src/main/java", "android/src", "lwjgl3/src"]
 DEFAULT_FONT = os.path.join(ROOT, "assets", "fonts", "nanhai-cjk.ttf")
 CHARS_TXT = os.path.join(ROOT, "assets", "fonts", "ui-chars.txt")
 

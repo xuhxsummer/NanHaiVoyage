@@ -16,3 +16,9 @@ assets/ui-refs/
 bug-missing-ship.jpg
 bug-*.jpg
 bug-refs/
+
+server/data/
+cloud-outbox/
+assets/cloud-outbox/
+assets/saves/
+server/.env

@@ -2,6 +2,9 @@ package com.shipgame.nanhai.data;
 
 public class SaveData {
     public float x, y, headingDeg;
+    public int dockedPort = -1;
+    public boolean failed;
+    public int questVisitPortSet;
     public float hull, hullMax = 100f;
     public float supply, supplyMax = 100f;
     public int silver;

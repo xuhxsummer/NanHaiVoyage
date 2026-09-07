@@ -6,6 +6,8 @@ buildscript {
         maven { url 'https://oss.sonatype.org/content/repositories/snapshots/' }
     }
     dependencies {
+        // BootJar and AGP share the buildscript classloader; use the modern ZIP API.
+        classpath 'org.apache.commons:commons-compress:1.27.1'
         if (findProject(':android') != null) {
             classpath 'com.android.tools.build:gradle:8.1.4'
         }

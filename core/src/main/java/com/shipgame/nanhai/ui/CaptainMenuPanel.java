@@ -6,12 +6,12 @@ import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.Disposable;
 
-/** Paused captain menu. Save, load and logout remain owned by VoyageScreen. */
+/** Paused captain menu. Cloud synchronization is automatic; VoyageScreen owns logout. */
 public final class CaptainMenuPanel extends Table implements Disposable {
     public static final float WIDTH = 752, HEIGHT = 560;
     private final QuestUi ui;
 
-    public CaptainMenuPanel(Skin skin, Runnable save, Runnable load, Runnable logout, Runnable close) {
+    public CaptainMenuPanel(Skin skin, Runnable logout, Runnable close) {
         ui = new QuestUi(skin);
         setBackground(ui.frame); pad(24); top();
         Table heading = new Table();
@@ -21,17 +21,11 @@ public final class CaptainMenuPanel extends Table implements Disposable {
 
         Table explanation = new Table(); explanation.left();
         explanation.add(ui.label("菜单开启后停船停事件。", 24, QuestUi.JADE)).left().height(32).row();
-        Label copy = ui.label("保存进度 = 立刻把当前状态写入本机存档；\n读取存档 = 回最近一次靠港自动档。", 22, QuestUi.PAPER);
+        Label copy = ui.label("进度随账号自动同步。\n网络中断时保留待同步进度，联网后自动重试。", 22, QuestUi.PAPER);
         copy.setWrap(true);
-        explanation.add(copy).width(624).height(72).left();
-        add(explanation).size(624, 112).padBottom(24).row();
+        explanation.add(copy).width(624).height(96).left();
+        add(explanation).size(624, 144).padBottom(24).row();
 
-        add(action("保存进度", false, save)).size(544, 80).padBottom(16).row();
-        TextButton reload = action("读取存档", false, load);
-        TextButton.TextButtonStyle reloadStyle = new TextButton.TextButtonStyle(reload.getStyle());
-        reloadStyle.fontColor = Color.valueOf("C6DFC0");
-        reload.setStyle(reloadStyle);
-        add(reload).size(544, 80).padBottom(16).row();
         add(action("退出登录", true, logout)).size(544, 80).row();
     }
 
@@ -41,7 +35,7 @@ public final class CaptainMenuPanel extends Table implements Disposable {
         if (!text.equals("关闭")) {
             Label title = button.getLabel();
             button.clearChildren();
-            String icon = text.equals("保存进度") ? "avatar" : text.equals("读取存档") ? "quest" : "port";
+            String icon = "port";
             button.add(new Image(IconLib.hud(icon))).size(48).padRight(24);
             button.add(title).width(240);
         }

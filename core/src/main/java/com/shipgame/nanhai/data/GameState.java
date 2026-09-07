@@ -175,6 +175,9 @@ public class GameState {
 
     public SaveData toSave() {
         SaveData s = new SaveData();
+        s.dockedPort = dockedPort;
+        s.failed = failed;
+        s.questVisitPortSet = questVisitPortSet;
         s.x = x;
         s.y = y;
         s.headingDeg = headingDeg;
@@ -264,8 +267,8 @@ public class GameState {
             float oldSupplyMax = s.supplyMax <= 0 ? Catalog.SUPPLY_MAX : s.supplyMax;
             g.hullMax = Math.max(Catalog.HULL_MAX, oldHullMax);
             g.supplyMax = Math.max(Catalog.SUPPLY_MAX, oldSupplyMax);
-            float loadedHull = (s.hull <= 0f || Float.isNaN(s.hull)) ? g.hullMax : s.hull;
-            float loadedSupply = (s.supply <= 0f || Float.isNaN(s.supply)) ? g.supplyMax : s.supply;
+            float loadedHull = (s.hull < 0f || Float.isNaN(s.hull)) ? g.hullMax : s.hull;
+            float loadedSupply = (s.supply < 0f || Float.isNaN(s.supply)) ? g.supplyMax : s.supply;
             g.hull = Math.min(loadedHull, g.hullMax);
             g.supply = Math.min(loadedSupply, g.supplyMax);
             g.silver = s.silver;
@@ -294,7 +297,7 @@ public class GameState {
                 lp = 0; // corrupt port index must not throw AIOOBE
             }
             g.lastPort = lp;
-            g.dockedPort = lp;
+            g.dockedPort = s.dockedPort >= 0 && s.dockedPort < Catalog.PORTS.length ? s.dockedPort : -1;
             // 0.26.4 船 / 时钟 / 行情（旧档缺省：初始船、第 1 天 06:00、基准价）
             g.ship = s.ship >= 0 && s.ship < Catalog.SHIPS.length ? s.ship : 0;
             g.shipOwned = (s.shipOwned | 1); // 初始船永远拥有
@@ -309,10 +312,11 @@ public class GameState {
                 g.marketOff = s.marketOff.clone();
             }
             // 捕鱼只在扬州停靠时恢复（其它港口的存档视为已收网）。
-            g.fishingOn = s.fishingOn && lp == Catalog.YANGZHOU;
+            g.fishingOn = s.fishingOn && g.dockedPort == Catalog.YANGZHOU;
             g.fishTimer = 0f;
             g.questSellSilk = s.questSellSilk;
             g.questVisitPorts = s.questVisitPorts;
+            g.questVisitPortSet = s.questVisitPortSet;
             g.questDefeatedPirates = s.questDefeatedPirates;
             g.questBeastsFound = s.questBeastsFound;
             g.questDebtPaid = s.questDebtPaid;
@@ -349,22 +353,20 @@ public class GameState {
             g.questClaimSellPorcelain = s.questClaimSellPorcelain;
             g.questClaimIslandExplore = s.questClaimIslandExplore;
             copy(s.costPaid, g.costPaid);
-            // Always respawn at the dock: any stale/NaN position is discarded.
-            g.x = Catalog.PORT_X[lp] + 90f;
-            g.y = Catalog.PORT_Y[lp];
-            g.headingDeg = 0f;
+            // Cloud checkpoints preserve position; transient combat and navigation reset.
+            g.x = (!Float.isNaN(s.x) && !Float.isInfinite(s.x)) ? s.x : Catalog.PORT_X[lp] + 90f;
+            g.y = (!Float.isNaN(s.y) && !Float.isInfinite(s.y)) ? s.y : Catalog.PORT_Y[lp];
+            g.headingDeg = (!Float.isNaN(s.headingDeg) && !Float.isInfinite(s.headingDeg)) ? s.headingDeg : 0f;
             g.speed = 0;
             g.clearPirate();
             g.autoSail = false;
             g.autoSailPort = -1;
             g.autoSailIsle = -1;
-            g.failed = false;
-            g.toast("已读取靠港存档。");
+            g.failed = s.failed;
+            g.toast("云端进度已恢复。");
             return g;
-        } catch (Throwable t) {
-            // Corrupt save: start a fresh game instead of dying.
-            Gdx.app.error("GameState", "save corrupt, starting new game", t);
-            return newGame();
+        } catch (RuntimeException t) {
+            throw new IllegalArgumentException("Invalid cloud state", t);
         }
     }
 
@@ -1564,7 +1566,7 @@ public class GameState {
         stopAutoSail();
         clearPirate();
         speed = 0f;
-        toast(reason + "。失败，将读取上次靠港存档。");
+        toast(reason + "。航程失败，请重新开始。");
     }
 
     public float windSpeedMul() {
