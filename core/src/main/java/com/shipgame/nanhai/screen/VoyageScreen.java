@@ -40,6 +40,15 @@ import com.shipgame.nanhai.data.Catalog;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.data.SaveData;
 import com.shipgame.nanhai.ui.IconLib;
+import com.shipgame.nanhai.ui.QuestUi;
+import com.shipgame.nanhai.ui.IntelPanel;
+import com.shipgame.nanhai.ui.ShopShipsPanel;
+import com.shipgame.nanhai.ui.MyShipPanel;
+import com.shipgame.nanhai.ui.CaptainMenuPanel;
+import com.shipgame.nanhai.ui.PortDockPanel;
+import com.shipgame.nanhai.ui.CodexPanel;
+import com.badlogic.gdx.scenes.scene2d.Group;
+import com.shipgame.nanhai.ui.WorldMapOverlay;
 
 public class VoyageScreen extends ScreenAdapter {
 
@@ -77,11 +86,6 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float NR_ROW_Y = 664f;            // row center y (top band)
     // Full-map modal geometry (overlay == Overlay.MAP): the map is a fullscreen
     // dimmed rect with the map area centered; its 关闭 button sits top-right.
-    private static final float FM_X = 90f, FM_Y = 90f, FM_W = 1100f, FM_H = 540f;
-    private static final float FM_CLOSE_X = FM_X + FM_W - 124f;
-    private static final float FM_CLOSE_Y = FM_Y + FM_H - 36f;
-    private static final float FM_CLOSE_W = 104f;
-    private static final float FM_CLOSE_H = 28f;
 
     private static final Color WATER = new Color(0.10f, 0.36f, 0.52f, 1f); // 0.26.2: 常年晴
     private static final Color GRID = new Color(0.14f, 0.42f, 0.58f, 1f);
@@ -147,8 +151,21 @@ public class VoyageScreen extends ScreenAdapter {
     private int hintPort = -1;
     private int hintIsland = -1;
     private int selectedQuest = -1;
+    private QuestUi questUi;
+    private QuestUi intelUi;
+    private ShopShipsPanel shopPanel;
+    private MyShipPanel myShipPanel;
+    private CaptainMenuPanel captainPanel;
+    private PortDockPanel portPanel;
+    private QuestUi cargoUi;
+    private ScrollPane cargoListPane;
+    private int cargoListTab;
+    private final float[] cargoScroll = new float[4];
+    private CodexPanel codexPanel;
+    private ScrollPane questListPane;
+    private float questScrollY;
     private int selectedShip = -1;       // 0.26.4 商城：网格里点开的船（-1 = 网格）
-    private int shopCat = 0;             // 0.26.4 商城左侧分类（目前仅 船只=0）
+    private int shopCat = 0;             // 船只 / 战船 / 货船 / 特种船
     private boolean logoutSwitching;     // 0.26.6 退出登录防重入
     private Label hudClock;              // 0.26.4 左下 第N日 HH:MM 白天/夜晚
     private Label sunTip;                // 今日：晴 label under the minimap
@@ -184,7 +201,7 @@ public class VoyageScreen extends ScreenAdapter {
     private float radarT;   // seconds the full map has been open (radar pulse clock)
     private Pixmap miniChartPm; // 0.26.5 baked minimap chart (promoted to a texture)
     private Texture miniChartTex;
-    private Texture chartTex;         // 0.26.5 pixel 南海海图 (full-map artwork)
+    private WorldMapOverlay worldMap; // Full-map resources, independent of the minimap
     private static final int miniHalf = 80;
 
     public VoyageScreen(NanHaiVoyage game) {
@@ -278,14 +295,24 @@ public class VoyageScreen extends ScreenAdapter {
             if (miniChartPm != null) { miniChartPm.dispose(); }
         } catch (Throwable ignored) {}
         try {
-            if (chartTex != null) { chartTex.dispose(); }
+            if (worldMap != null) { worldMap.dispose(); }
         } catch (Throwable ignored) {}
         miniChartTex = null;
         miniChartPm = null;
-        chartTex = null;
+        worldMap = null;
     }
 
     private void disposeQuietly() {
+        if (questUi != null) { questUi.dispose(); questUi = null; }
+        if (intelUi != null) { intelUi.dispose(); intelUi = null; }
+        if (shopPanel != null) { shopPanel.dispose(); shopPanel = null; }
+        if (myShipPanel != null) { myShipPanel.dispose(); myShipPanel = null; }
+        if (captainPanel != null) { captainPanel.dispose(); captainPanel = null; }
+        if (portPanel != null) { portPanel.dispose(); portPanel = null; }
+        if (cargoUi != null) { cargoUi.dispose(); cargoUi = null; }
+        cargoListPane = null;
+        if (codexPanel != null) { codexPanel.dispose(); codexPanel = null; }
+        questListPane = null;
         try {
             if (stage != null) { stage.dispose(); }
         } catch (Throwable ignored) {}
@@ -750,43 +777,148 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void rebuildMenu() {
         updateQuestButtonLabel();
+        if (questListPane != null) questScrollY = questListPane.getScrollY();
+        questListPane = null;
+        if (cargoListPane != null) cargoScroll[cargoListTab] = cargoListPane.getScrollY();
+        cargoListPane = null;
         menuRoot.clear();
         if (overlay == Overlay.NONE || overlay == Overlay.MAP) {
+            return;
+        }
+        if (overlay == Overlay.PORT) {
+            if (g.dockedPort < 0) { overlay = Overlay.NONE; return; }
+            if (portPanel == null) portPanel = new PortDockPanel(game.skin);
+            portPanel.refresh(g, this::portAction, this::closePopup);
+            portPanel.setSize(PortDockPanel.WIDTH, PortDockPanel.HEIGHT);
+            portPanel.setTransform(true);
+            portPanel.setScale(2f / 3f);
+            Group holder = new Group();
+            holder.addActor(portPanel);
+            menuRoot.add(holder).size(PortDockPanel.WIDTH * 2f / 3f,
+                    PortDockPanel.HEIGHT * 2f / 3f).padTop(16);
+            return;
+        }
+        if (overlay == Overlay.AVATAR) {
+            if (captainPanel == null) captainPanel = new CaptainMenuPanel(game.skin,
+                    this::saveNow, this::tryReloadLatestSave, this::logoutToLogin, this::closePopup);
+            captainPanel.setSize(CaptainMenuPanel.WIDTH, CaptainMenuPanel.HEIGHT);
+            captainPanel.setTransform(true);
+            captainPanel.setScale(2f / 3f);
+            Group holder = new Group();
+            holder.addActor(captainPanel);
+            menuRoot.add(holder).size(CaptainMenuPanel.WIDTH * 2f / 3f,
+                    CaptainMenuPanel.HEIGHT * 2f / 3f).padTop(16);
+            return;
+        }
+        if (overlay == Overlay.MINE) {
+            if (myShipPanel == null) myShipPanel = new MyShipPanel(game.skin);
+            myShipPanel.refresh(g, shipAttrLine(g.ship), idx -> {
+                g.toast(g.equipShip(idx)); persist(); rebuildMenu();
+            }, this::closePopup);
+            myShipPanel.setSize(MyShipPanel.WIDTH, MyShipPanel.HEIGHT);
+            myShipPanel.setTransform(true);
+            myShipPanel.setScale(2f / 3f);
+            Group holder = new Group();
+            holder.addActor(myShipPanel);
+            menuRoot.add(holder).size(MyShipPanel.WIDTH * 2f / 3f,
+                    MyShipPanel.HEIGHT * 2f / 3f).padTop(16);
+            return;
+        }
+        if (overlay == Overlay.SHOP) {
+            if (shopPanel == null) shopPanel = new ShopShipsPanel(game.skin);
+            int idx = selectedShip;
+            boolean detail = idx >= 0 && idx < Catalog.SHIPS.length;
+            shopPanel.refresh(g, shopCat, idx, detail ? shipAttrLine(idx) : "",
+                    detail ? shipEffectLine(idx) : "",
+                    category -> { shopCat = category; selectedShip = -1; rebuildMenu(); },
+                    this::openShipDetail,
+                    () -> { selectedShip = -1; rebuildMenu(); },
+                    () -> { g.toast(g.buyShip(idx)); persist(); rebuildMenu(); },
+                    () -> { g.toast(g.equipShip(idx)); persist(); rebuildMenu(); },
+                    this::closePopup);
+            shopPanel.setSize(ShopShipsPanel.WIDTH, ShopShipsPanel.HEIGHT);
+            shopPanel.setTransform(true);
+            shopPanel.setScale(2f / 3f);
+            Group holder = new Group();
+            holder.addActor(shopPanel);
+            menuRoot.add(holder).size(ShopShipsPanel.WIDTH * 2f / 3f,
+                    ShopShipsPanel.HEIGHT * 2f / 3f).padTop(16);
+            return;
+        }
+        if (overlay == Overlay.CARGO) {
+            if (cargoUi == null) cargoUi = new QuestUi(game.skin);
+            Table cargo = new Table();
+            cargoTable(cargo);
+            cargo.setSize(1008, 784);
+            cargo.setTransform(true);
+            cargo.setScale(2f / 3f);
+            Group holder = new Group();
+            holder.addActor(cargo);
+            menuRoot.add(holder).size(672, 784f * 2f / 3f).padTop(16);
+            cargo.validate();
+            cargoListPane.setScrollY(cargoScroll[cargoTab]);
+            cargoListPane.updateVisualScroll();
+            return;
+        }
+        if (overlay == Overlay.CODEX) {
+            if (codexPanel == null) codexPanel = new CodexPanel(game.skin, g, this::closePopup);
+            else codexPanel.refresh(g);
+            codexPanel.setSize(1328, 784);
+            codexPanel.setTransform(true);
+            codexPanel.setScale(2f / 3f);
+            Group holder = new Group();
+            holder.addActor(codexPanel);
+            menuRoot.add(holder).size(1328f * 2f / 3f, 784f * 2f / 3f).padTop(16);
+            return;
+        }
+        if (overlay == Overlay.INTEL) {
+            if (intelUi == null) intelUi = new QuestUi(game.skin);
+            Table intel = intelTable();
+            intel.setSize(1200, 736);
+            intel.setTransform(true);
+            intel.setScale(2f / 3f);
+            Group holder = new Group();
+            holder.addActor(intel);
+            menuRoot.add(holder).size(800, 736f * 2f / 3f).padTop(16);
+            return;
+        }
+        if (overlay == Overlay.QUESTS) {
+            if (questUi == null) questUi = new QuestUi(game.skin);
+            Table quests = new Table();
+            questsTable(quests);
+            // The overlay uses design pixels, leaving the existing HUD viewport intact.
+            quests.setSize(1152, 752);
+            quests.setTransform(true);
+            quests.setScale(2f / 3f);
+            Group holder = new Group();
+            holder.addActor(quests);
+            menuRoot.add(holder).size(768, 752f * 2f / 3f).padTop(16);
+            quests.validate();
+            if (questListPane != null) {
+                questListPane.setScrollY(questScrollY);
+                questListPane.updateVisualScroll();
+            }
             return;
         }
         Table box = new Table(game.skin);
         box.pad(8f);
         box.background(game.skin.getDrawable("panel"));
-        if (overlay == Overlay.PORT) {
-            portTable(box);
-        } else if (overlay == Overlay.MARKET) {
+        if (overlay == Overlay.MARKET) {
             marketTable(box);
         } else if (overlay == Overlay.FISH) {
             fishTable(box);
         } else if (overlay == Overlay.ISLAND) {
             islandTable(box);
-        } else if (overlay == Overlay.CODEX) {
-            codexTable(box);
-        } else if (overlay == Overlay.CARGO) {
-            cargoTable(box);
         } else if (overlay == Overlay.PRICE) {
             priceTable(box);
         } else if (overlay == Overlay.FAIL) {
             failTable(box);
-        } else if (overlay == Overlay.AVATAR) {
-            avatarTable(box);
+
         } else if (overlay == Overlay.HOWTO) {
             howtoTable(box);
-        } else if (overlay == Overlay.INTEL) {
-            intelTable(box);
-        } else if (overlay == Overlay.QUESTS) {
-            questsTable(box);
         } else if (overlay == Overlay.STAT) {
             statTable(box);
-        } else if (overlay == Overlay.SHOP) {
-            shopTable(box);
-        } else if (overlay == Overlay.MINE) {
-            mineTable(box);
+
         }
         ScrollPane sp = new ScrollPane(box, game.skin);
         sp.setFadeScrollBars(false);
@@ -812,76 +944,35 @@ public class VoyageScreen extends ScreenAdapter {
         box.add(h).width(width).padBottom(6).row();
     }
 
-    /** Port dock popup — layer 1: 8 action buttons + 市场. The two-column buy/sell
-     * tables only appear after the player taps 市场 (layer 2 = Overlay.MARKET), so
-     * docking no longer shoves the cargo lists and every action onto one screen. */
-    private void portTable(Table box) {
-        IconLib.checkAgainstCatalog();
-        int p = g.dockedPort;
-        menuHeader(box, Catalog.PORTS[p] + " · 世界暂停");
-        box.add(infoRow("银 " + g.silver + "    欠 " + g.debt + "    舱 " + g.cargoUsed() + "/" + g.holdCap()))
-                .width(PORT_MENU_W).padBottom(6).row();
-
-        TextButton market = new TextButton("市场（买卖货物 · 行情）", game.skin, "go");
-        market.getLabel().setFontScale(1.0f);
-        market.addListener(click(() -> {
-            overlay = Overlay.MARKET;
-            marketBuyPage = 0;
-            marketSellPage = 0;
-            rebuildMenu();
-        }));
-        Table mrow = new Table();
-        mrow.add(market).width(PORT_MENU_W).height(56);
-        box.add(mrow).width(PORT_MENU_W).padBottom(10).row();
-
-        // 0.26.3: 扬州独有「渔务」入口（雇渔夫/捕鱼/渔获/升级都在里面）。
-        if (p == Catalog.YANGZHOU) {
-            Table frow = new Table();
-            TextButton fish = new TextButton("渔务（雇渔夫 · 捕鱼 · 渔获）", game.skin, "go");
-            fish.getLabel().setFontScale(1.0f);
-            fish.setName("渔务");
-            fish.addListener(click(() -> {
-                overlay = Overlay.FISH;
+    /** Keep the dock's original economy and two-level navigation behind the new cards. */
+    private void portAction(PortDockPanel.Action action) {
+        if (g.dockedPort < 0) return;
+        switch (action) {
+            case MARKET:
+                overlay = Overlay.MARKET;
+                marketBuyPage = 0;
+                marketSellPage = 0;
                 rebuildMenu();
-            }));
-            frow.add(fish).width(PORT_MENU_W).height(54);
-            box.add(frow).width(PORT_MENU_W).padBottom(10).row();
+                return;
+            case FISH:
+                if (g.dockedPort == Catalog.YANGZHOU) overlay = Overlay.FISH;
+                rebuildMenu();
+                return;
+            case SUPPLY: g.toast(g.refillSupply()); break;
+            case REPAY: g.toast(g.repay(g.debt)); break;
+            case REPAIR: g.toast(g.repair()); break;
+            case WAREHOUSE: g.toast(g.upgradeWarehouse()); break;
+            case CANNON: g.toast(g.upgradeCannon()); break;
+            case CREW_CAP: g.toast(g.upgradeCrewCap()); break;
+            case HIRE: g.toast(g.hireCrew()); break;
+            case LEAVE:
+                g.leavePort();
+                dismissedPort = -1;
+                overlay = Overlay.NONE;
+                break;
         }
-
-        portPair(box,
-                "补补给", () -> { g.toast(g.refillSupply()); persist(); rebuildMenu(); },
-                "还债(全还)", () -> { g.toast(g.repay(g.debt)); persist(); rebuildMenu(); });
-        portPair(box,
-                "修理", () -> { g.toast(g.repair()); persist(); rebuildMenu(); },
-                "离港", () -> {
-                    g.leavePort();
-                    persist();
-                    dismissedPort = -1;
-                    overlay = Overlay.NONE;
-                    rebuildMenu();
-                });
-        portPair(box,
-                "升仓库 " + g.warehouseCost(), () -> { g.toast(g.upgradeWarehouse()); persist(); rebuildMenu(); },
-                "升炮火 " + g.cannonCost(), () -> { g.toast(g.upgradeCannon()); persist(); rebuildMenu(); });
-        portPair(box,
-                "升编制 " + g.crewCapCost(), () -> { g.toast(g.upgradeCrewCap()); persist(); rebuildMenu(); },
-                "雇人 " + Catalog.HIRE_COST, () -> { g.toast(g.hireCrew()); persist(); rebuildMenu(); });
-        float rate = Math.round(g.firepower() * 10f) / 10f;
-        box.add(infoRow("船员 " + g.crew + "/" + g.crewMax() + "    每发伤 1 · 射速 " + rate
-                + " 发/秒    耐久 " + (int) g.hull)).width(PORT_MENU_W).padTop(6).padBottom(2).row();
-        if (p == Catalog.YANGZHOU) {
-            box.add(infoRow("故乡扬州：点「渔务」可雇渔夫、升级钓具/钓技并开始捕鱼（仅扬州可捕）。"))
-                    .width(PORT_MENU_W).left().padBottom(2).row();
-        }
-        box.add(infoRow("点「市场」看各港价差并买卖，点「离港」开船。")).width(PORT_MENU_W).left().row();
-    }
-
-    /** Wide pair row for the dock actions menu (content spans PORT_MENU_W). */
-    private void portPair(Table box, String a, Runnable ra, String b, Runnable rb) {
-        Table row = new Table();
-        row.add(btn(a, ra)).width((PORT_MENU_W - 12f) / 2f).height(48);
-        row.add(btn(b, rb)).width((PORT_MENU_W - 12f) / 2f).height(48).padLeft(12);
-        box.add(row).width(PORT_MENU_W).padBottom(7).row();
+        persist();
+        rebuildMenu();
     }
 
     /** Port dock popup — layer 2 (市场): two independent paged columns. 本港可买 on
@@ -1092,154 +1183,6 @@ public class VoyageScreen extends ScreenAdapter {
                 .width(PORT_MENU_W).left().row();
     }
 
-    // ------------------------------------------------------------ 商城 (0.26.4)
-
-    /** 0.26.4 商城：左侧竖直分类列表（目前只有「船只」，后续可加）；右侧产品
-     * 网格每行 4 个（图 + 名 + 底价），点一格进详情（大图/属性/购买/返回）。
-     * 购买成功立即扣银换乘；银两不足给明确 toast 不扣款；当前船在网格标识。 */
-    private void shopTable(Table box) {
-        menuHeader(box, "商城 · 买船换船");
-        // 头部一行：银两 + 当前船 + 时钟（也顺带展示当前属性变化）
-        box.add(infoRow("银 " + g.silver + " 两    当前：" + Catalog.SHIPS[g.ship]
-                + "（货舱 " + g.holdCap() + " · 船员 " + g.crew + "/" + g.crewMax()
-                + " · 射速 " + Math.round(g.firepower() * 10f) / 10f + " 发/秒）"))
-                .width(SHOP_W).left().padBottom(6).row();
-        box.add(wrapLbl("战船提高射速与船员上限；货船加大货舱（与仓库升级叠加）。换小货舱船前请先卖掉多余货物。"))
-                .width(SHOP_W - 8).left().padBottom(8).row();
-
-        Table body = new Table();
-        // --- left vertical category list ---
-        Table cats = new Table();
-        cats.top().left();
-        cats.add(new Label("分类", game.skin)).width(128).left().padBottom(6);
-        cats.row();
-        String[] catNames = {"船只"};
-        for (int c = 0; c < catNames.length; c++) {
-            final int ci = c;
-            TextButton b = new TextButton(shopCat == c ? "[" + catNames[c] + "]" : catNames[c], game.skin,
-                    shopCat == c ? "go" : null);
-            b.getLabel().setFontScale(0.95f);
-            b.addListener(click(() -> {
-                shopCat = ci;
-                selectedShip = -1;
-                rebuildMenu();
-            }));
-            cats.add(b).width(128).height(46).left().padBottom(6);
-            cats.row();
-        }
-        body.add(cats).width(140).top().left();
-
-        // --- right: grid or detail ---
-        if (selectedShip >= 0 && selectedShip < Catalog.SHIPS.length) {
-            shopDetail(body);
-        } else {
-            shopGrid(body);
-        }
-        box.add(body).width(SHOP_W).padBottom(4).row();
-        box.add(infoRow("点船看详情；已拥有的船可以随时免费换乘。")).width(SHOP_W).left().row();
-    }
-
-    /** 商城右侧：4 列船网格。每格 图(上) + 名 + 底价（或 当前/已拥有）。 */
-    private void shopGrid(Table body) {
-        Table grid = new Table();
-        grid.top().left();
-        // 只展示船只分类：SHIPS 全部（下标 0 = 初始小商船）
-        int perRow = 4;
-        float cellW = (SHOP_W - 150f) / perRow - 10f; // 约 158
-        int n = Catalog.SHIPS.length;
-        for (int i = 0; i < n; i++) {
-            final int idx = i;
-            Table cell = new Table();
-            cell.setName("商城" + Catalog.SHIPS[idx]);
-            cell.setBackground(game.skin.getDrawable("panel"));
-            TextureRegionDrawable ico = IconLib.ship(idx);
-            if (ico != null) {
-                cell.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(ico)).size(64, 64).padTop(4).row();
-            }
-            Label nm = new Label(Catalog.SHIPS[idx], game.skin, "small");
-            nm.setWrap(false);
-            cell.add(nm).padTop(2).row();
-            String state;
-            if (idx == g.ship) {
-                state = "【当前战船】";
-            } else if (g.ownsShip(idx)) {
-                state = "已拥有";
-            } else {
-                state = Catalog.SHIP_PRICE[idx] + " 两";
-            }
-            Label pr = new Label(state, game.skin, "small");
-            pr.setWrap(false);
-            cell.add(pr).padTop(2).padBottom(4).row();
-            cell.addListener(click(() -> openShipDetail(idx)));
-            if (i % perRow == perRow - 1 || i == n - 1) {
-                grid.add(cell).width(cellW).height(112).pad(3).row();
-            } else {
-                grid.add(cell).width(cellW).height(112).pad(3);
-            }
-        }
-        body.add(grid).width(SHOP_W - 150f).top().left();
-    }
-
-    /** 商城右侧：详情页（大图 + 名称 + 描述/属性 + 银两价格 + 购买/返回）。 */
-    private void shopDetail(Table body) {
-        int idx = selectedShip;
-        Table det = new Table();
-        det.top().left();
-        // 返回网格行
-        TextButton back = new TextButton("← 返回列表", game.skin, "danger");
-        back.getLabel().setFontScale(0.9f);
-        back.addListener(click(() -> {
-            selectedShip = -1;
-            rebuildMenu();
-        }));
-        det.add(back).width(130).height(38).left().padBottom(6);
-        det.row();
-
-        Table head = new Table();
-        TextureRegionDrawable ico = IconLib.ship(idx);
-        if (ico != null) {
-            head.add(new com.badlogic.gdx.scenes.scene2d.ui.Image(ico)).size(108, 108).padRight(14);
-        }
-        Table txt = new Table();
-        Label name = new Label(Catalog.SHIPS[idx], game.skin);
-        name.setWrap(false);
-        txt.add(name).left().padBottom(4);
-        txt.row();
-        txt.add(wrapLbl(Catalog.SHIP_DESC[idx])).width(SHOP_W - 250f).left().padBottom(4);
-        txt.row();
-        txt.add(wrapLbl(shipAttrLine(idx))).width(SHOP_W - 250f).left();
-        head.add(txt).width(SHOP_W - 250f).left();
-        det.add(head).width(SHOP_W - 150f).left().padBottom(8);
-        det.row();
-
-        // 效果对照（现有船 vs 此船的实际差异）
-        det.add(wrapLbl(shipEffectLine(idx))).width(SHOP_W - 158f).left().padBottom(8);
-        det.row();
-
-        Table actions = new Table();
-        boolean owned = g.ownsShip(idx);
-        if (owned) {
-            if (idx == g.ship) {
-                Label cur = new Label("当前战船 · 无需再买", game.skin, "small");
-                actions.add(cur).left().padRight(10);
-            } else {
-                actions.add(btn("免费换乘", () -> {
-                    g.toast(g.equipShip(idx)); persist(); rebuildMenu();
-                })).width(150).height(44);
-            }
-        } else {
-            String buyLabel = "购买 · " + Catalog.SHIP_PRICE[idx] + " 两";
-            actions.add(btn(buyLabel, () -> {
-                g.toast(g.buyShip(idx));
-                persist();
-                rebuildMenu();
-            })).width(180).height(44);
-        }
-        actions.add(btn("关闭", this::closePopup)).width(110).height(44).padLeft(10);
-        det.add(actions).width(SHOP_W - 150f).left();
-        body.add(det).width(SHOP_W - 150f).top().left();
-    }
-
     /** 属性行：火力(+射速%)/船员上限/货舱。只显示非零加成。 */
     private String shipAttrLine(int idx) {
         StringBuilder sb = new StringBuilder();
@@ -1272,142 +1215,6 @@ public class VoyageScreen extends ScreenAdapter {
         return "换乘后效果：射速约 " + Math.round(effFire * 10f) / 10f + " 发/秒"
                 + "（当前 " + Math.round(curFire * 10f) / 10f + "）   船员上限 " + effCrewMax
                 + "   货舱 " + effHold;
-    }
-
-    /** 0.26.5 我的：当前船 + 已拥有船只（随时免费换乘）+ 银两/补给/耐久/船员/
-     * 货舱与主要货物（商货/渔获/异兽/草药）汇总。打开时世界暂停。 */
-    private void mineTable(Table box) {
-        menuHeader(box, "我的 · 船与家当");
-        // 顶部资源行：直接给出数字，点击对应顶栏格子能看说明。
-        box.add(infoRow("银 " + g.silver + " 两    补给 " + (int) g.supply + "/" + (int) g.supplyMax
-                + "    耐久 " + (int) g.hull + "/" + (int) g.hullMax))
-                .width(SHOP_W).left().padBottom(3).row();
-        int holdUsed = g.cargoUsed();
-        box.add(infoRow("船员 " + g.crew + "/" + g.crewMax() + "    货舱占用 " + holdUsed + "/" + g.holdCap()))
-                .width(SHOP_W).left().padBottom(6).row();
-
-        // 当前船卡（大图 + 名字 + 属性一句）。
-        int cur = g.ship;
-        Table curCard = new Table();
-        curCard.setBackground(game.skin.getDrawable("panel"));
-        curCard.pad(8f);
-        TextureRegionDrawable curIco = IconLib.ship(cur);
-        if (curIco != null) {
-            curCard.add(new Image(curIco)).size(72, 72).padRight(12);
-        }
-        Table curTxt = new Table();
-        curTxt.add(new Label("当前：" + Catalog.SHIPS[cur], game.skin)).left().padBottom(3);
-        curTxt.row();
-        curTxt.add(wrapLbl(shipAttrLine(cur))).width(SHOP_W - 160f).left().padBottom(2);
-        curTxt.row();
-        curTxt.add(wrapLbl("射速 " + Math.round(g.firepower() * 10f) / 10f + " 发/秒 · 货舱 "
-                + g.holdCap() + " · 船员上限 " + g.crewMax())).width(SHOP_W - 160f).left();
-        curCard.add(curTxt).width(SHOP_W - 160f).left();
-        box.add(curCard).width(SHOP_W).left().padBottom(10).row();
-
-        // 已拥有船只清单：可随时免费换乘（装备）。
-        box.add(new Label("已拥有船只（点「更换」随时免费换乘）", game.skin, "small"))
-                .width(SHOP_W).left().padBottom(4).row();
-        Table owned = new Table();
-        owned.top().left();
-        int cols = 0;
-        for (int i = 0; i < Catalog.SHIPS.length; i++) {
-            if (!g.ownsShip(i)) continue;
-            final int idx = i;
-            Table row = new Table();
-            row.setName("我的" + Catalog.SHIPS[idx]);
-            row.setBackground(game.skin.getDrawable("panel"));
-            row.pad(6f);
-            TextureRegionDrawable ico = IconLib.ship(idx);
-            if (ico != null) {
-                row.add(new Image(ico)).size(52, 52).padRight(10);
-            }
-            row.add(new Label(Catalog.SHIPS[idx], game.skin, "small")).width(96).left().padRight(6);
-            if (idx == cur) {
-                row.add(new Label("【正在开】", game.skin, "small")).width(150).left().padRight(6);
-                row.add(new Label("", game.skin, "small")).width(120).left(); // spacer
-            } else {
-                row.add(new Label(shipMiniAttr(idx), game.skin, "small")).width(150).left().padRight(6);
-                TextButton swap = btn("更换", () -> {
-                    g.toast(g.equipShip(idx));
-                    persist();
-                    rebuildMenu();
-                });
-                swap.setName("更换" + Catalog.SHIPS[idx]);
-                row.add(swap).width(110).height(36);
-            }
-            owned.add(row).width(400).height(66).left().pad(3);
-            cols++;
-            if (cols % 2 == 0) {
-                owned.row();
-            }
-        }
-        box.add(owned).width(SHOP_W).left().padBottom(10).row();
-
-        // 货物/渔获/异兽/草药汇总。
-        box.add(new Label("货舱明细", game.skin, "small")).width(SHOP_W).left().padBottom(3).row();
-        StringBuilder goodsSb = new StringBuilder();
-        int shown = 0;
-        for (int i = 0; i < Catalog.GOODS.length; i++) {
-            if (g.trade[i] > 0) {
-                if (shown > 0) goodsSb.append("、");
-                goodsSb.append(Catalog.GOODS[i]).append("x").append(g.trade[i]);
-                shown++;
-                if (shown >= 6) break;
-            }
-        }
-        StringBuilder beastSb = new StringBuilder();
-        shown = 0;
-        for (int i = 0; i < Catalog.BEASTS.length; i++) {
-            if (g.beasts[i] > 0) {
-                if (shown > 0) beastSb.append("、");
-                beastSb.append(Catalog.BEASTS[i]).append("x").append(g.beasts[i]);
-                shown++;
-                if (shown >= 4) break;
-            }
-        }
-        StringBuilder herbSb = new StringBuilder();
-        shown = 0;
-        for (int i = 0; i < Catalog.HERBS.length; i++) {
-            if (g.herbs[i] > 0) {
-                if (shown > 0) herbSb.append("、");
-                herbSb.append(Catalog.HERBS[i]).append("x").append(g.herbs[i]);
-                shown++;
-                if (shown >= 4) break;
-            }
-        }
-        StringBuilder fishSb = new StringBuilder();
-        shown = 0;
-        for (int i = 0; i < Catalog.FISH.length; i++) {
-            if (g.fish[i] > 0) {
-                if (shown > 0) fishSb.append("、");
-                fishSb.append(Catalog.FISH[i]).append("x").append(g.fish[i]);
-                shown++;
-                if (shown >= 4) break;
-            }
-        }
-        String goodsLine = "商货：" + (goodsSb.length() == 0 ? "空" : goodsSb.toString());
-        String beastLine = "异兽：" + (beastSb.length() == 0 ? "空" : beastSb.toString());
-        String herbLine = "草药：" + (herbSb.length() == 0 ? "空" : herbSb.toString());
-        String fishLine = "渔获：" + (fishSb.length() == 0 ? "空" : fishSb.toString());
-        box.add(infoRow(goodsLine)).width(SHOP_W).left().padBottom(2).row();
-        box.add(infoRow(fishLine)).width(SHOP_W).left().padBottom(2).row();
-        box.add(infoRow(beastLine)).width(SHOP_W).left().padBottom(2).row();
-        box.add(infoRow(herbLine)).width(SHOP_W).left().padBottom(2).row();
-        box.add(infoRow("换船不换货、不花银两；货舱不够时会提示先卖货。"))
-                .width(SHOP_W).left().padTop(4).row();
-    }
-
-    /** 船只迷你属性：只列非零加成，节省「我的」清单宽度。 */
-    private String shipMiniAttr(int idx) {
-        StringBuilder sb = new StringBuilder();
-        if (Catalog.SHIP_FIRE[idx] > 0) sb.append("火力+" + Catalog.SHIP_FIRE[idx] + "% ");
-        if (Catalog.SHIP_CREW[idx] > 0) sb.append("船员+" + Catalog.SHIP_CREW[idx] + " ");
-        if (Catalog.SHIP_HOLD[idx] > 0) sb.append("货舱+" + Catalog.SHIP_HOLD[idx] + " ");
-        if (Catalog.SHIP_SPEED[idx] > 0) sb.append("航速+" + Catalog.SHIP_SPEED[idx] + "% ");
-        if (Catalog.SHIP_TURN[idx] > 0) sb.append("转向+" + Catalog.SHIP_TURN[idx] + "% ");
-        String s = sb.toString();
-        return s.isEmpty() ? "无加成" : s.trim();
     }
 
     /** 上一页 / 页号 / 下一页 strip under a paged market column. Buttons no-op at
@@ -1450,15 +1257,76 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void cargoTable(Table box) {
-        menuHeader(box, "货舱（共用容量 " + g.cargoUsed() + "/" + g.holdCap() + "）");
+        box.setBackground(cargoUi.frame);
+        box.pad(24, 32, 24, 32);
+        Table header = new Table();
+        header.add().width(104);
+        header.add(cargoLabel("货舱（共用容量 " + g.cargoUsed() + "/" + g.holdCap() + "）", 32, QuestUi.PAPER)).expandX();
+        header.add(cargoButton("关闭", false, this::closePopup)).size(104, 48);
+        box.add(header).size(944, 64).row();
         tabs(box);
-        listItems(box, g.dockedPort >= 0);
-        if (g.dockedPort < 0) {
-            box.add(wrapLbl("海上可丢货，丢了就没了。点货物再点丢掉。")).width(MENU_W - 10).left().padTop(4).row();
-            Table act = new Table();
-            act.add(btn("丢掉选中 x1", this::dumpSelected)).width(220).height(44);
-            box.add(act).width(MENU_W).padTop(4).row();
+        Table columns = new Table();
+        columns.setBackground(cargoUi.parchment);
+        columns.pad(0);
+        columns.add(cargoLabel("物品名称", 22, QuestUi.INK)).width(400);
+        columns.add(cargoLabel("持有数量", 22, QuestUi.INK)).width(240);
+        columns.add(cargoLabel("本港单价", 22, QuestUi.INK)).width(304);
+        box.add(columns).size(944, 40).row();
+        Table items = new Table();
+        items.top();
+        listItems(items, g.dockedPort >= 0);
+        if (items.getChildren().size == 0) {
+            items.add(cargoLabel("暂无物品", 24, QuestUi.PAPER)).width(944).height(96);
         }
+        cargoListPane = new ScrollPane(items, game.skin);
+        cargoListTab = cargoTab;
+        cargoListPane.setScrollingDisabled(true, false);
+        cargoListPane.setFadeScrollBars(false);
+        cargoListPane.setOverscroll(false, false);
+        boolean atSea = g.dockedPort < 0;
+        box.add(cargoListPane).width(944).height(atSea ? 480 : 528).row();
+        if (atSea) {
+            int selected = cargoTab == 0 ? selectedGood : cargoTab == 1 ? selectedBeast
+                    : cargoTab == 2 ? selectedHerb : selectedFish;
+            String[] names = cargoTab == 0 ? Catalog.GOODS : cargoTab == 1 ? Catalog.BEASTS
+                    : cargoTab == 2 ? Catalog.HERBS : Catalog.FISH;
+            Table actions = new Table();
+            actions.add(cargoLabel(selected >= 0 && selected < names.length ? "选中：" + names[selected] : "先点一种货。", 22, QuestUi.PAPER)).expandX().left();
+            TextButton dump = cargoButton("丢掉选中 x1", true, this::dumpSelected);
+            dump.setDisabled(selected < 0);
+            actions.add(dump).size(232, 40);
+            box.add(actions).size(944, 48).row();
+        }
+        String note = atSea ? "海上可丢货，丢了就没了。点货物再点丢掉。"
+                : cargoTab == 0 ? "点击物品可查看详情与交易信息" : "点击物品卖出1件";
+        box.add(cargoLabel(note, 20, QuestUi.PAPER)).height(40).row();
+    }
+
+    private Label cargoLabel(String text, int size, Color color) {
+        Label label = cargoUi.label(text, size, color);
+        label.setAlignment(Align.center);
+        return label;
+    }
+
+    private TextButton cargoButton(String text, boolean primary, Runnable action) {
+        TextButton button = cargoUi.button(text, primary);
+        button.addListener(click(action));
+        return button;
+    }
+
+    private void cargoItemRow(Table box, TextureRegionDrawable icon, String name, int quantity,
+                              String price, boolean selected, Runnable action) {
+        Table row = new Table();
+        row.setBackground(selected ? cargoUi.selected : cargoUi.inset);
+        row.pad(0);
+        Table item = new Table();
+        if (icon != null) item.add(new Image(icon)).size(32).padRight(24);
+        item.add(cargoLabel(name, 24, QuestUi.PAPER)).expandX().left();
+        row.add(item).width(376).padLeft(24);
+        row.add(cargoLabel("持有 " + quantity, 22, quantity > 0 ? QuestUi.JADE : QuestUi.PAPER)).width(240);
+        row.add(cargoLabel(price, 22, QuestUi.PAPER)).width(304);
+        row.addListener(click(action));
+        box.add(row).size(944, 48).row();
     }
 
     private void dumpSelected() {
@@ -1498,18 +1366,6 @@ public class VoyageScreen extends ScreenAdapter {
         act.add(btn("卖 1", () -> { g.toast(g.sellGood(here, gidx, 1)); persist(); rebuildMenu(); })).width(150).height(44).padLeft(8);
         act.add(btn("返回列表", () -> { overlay = priceReturnOverlay; rebuildMenu(); })).width(180).height(44).padLeft(8);
         box.add(act).width(MENU_W).padTop(6).row();
-    }
-
-    private void codexTable(Table box) {
-        menuHeader(box, "图鉴");
-        box.add(new Label("异兽", game.skin, "small")).width(MENU_W).left().padTop(2).padBottom(2).row();
-        for (int i = 0; i < Catalog.BEASTS.length; i++) {
-            codexRow(box, IconLib.beast(i), g.beastFound[i] ? Catalog.BEASTS[i] : "？？？");
-        }
-        box.add(new Label("草药（一期只卖钱）", game.skin, "small")).width(MENU_W).left().padTop(6).padBottom(2).row();
-        for (int i = 0; i < Catalog.HERBS.length; i++) {
-            codexRow(box, IconLib.herb(i), g.herbFound[i] ? Catalog.HERBS[i] : "？？？");
-        }
     }
 
     private void failTable(Table box) {
@@ -1617,8 +1473,8 @@ public class VoyageScreen extends ScreenAdapter {
      * Recomputes whenever the overlay opens (prices are fixed per port, so the
      * snapshot is fresh each time the player taps 情报). Scrollable via the
      * ScrollPane from rebuildMenu(). */
-    private void intelTable(Table box) {
-        menuHeader(box, "情报 · 各港价格");
+    private Table intelTable() {
+        IntelPanel panel = new IntelPanel(intelUi, this::closePopup);
         int nPorts = Catalog.PORTS.length;
         int nGoods = Catalog.GOODS.length;
         // Build sorted lists of all (port, good, price) triples.
@@ -1661,26 +1517,18 @@ public class VoyageScreen extends ScreenAdapter {
                 dearIdx[2] = i;
             }
         }
-        // 0.26.6: each price row is tappable — tapping a port in the cheapest /
-        // most-expensive lists auto-sails there (reusing the same auto-sail that
-        // 前往目标 and the full-map port taps use). While docked it only hints,
-        // because a docked ship cannot sail.
-        box.add(new Label("—— 最低的 3 种货（点行自动驶往该港） ——", game.skin, "small")).width(MENU_W).left().padTop(4).padBottom(2).row();
         for (int i = 0; i < 3; i++) {
             if (cheapIdx[i] < 0) break;
             int idx = cheapIdx[i];
-            box.add(intelNavRow(Catalog.GOODS[allGoods[idx]] + "  「" + Catalog.PORTS[allPorts[idx]] + "」 " + allPrices[idx] + " 两（前往）",
-                    allPorts[idx], "情报低" + i)).width(MENU_W).left().padBottom(1).row();
+            final int port = allPorts[idx];
+            panel.addPrice(true, i, allGoods[idx], port, allPrices[idx], () -> autoSailFromIntel(port));
         }
-        box.add(new Label("—— 最高的 3 种货（点行自动驶往该港） ——", game.skin, "small")).width(MENU_W).left().padTop(6).padBottom(2).row();
         for (int i = 0; i < 3; i++) {
             if (dearIdx[i] < 0) break;
             int idx = dearIdx[i];
-            box.add(intelNavRow(Catalog.GOODS[allGoods[idx]] + "  「" + Catalog.PORTS[allPorts[idx]] + "」 " + allPrices[idx] + " 两（前往）",
-                    allPorts[idx], "情报高" + i)).width(MENU_W).left().padBottom(1).row();
+            final int port = allPorts[idx];
+            panel.addPrice(false, i, allGoods[idx], port, allPrices[idx], () -> autoSailFromIntel(port));
         }
-        box.add(new Label("—— 套利提示（每个便宜货：哪儿最高） ——", game.skin, "small"))
-                .width(MENU_W).left().padTop(6).padBottom(2).row();
         for (int i = 0; i < 3; i++) {
             if (cheapIdx[i] < 0) break;
             int idx = cheapIdx[i];
@@ -1693,32 +1541,11 @@ public class VoyageScreen extends ScreenAdapter {
                 int qp = this.g.goodPrice(q, gidx);
                 if (qp > bestPrice) { bestPrice = qp; bestPort = q; }
             }
-            int profit = bestPrice - buyPrice;
-            String hint;
-            if (profit > 0) {
-                // 0.26.6: arbitrage rows navigate to their DESTINATION (sell port).
-                hint = Catalog.GOODS[gidx] + "：「" + Catalog.PORTS[buyPort] + "」买 " + buyPrice
-                        + " → 「" + Catalog.PORTS[bestPort] + "」卖 " + bestPrice
-                        + "，每份赚 " + profit + " 两（前往 " + Catalog.PORTS[bestPort] + "）";
-                box.add(intelNavRow(hint, bestPort, "情报套" + i)).width(MENU_W).left().padBottom(1).row();
-            } else {
-                hint = Catalog.GOODS[gidx] + "：「" + Catalog.PORTS[buyPort] + "」已是最低（" + buyPrice + " 两），没空子。";
-                box.add(infoRow(hint)).width(MENU_W).left().padBottom(1).row();
-            }
+            final int destination = bestPort;
+            panel.addArbitrage(i, gidx, buyPort, buyPrice, bestPort, bestPrice,
+                    () -> autoSailFromIntel(destination));
         }
-    }
-
-    /** One tappable intel row (0.26.6): tapping it auto-sails the ship to the
-     * named port, exactly like the full-map port taps, then closes the popup. */
-    private Table intelNavRow(String text, int port, String rowName) {
-        Table row = new Table();
-        row.setName(rowName);
-        Label l = new Label(text, game.skin, "small");
-        l.setWrap(true);
-        l.setColor(new Color(0.86f, 0.93f, 1f, 1f));
-        row.add(l).width(MENU_W - 8f).left();
-        row.addListener(click(() -> autoSailFromIntel(port)));
-        return row;
+        return panel;
     }
 
     /** Shared handler for the 0.26.6 tappable intel rows. Docked ships get a
@@ -1903,17 +1730,28 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void questsTable(Table box) {
-        menuHeader(box, "任务（19 条，顺序解锁，先做手头的）");
+        box.setBackground(questUi.frame);
+        box.pad(24, 32, 24, 32);
+        Table heading = new Table();
+        Table title = new Table();
+        title.setBackground(questUi.red);
+        title.add(questUi.label("任务", 38, QuestUi.PAPER)).pad(8, 96, 8, 96);
+        TextButton close = questUi.button("关闭", true);
+        close.addListener(click(this::closePopup));
+        heading.add().width(112);
+        heading.add(title).expandX();
+        heading.add(close).size(112, 64);
+        box.add(heading).width(1088).height(72).row();
+        box.add(questUi.label("（" + QUESTS.length + "条，顺序解锁，先做手头的）", 22, QuestUi.PAPER))
+                .height(48).padBottom(16).row();
         Table panes = new Table();
-        panes.pad(4f);
 
         // LEFT pane: scrollable quest list (all quests, progress + claim state).
         Table leftPane = new Table();
-        leftPane.background(game.skin.getDrawable("panel"));
-        leftPane.pad(6f);
-        leftPane.add(new Label("任务列表", game.skin, "small")).width(196).left().padBottom(4).row();
+        leftPane.background(questUi.inset);
+        leftPane.pad(8);
+        leftPane.add(questUi.label("任务列表", 24, QuestUi.PAPER)).width(400).height(32).left().padBottom(8).row();
 
-        int activeIdx = getActiveQuestIndex();
         Table listTbl = new Table();
         for (int i = 0; i < QUESTS.length; i++) {
             final int qi = i;
@@ -1932,36 +1770,37 @@ public class VoyageScreen extends ScreenAdapter {
                 int t = q.targetAmount > 0 ? q.targetAmount : 1;
                 sub = "进行中 " + prog + "/" + t;
             }
-            TextButton btn = btn(q.title + "\n" + sub, () -> {
-                selectedQuest = qi;
-                rebuildMenu();
-            });
-            btn.getLabel().setFontScale(0.82f);
-            if (qi == activeIdx) {
-                btn.getLabel().setColor(Color.YELLOW);
-            }
-            if (qi == selectedQuest) {
-                // 0.26.6: this used skin.getDrawable("window"), which the skin
-                // has never registered — every quest-popup build crashed right
-                // here (claim/complete quests crash). Use the gold-rim patch
-                // highlight instead.
-                btn.setBackground(selectedRowBg());
-            }
-            listTbl.add(btn).width(186).height(44).left().padBottom(2).row();
+            Table row = new Table();
+            row.pad(8, 16, 8, 16);
+            boolean selected = qi == selectedQuest;
+            row.setBackground(selected ? questUi.selected : questUi.parchment);
+            Color ink = selected ? QuestUi.PAPER : QuestUi.INK;
+            Table copy = new Table();
+            copy.add(questUi.label(q.title, 24, ink)).left().growX().row();
+            Label status = questUi.label(sub, 20, selected && done ? QuestUi.JADE : ink);
+            copy.add(status).left().growX();
+            row.add(copy).expandX().fillX().padLeft(24);
+            TextureRegionDrawable icon = IconLib.hud("quest");
+            if (icon != null) row.add(new Image(icon)).size(32).padRight(16);
+            row.addListener(click(() -> { selectedQuest = qi; rebuildMenu(); }));
+            listTbl.add(row).width(400).height(64).row();
         }
         ScrollPane listSp = new ScrollPane(listTbl, game.skin);
+        listSp.setScrollingDisabled(true, false);
         listSp.setFadeScrollBars(false);
-        leftPane.add(listSp).width(186).height(452).left();
+        listSp.setOverscroll(false, false);
+        questListPane = listSp;
+        leftPane.add(listSp).width(400).height(512).left();
 
         // RIGHT pane: detail of the selected quest.
         Table rightPane = new Table();
-        rightPane.background(game.skin.getDrawable("panel"));
-        rightPane.pad(8f);
+        rightPane.background(questUi.inset);
+        rightPane.pad(24f);
         Table detTbl = new Table();
         if (selectedQuest >= 0 && selectedQuest < QUESTS.length) {
             QuestDef q = QUESTS[selectedQuest];
-            detTbl.add(new Label("任务详情", game.skin, "small")).width(292).left().padBottom(6).row();
-            detTbl.add(wrapLbl(q.description)).width(292).left().padBottom(6).row();
+            detTbl.add(questUi.label("任务详情", 26, QuestUi.PAPER)).width(568).left().padBottom(16).row();
+            detTbl.add(questWrap(q.description)).width(568).left().padBottom(16).row();
 
             String targetInfo;
             if (q.targetGood >= 0) {
@@ -1974,7 +1813,7 @@ public class VoyageScreen extends ScreenAdapter {
             } else {
                 targetInfo = "完成条件：见上方描述";
             }
-            detTbl.add(infoRow(targetInfo)).width(292).left().padBottom(4).row();
+            detTbl.add(questInfo(targetInfo)).width(568).left().padBottom(8).row();
 
             int prog = getQuestProgress(g, q.progressType);
             String progText;
@@ -1987,27 +1826,26 @@ public class VoyageScreen extends ScreenAdapter {
             } else {
                 progText = "进度：" + (prog > 0 ? "已完成" : "尚未");
             }
-            detTbl.add(infoRow(progText)).width(292).left().padBottom(4).row();
+            detTbl.add(questInfo(progText)).width(568).left().padBottom(8).row();
 
-            detTbl.add(infoRow("—— 奖励明细 ——")).width(292).left().padTop(4).padBottom(2).row();
-            detTbl.add(infoRow("银：" + q.silverReward + " 两（纯奖励，净赚为正）")).width(292).left().padBottom(1).row();
-            if (q.supplyReward > 0) {
-                detTbl.add(infoRow("补给：+" + q.supplyReward)).width(292).left().padBottom(1).row();
-            }
-            if (q.hullReward > 0) {
-                detTbl.add(infoRow("耐久：+" + q.hullReward)).width(292).left().padBottom(1).row();
-            }
+            detTbl.add(questInfo("—— 奖励明细 ——")).width(568).center().padTop(24).padBottom(16).row();
+            Table rewards = new Table();
+            questReward(rewards, "silver", "银两", q.silverReward + "两");
+            if (q.supplyReward > 0) questReward(rewards, "supply", "补给", "+" + q.supplyReward);
+            if (q.hullReward > 0) questReward(rewards, "hull", "耐久", "+" + q.hullReward);
+            detTbl.add(rewards).width(568).height(112).row();
+            detTbl.add(questInfo("（纯奖励，净赚为正）")).width(568).center().padBottom(16).row();
 
             if (q.targetGood >= 0) {
                 String note = "怎么做：低买高卖赚差价（可在「情报」里找便宜买点与贵卖点），"
                         + "奖励银 " + q.silverReward + " 两是差价之外的纯收益，不与成本相抵。";
-                detTbl.add(wrapLbl(note)).width(292).left().padTop(2).padBottom(4).row();
+                detTbl.add(questWrap(note)).width(568).left().padTop(2).padBottom(8).row();
             }
 
             boolean done = isQuestComplete(g, q);
             boolean claimed = isQuestClaimed(g, q);
             if (done && !claimed) {
-                detTbl.add(btn("领取奖励", () -> {
+                detTbl.add(questButton("领取奖励", true, () -> {
                     // The world keeps sailing while this popup is open at sea, so
                     // re-check on tap: the quest may have changed underneath us.
                     if (isQuestClaimed(g, q) || !isQuestComplete(g, q)) {
@@ -2024,18 +1862,20 @@ public class VoyageScreen extends ScreenAdapter {
                     }
                     selectedQuest = getActiveQuestIndex();
                     rebuildMenu();
-                })).width(292).height(48).left().padBottom(6).row();
+                })).width(568).height(64).left().padBottom(16).row();
             } else if (claimed) {
-                detTbl.add(infoRow("奖励已领取 ✓")).width(292).left().padBottom(6).row();
+                detTbl.add(questInfo("奖励已领取 ✓")).width(568).left().padBottom(16).row();
             } else {
-                detTbl.add(infoRow("未完成，无法领取")).width(292).left().padBottom(6).row();
+                TextButton pending = questUi.button("未完成，无法领取", false);
+                pending.setDisabled(true);
+                detTbl.add(pending).width(568).height(64).padBottom(16).row();
             }
 
             boolean hasNav = q.targetPort >= 0 || q.targetIsland >= 0;
             if (hasNav && g.dockedPort < 0 && !g.worldPaused()) {
                 final String dst = q.targetPort >= 0 ? Catalog.PORTS[q.targetPort]
                         : Catalog.ISLANDS[q.targetIsland];
-                detTbl.add(btn("前往目标：" + dst, () -> {
+                detTbl.add(questButton("前往目标：" + dst, false, () -> {
                     if (q.targetPort >= 0) {
                         g.startAutoSail(q.targetPort);
                     } else {
@@ -2044,23 +1884,50 @@ public class VoyageScreen extends ScreenAdapter {
                     g.toast("自动驶向 " + dst + "。");
                     closePopup();
                     rebuildMenu();
-                })).width(292).height(48).left().padBottom(4).row();
+                })).width(568).height(64).left().padBottom(8).row();
             } else if (hasNav && (g.dockedPort >= 0 || g.worldPaused())) {
-                detTbl.add(infoRow("（先离港再前往）")).width(292).left().padBottom(4).row();
+                detTbl.add(questInfo("（先离港再前往）")).width(568).left().padBottom(8).row();
             }
         } else if (getActiveQuestIndex() < 0) {
-            detTbl.add(wrapLbl("全部任务已完成、奖励已领。祝你在南海航程一路顺风！"))
-                    .width(292).left().padBottom(6).row();
+            detTbl.add(questWrap("全部任务已完成、奖励已领。祝你在南海航程一路顺风！"))
+                    .width(568).left().padBottom(16).row();
         } else {
-            detTbl.add(infoRow("点左边列表选一个任务，右侧看详情。")).width(292).left().padBottom(6).row();
+            detTbl.add(questInfo("点左边列表选一个任务，右侧看详情。")).width(568).left().padBottom(16).row();
         }
         ScrollPane detSp = new ScrollPane(detTbl, game.skin);
         detSp.setFadeScrollBars(false);
-        rightPane.add(detSp).width(306).height(452).left();
+        detSp.setScrollingDisabled(true, false);
+        detSp.setOverscroll(false, false);
+        rightPane.add(detSp).width(568).height(512).left();
 
-        panes.add(leftPane).width(202).height(488);
-        panes.add(rightPane).width(322).height(488).padLeft(8);
-        box.add(panes).width(536).row();
+        panes.add(leftPane).width(424).height(568);
+        panes.add(rightPane).width(640).height(568).padLeft(24);
+        box.add(panes).width(1088).height(568).row();
+    }
+
+    private Label questInfo(String text) {
+        return questUi.label(text, 24, QuestUi.PAPER);
+    }
+
+    private Label questWrap(String text) {
+        Label label = questInfo(text);
+        label.setWrap(true);
+        return label;
+    }
+
+    private TextButton questButton(String text, boolean primary, Runnable action) {
+        TextButton button = questUi.button(text, primary);
+        button.getLabel().setFontScale(1.25f);
+        button.addListener(click(action));
+        return button;
+    }
+
+    private void questReward(Table row, String icon, String name, String amount) {
+        Table card = new Table();
+        TextureRegionDrawable art = IconLib.hud(icon);
+        if (art != null) card.add(new Image(art)).size(48).padBottom(8).row();
+        card.add(questUi.label(name + " " + amount, 24, QuestUi.PAPER)).row();
+        row.add(card).expandX().fillX().pad(8);
     }
 
     /** The HUD shows at most one quest: the first unclaimed quest in the chain
@@ -2075,24 +1942,6 @@ public class VoyageScreen extends ScreenAdapter {
             return i;
         }
         return -1;
-    }
-
-    /** 船长菜单 (opened by tapping the top-left avatar): save now / load save /
-     * 退出登录 / close. While it is open the world is paused — VoyageScreen skips
-     * g.update() for Overlay.AVATAR, so time, events and movement all stop.
-     * 保存进度 writes the live state to the account's local save immediately;
-     * 读取存档 loads the most recent docking autosave (same handler as the fail
-     * popup). 0.26.6: 退出登录 saves once more, then returns to the login screen
-     * and clears the voyage session (never force-quits the app). */
-    private void avatarTable(Table box) {
-        menuHeader(box, "船长菜单 · 世界暂停");
-        box.add(wrapLbl("菜单开着时停船停事件。\n保存进度 = 立刻把当前状态写入本机存档；\n读取存档 = 回最近一次靠港自动档。"))
-                .width(MENU_W - 10).left().padBottom(8).row();
-        Table act = new Table();
-        act.add(btn("保存进度", this::saveNow)).width(MENU_W - 10).height(50).row();
-        act.add(btn("读取存档", this::tryReloadLatestSave)).width(MENU_W - 10).height(50).padTop(8).row();
-        act.add(btn("退出登录", this::logoutToLogin)).width(MENU_W - 10).height(50).padTop(8).row();
-        box.add(act).width(MENU_W).row();
     }
 
     /** 0.26.6 退出登录：先把当前进度写进本机存档，再回到登录页并清空会话。
@@ -2186,14 +2035,14 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void tabs(Table box) {
-        Table t = new Table();
-        // 0.26.3: 渔获（扬州钓的鱼）作为第四栏，共用货舱容量。
-        int[] w = new int[]{118, 118, 118, 118};
-        t.add(btn(cargoTab == 0 ? "[商货]" : "商货", () -> { cargoTab = 0; rebuildMenu(); })).width(w[0]).height(40);
-        t.add(btn(cargoTab == 1 ? "[异兽]" : "异兽", () -> { cargoTab = 1; rebuildMenu(); })).width(w[1]).height(40).padLeft(6);
-        t.add(btn(cargoTab == 2 ? "[草药]" : "草药", () -> { cargoTab = 2; rebuildMenu(); })).width(w[2]).height(40).padLeft(6);
-        t.add(btn(cargoTab == 3 ? "[渔获]" : "渔获", () -> { cargoTab = 3; rebuildMenu(); })).width(w[3]).height(40).padLeft(6);
-        box.add(t).width(MENU_W).padBottom(4).row();
+        Table tabs = new Table();
+        String[] names = {"商货", "异兽", "草药", "渔获"};
+        for (int i = 0; i < names.length; i++) {
+            final int tab = i;
+            TextButton button = cargoButton(names[i], cargoTab == i, () -> { cargoTab = tab; rebuildMenu(); });
+            tabs.add(button).size(224, 48).padRight(i < 3 ? 16 : 0);
+        }
+        box.add(tabs).size(944, 56).padBottom(8).row();
     }
 
     private void listItems(Table box, boolean trading) {
@@ -2206,7 +2055,8 @@ public class VoyageScreen extends ScreenAdapter {
                     s += "    本港 " + g.goodPrice(port, i) + " 两";
                 }
                 final String txt = s;
-                iconRow(box, IconLib.good(i), txt, () -> {
+                cargoItemRow(box, IconLib.good(i), Catalog.GOODS[i], g.trade[i],
+                        g.dockedPort >= 0 ? "本港 " + g.goodPrice(port, i) + " 两" : "靠港查看", selectedGood == i, () -> {
                     selectedGood = idx;
                     if (trading && g.dockedPort >= 0) {
                         priceReturnOverlay = Overlay.CARGO;
@@ -2224,7 +2074,8 @@ public class VoyageScreen extends ScreenAdapter {
                 }
                 String s = Catalog.BEASTS[i] + "    x" + g.beasts[i] + "    卖价 " + Catalog.BEAST_PRICE[i];
                 final String txt = s;
-                iconRow(box, IconLib.beast(i), txt, () -> {
+                cargoItemRow(box, IconLib.beast(i), Catalog.BEASTS[i], g.beasts[i],
+                        "卖价 " + Catalog.BEAST_PRICE[i] + " 两", selectedBeast == i, () -> {
                     selectedBeast = idx;
                     if (trading && g.dockedPort >= 0 && g.beasts[idx] > 0) {
                         g.toast(g.sellBeast(idx, 1));
@@ -2241,7 +2092,8 @@ public class VoyageScreen extends ScreenAdapter {
                 }
                 String s = Catalog.HERBS[i] + "    x" + g.herbs[i] + "    卖价 " + Catalog.HERB_PRICE[i] + "（只卖）";
                 final String txt = s;
-                iconRow(box, IconLib.herb(i), txt, () -> {
+                cargoItemRow(box, IconLib.herb(i), Catalog.HERBS[i], g.herbs[i],
+                        "卖价 " + Catalog.HERB_PRICE[i] + " 两", selectedHerb == i, () -> {
                     selectedHerb = idx;
                     if (trading && g.dockedPort >= 0 && g.herbs[idx] > 0) {
                         g.toast(g.sellHerb(idx, 1));
@@ -2258,7 +2110,8 @@ public class VoyageScreen extends ScreenAdapter {
                 }
                 String s = Catalog.FISH[i] + "    x" + g.fish[i] + "    卖价 " + Catalog.FISH_PRICE[i] + "（只卖）";
                 final String txt = s;
-                iconRow(box, IconLib.fish(i), txt, () -> {
+                cargoItemRow(box, IconLib.fish(i), Catalog.FISH[i], g.fish[i],
+                        "卖价 " + Catalog.FISH_PRICE[i] + " 两", selectedFish == i, () -> {
                     selectedFish = idx;
                     if (trading && g.dockedPort >= 0 && g.fish[idx] > 0) {
                         g.toast(g.sellFish(idx, 1));
@@ -2268,7 +2121,7 @@ public class VoyageScreen extends ScreenAdapter {
                 });
             }
             if (g.fishTotal() <= 0) {
-                box.add(infoRow("还没有渔获：到故乡扬州雇渔夫捕鱼。")).width(MENU_W - 10).left().row();
+                box.add(cargoLabel("还没有渔获：到故乡扬州雇渔夫捕鱼。", 24, QuestUi.PAPER)).width(944).height(96).row();
             }
         }
     }
@@ -2898,190 +2751,13 @@ public class VoyageScreen extends ScreenAdapter {
 
 
 
-    /** Fullscreen modal full map (0.26.5): a dim veil covers the whole HUD (the
-     * stage is hidden while overlay == Overlay.MAP, so no other control is
-     * visible or clickable). The chart artwork (assets/textures/chart.png,
-     * generated by tools/gen_chart.py) is drawn as a true 4:3 world projection
-     * across the whole map; 港口/岛屿 markers, labels, the player marker + radar
-     * pulse and the 关闭 button are drawn on top at matching world coords. */
+    private WorldMapOverlay worldMap() {
+        if (worldMap == null) worldMap = new WorldMapOverlay(game);
+        return worldMap;
+    }
+
     private void drawFullMap() {
-        ensureChartTexture();
-        float[] box = fullMapChartBox();
-        float ix = box[0], iy = box[1], iw = box[2], ih = box[3];
-        // fullscreen dim veil over the entire screen
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.02f, 0.04f, 0.07f, 0.96f);
-        shapes.rect(0f, 0f, HUD_W, HUD_H);
-        // map frame (dark) + soft inner mat
-        shapes.setColor(0.02f, 0.08f, 0.13f, 1f);
-        shapes.rect(FM_X, FM_Y, FM_W, FM_H);
-        shapes.setColor(0.03f, 0.07f, 0.10f, 1f);
-        shapes.rect(FM_X + 4f, FM_Y + 4f, FM_W - 8f, FM_H - 8f);
-        shapes.end();
-        // Chart artwork: textured base exactly matching the world projection.
-        game.batch.begin();
-        if (chartTex != null) {
-            game.batch.draw(chartTex, ix, iy, iw, ih);
-        } else {
-            // texture missing: fall back to the old vector sea+land base
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(0.05f, 0.15f, 0.24f, 1f);
-            shapes.rect(ix, iy, iw, ih);
-            shapes.end();
-            drawChartLand(ix, iy, iw, ih);
-        }
-        game.batch.end();
-        // island blobs + golden town icons (drawn over land/sea, under labels)
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ix, iy, iw, ih);
-            shapes.setColor(0f, 0f, 0f, 0.4f);
-            shapes.circle(xy[0] + 1.5f, xy[1] - 1.5f, 9f);
-            shapes.setColor(ISLE_C);
-            shapes.circle(xy[0], xy[1], 9f);
-            shapes.setColor(0.16f, 0.38f, 0.20f, 1f);
-            shapes.circle(xy[0], xy[1], 5f);
-        }
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], ix, iy, iw, ih);
-            shapes.setColor(0.20f, 0.12f, 0.05f, 1f);
-            shapes.rect(xy[0] - 5f, xy[1] - 5f, 10f, 10f);
-            shapes.setColor(0.93f, 0.80f, 0.30f, 1f);
-            shapes.rect(xy[0] - 3f, xy[1] - 3f, 6f, 6f);
-        }
-        // Player ship: white ring + bright yellow dot + heading tick, drawn last
-        // so it can never hide under a port/island marker or land block.
-        float[] me = mapToUi(g.x, g.y, ix, iy, iw, ih);
-        float rad = g.headingDeg * MathUtils.degreesToRadians;
-        shapes.setColor(1f, 1f, 1f, 0.95f);
-        shapes.circle(me[0], me[1], 8f);
-        shapes.setColor(1f, 0.84f, 0.15f, 1f);
-        shapes.circle(me[0], me[1], 6f);
-        shapes.setColor(0.25f, 0.18f, 0.03f, 1f);
-        shapes.rectLine(me[0], me[1],
-                me[0] + MathUtils.cos(rad) * 14f, me[1] + MathUtils.sin(rad) * 14f, 3.2f);
-        // 0.26.2: no fog/rain dimming — the map is always fully clear.
-        // 关闭 button (top-right corner inside the map)
-        shapes.setColor(0.45f, 0.16f, 0.14f, 0.98f);
-        shapes.rect(FM_CLOSE_X, FM_CLOSE_Y, FM_CLOSE_W, FM_CLOSE_H);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.82f, 0.88f, 0.95f, 0.9f);
-        shapes.rect(FM_X, FM_Y, FM_W, FM_H);
-        shapes.rect(FM_CLOSE_X, FM_CLOSE_Y, FM_CLOSE_W, FM_CLOSE_H);
-        shapes.end();
-        // 0.25.6 radar pulse: anchored at the player's REAL projected position
-        // (never a corner legend). Bright red center dot + 1-2 rings that keep
-        // expanding and fading out, looping while the map is open, so the ship
-        // is findable even when it sits right on a town icon.
-        float cx = me[0], cy = me[1];
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(1f, 0.12f, 0.09f, 1f);
-        shapes.circle(cx, cy, 7f);
-        shapes.setColor(1f, 0.15f, 0.10f, 0.16f);
-        shapes.circle(cx, cy, 14f);   // soft red glow under the rings
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        for (int ring = 0; ring < 2; ring++) {
-            float phase = (radarT / 1.6f + ring * 0.5f) % 1f;
-            float rr = 16f + phase * 100f;
-            float alpha = (1f - phase) * 0.9f;
-            shapes.setColor(1f, 0.18f, 0.10f, alpha);
-            for (float w = -1.5f; w <= 1.5f; w += 1.5f) {
-                shapes.circle(cx, cy, rr + w);   // 3 strokes -> visible line width
-            }
-        }
-        shapes.end();
-        // labels: title, 关闭, port names beside their icons, island names, 本船
-        game.batch.begin();
-        layout.setText(game.font, "南海海图：点港口/岛屿自动驶向");
-        game.font.draw(game.batch, "南海海图：点港口/岛屿自动驶向", FM_X + 16f, FM_Y + FM_H - 14f);
-        layout.setText(game.fontSmall, "关闭");
-        game.fontSmall.draw(game.batch, "关闭",
-                FM_CLOSE_X + (FM_CLOSE_W - layout.width) / 2f,
-                FM_CLOSE_Y + (FM_CLOSE_H + layout.height) / 2f);
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], ix, iy, iw, ih);
-            game.fontSmall.draw(game.batch, Catalog.PORTS[i], xy[0] + 8, xy[1] + 4);
-        }
-        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ix, iy, iw, ih);
-            game.fontSmall.draw(game.batch, Catalog.ISLANDS[i], xy[0] + 11, xy[1] - 12);
-        }
-        game.fontSmall.draw(game.batch, "本船", me[0] + 10, me[1] - 12);
-        game.batch.end();
-    }
-
-    /** 0.26.5 letterboxed chart area inside the full-map frame: the world is
-     * 4:3 and the frame is wider, so the chart fills the full height and the
-     * leftover side margins stay mat-dark (no distortion of the artwork). */
-    private float[] fullMapChartBox() {
-        float iy = FM_Y + 10f, ih = FM_H - 20f;
-        float worldRatio = Catalog.WORLD_W / Catalog.WORLD_H; // 4:3
-        float iw = ih * worldRatio;
-        float ix = FM_X + (FM_W - iw) / 2f;
-        return new float[] {ix, iy, iw, ih};
-    }
-
-    /** Loads the generated pixel chart (assets/textures/chart.png) once. */
-    private void ensureChartTexture() {
-        if (chartTex != null) return;
-        try {
-            chartTex = new Texture(Gdx.files.internal("textures/chart.png"));
-            chartTex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
-        } catch (Throwable ex) {
-            Gdx.app.error("VoyageScreen", "chart.png failed to load, using vector chart", ex);
-            chartTex = null;
-        }
-    }
-
-    /** Simplified land blocks: mainland China band + Indochina coast + Leizhou
-     * peninsula + Hainan island + Xisha reef dots, projected from Catalog world
-     * coords so ports/islands keep their relative positions (广州/潮州 NE on the
-     * mainland, 琼州/崖州 on Hainan, 佛逝/真腊/占城 SW on Indochina). */
-    private void drawChartLand(float ix, float iy, float iw, float ih) {
-        shapes.setColor(0.58f, 0.49f, 0.32f, 1f); // khaki land
-        // mainland China band across the top
-        rectFromWorld(0f, 2350f, 4800f, 3600f, ix, iy, iw, ih);
-        // Indochina block (west) + 占城 coast finger + southern Mekong bulge
-        rectFromWorld(0f, 700f, 1500f, 2350f, ix, iy, iw, ih);
-        rectFromWorld(1150f, 900f, 1500f, 1300f, ix, iy, iw, ih);
-        rectFromWorld(0f, 500f, 1150f, 800f, ix, iy, iw, ih);
-        // Hainan island (between the Leizhou peninsula and the open sea)
-        rectFromWorld(2150f, 1300f, 2550f, 2050f, ix, iy, iw, ih);
-        // rounded coast: Guangxi shore (合浦), Leizhou peninsula (雷州), Chaozhou
-        // shore (潮州), Indochina south tip, Hainan blobs
-        float[] a;
-        a = mapToUi(1800f, 2250f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 46f);
-        a = mapToUi(2550f, 2440f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 38f);
-        a = mapToUi(4300f, 2520f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 38f);
-        a = mapToUi(900f, 650f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 44f);
-        a = mapToUi(2350f, 1700f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 62f);
-        a = mapToUi(2350f, 1420f, ix, iy, iw, ih); shapes.circle(a[0], a[1], 56f);
-        // Xisha reef dots (southeast of Hainan)
-        shapes.setColor(0.54f, 0.45f, 0.30f, 1f);
-        float[][] xisha = {{2050f, 1100f}, {2150f, 1000f}, {2250f, 1080f},
-                {2100f, 1180f}, {2190f, 1140f}};
-        for (float[] d : xisha) {
-            float[] xy = mapToUi(d[0], d[1], ix, iy, iw, ih);
-            shapes.circle(xy[0], xy[1], 9f);
-        }
-    }
-
-    /** Axis-aligned world rect -> screen rect (the projection is linear and
-     * axis-aligned, so mapping the two corners is exact). */
-    private void rectFromWorld(float wx1, float wy1, float wx2, float wy2,
-                               float ix, float iy, float iw, float ih) {
-        float[] p1 = mapToUi(wx1, wy1, ix, iy, iw, ih);
-        float[] p2 = mapToUi(wx2, wy2, ix, iy, iw, ih);
-        shapes.rect(Math.min(p1[0], p2[0]), Math.min(p1[1], p2[1]),
-                Math.abs(p2[0] - p1[0]), Math.abs(p2[1] - p1[1]));
-    }
-
-    private float[] mapToUi(float wx, float wy, float x, float y, float w, float h) {
-        float px = x + (wx / Catalog.WORLD_W) * w;
-        float py = y + (wy / Catalog.WORLD_H) * h;
-        return new float[] {px, py};
+        worldMap().draw(shapes, g, radarT);
     }
 
     // ------------------------------------------------------------- input
@@ -3215,44 +2891,18 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private boolean handleFullMapTap(float hx, float hy) {
-        // 关闭 button and taps on the dimmed margin outside the map close it.
-        boolean inMap = hx >= FM_X && hx <= FM_X + FM_W && hy >= FM_Y && hy <= FM_Y + FM_H;
-        boolean inClose = hx >= FM_CLOSE_X && hx <= FM_CLOSE_X + FM_CLOSE_W
-                && hy >= FM_CLOSE_Y && hy <= FM_CLOSE_Y + FM_CLOSE_H;
-        if (!inMap || inClose) {
-            overlay = Overlay.NONE;
-            rebuildMenu();
-            return true;
-        }
-        // Letterboxed chart box: port/island markers are drawn there, so the
-        // hit radius must follow the same projection (0.26.5 full-map artwork).
-        float[] cb = fullMapChartBox();
-        float ix = cb[0], iy = cb[1], iw = cb[2], ih = cb[3];
-        // Tap a port -> auto-sail to it (radius covers the icon + name label).
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            float[] xy = mapToUi(Catalog.PORT_X[i], Catalog.PORT_Y[i], ix, iy, iw, ih);
-            float ddx = hx - xy[0], ddy = hy - xy[1];
-            if (ddx * ddx + ddy * ddy < 34 * 34) {
-                overlay = Overlay.NONE;
-                undockIfNeeded(); // full-map tap also sails from a closed-menu dock
-                g.startAutoSail(i);
-                rebuildMenu();
-                return true;
+        int target = worldMap().hit(hx, hy, HUD_W, HUD_H);
+        if (target == WorldMapOverlay.EMPTY) return true;
+        overlay = Overlay.NONE;
+        if (target >= 0) {
+            undockIfNeeded();
+            if (target < Catalog.PORTS.length) {
+                g.startAutoSail(target);
+            } else {
+                g.startAutoSailIsle(target - Catalog.PORTS.length);
             }
         }
-        // Tap an island -> auto-sail to it (arriving opens the island menu).
-        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            float[] xy = mapToUi(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ix, iy, iw, ih);
-            float ddx = hx - xy[0], ddy = hy - xy[1];
-            if (ddx * ddx + ddy * ddy < 28 * 28) {
-                overlay = Overlay.NONE;
-                undockIfNeeded();
-                g.startAutoSailIsle(i);
-                rebuildMenu();
-                return true;
-            }
-        }
-        // Blank tap inside the map keeps it open (close via the 关闭 button).
+        rebuildMenu();
         return true;
     }
 
@@ -3268,6 +2918,20 @@ public class VoyageScreen extends ScreenAdapter {
 
     @Override
     public void hide() {
+        if (questUi != null) { questUi.dispose(); questUi = null; }
+        if (intelUi != null) { intelUi.dispose(); intelUi = null; }
+        if (shopPanel != null) { shopPanel.dispose(); shopPanel = null; }
+        if (myShipPanel != null) { myShipPanel.dispose(); myShipPanel = null; }
+        if (captainPanel != null) { captainPanel.dispose(); captainPanel = null; }
+        if (portPanel != null) { portPanel.dispose(); portPanel = null; }
+        if (cargoUi != null) { cargoUi.dispose(); cargoUi = null; }
+        cargoListPane = null;
+        if (codexPanel != null) { codexPanel.dispose(); codexPanel = null; }
+        questListPane = null;
+        if (worldMap != null) {
+            worldMap.dispose();
+            worldMap = null;
+        }
         if (stage != null) {
             stage.dispose();
             stage = null;

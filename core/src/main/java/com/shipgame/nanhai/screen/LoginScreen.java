@@ -12,7 +12,12 @@ import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.Touchable;
-import com.badlogic.gdx.scenes.scene2d.ui.*;
+import com.badlogic.gdx.scenes.scene2d.ui.Image;
+import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.badlogic.gdx.scenes.scene2d.ui.Table;
+import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.ui.TextField;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
 import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
@@ -36,6 +41,7 @@ public class LoginScreen extends ScreenAdapter {
     public LoginScreen(NanHaiVoyage game) { this.game = game; }
 
     @Override public void show() {
+        switching = false;
         buildUi();
         if (game.updateChecker != null) {
             try { game.updateChecker.checkForUpdate(); } catch (Throwable ignored) { }
@@ -109,6 +115,7 @@ public class LoginScreen extends ScreenAdapter {
 
         TextField.TextFieldStyle fieldStyle = new TextField.TextFieldStyle(loginSkin.get("goldField", TextField.TextFieldStyle.class));
         fieldStyle.background = navy;
+        fieldStyle.focusedBackground = hover;
         fieldStyle.messageFont = loginSkin.getFont("font");
         fieldStyle.messageFontColor = Color.valueOf("A5B0AF");
         final TextField user = new TextField("summer", fieldStyle);
@@ -151,12 +158,16 @@ public class LoginScreen extends ScreenAdapter {
     }
 
     private void releaseUi() {
+        if (stage != null && Gdx.input.getInputProcessor() == stage) {
+            Gdx.input.setInputProcessor(null);
+        }
         if (stage != null) { stage.dispose(); stage = null; }
         if (bgTex != null) { bgTex.dispose(); bgTex = null; }
         if (loginSkin != null) { loginSkin.dispose(); loginSkin = null; }
     }
 
     private void doRegister(String u, String p) {
+        if (switching || stage == null) { return; }
         if (u == null || p == null || u.trim().isEmpty() || p.isEmpty()) {
             msg.setText("请输入用户名和密码。");
             return;
@@ -181,6 +192,7 @@ public class LoginScreen extends ScreenAdapter {
     }
 
     private void doLogin(String u, String p) {
+        if (switching || stage == null) { return; }
         Gdx.app.error("LoginScreen", "login click: user='" + (u == null ? "<null>" : u) + "'");
         if (u == null || p == null) {
             msg.setText("用户名或密码不对，或账号不存在。");
@@ -217,20 +229,26 @@ public class LoginScreen extends ScreenAdapter {
             return; // ignore double-taps: only one transition may run
         }
         switching = true;
+        final Stage pendingStage = stage;
         Gdx.input.setInputProcessor(null); // stop new input before the swap
         Gdx.app.error("LoginScreen", "posting setScreen(VoyageScreen) for next frame");
         Gdx.app.postRunnable(new Runnable() {
             @Override
             public void run() {
+                // A hidden or rebuilt login must not perform an obsolete transition.
+                if (stage != pendingStage || game.getScreen() != LoginScreen.this) {
+                    return;
+                }
                 Gdx.app.error("LoginScreen", "postRunnable fired, calling setScreen");
                 try {
                     game.setScreen(new VoyageScreen(game));
                     Gdx.app.error("LoginScreen", "setScreen returned OK, current=" + game.getScreen().getClass().getSimpleName());
                 } catch (Throwable t) {
                     Gdx.app.error("LoginScreen", "enter voyage failed", t);
-                    // Rebuild the login UI so the app stays usable.
+                    // setScreen assigns the new screen before calling show(). Restore
+                    // the actual active screen as well as its input and UI on failure.
                     try {
-                        buildUi();
+                        game.setScreen(LoginScreen.this);
                         msg.setText("进入航海失败，请重试（" + t.getClass().getSimpleName() + "）。");
                     } catch (Throwable ignored) {
                     }
@@ -260,7 +278,6 @@ public class LoginScreen extends ScreenAdapter {
     }
 
     @Override public void hide() {
-        Gdx.input.setInputProcessor(null);
         releaseUi();
     }
 
