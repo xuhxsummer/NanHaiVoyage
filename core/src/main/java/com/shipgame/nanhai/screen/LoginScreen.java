@@ -56,7 +56,7 @@ public class LoginScreen extends ScreenAdapter {
             params.size = size;
             params.characters = FreeTypeFontGenerator.DEFAULT_CHARS
                     + Gdx.files.internal("fonts/ui-chars.txt").readString("UTF-8")
-                    + "账号登录 · 进度自动同步云端公告客服设置暂未开放＊";
+                    + "本机登录 · 本机存档（关掉不丢）公告客服设置暂未开放＊";
             return generator.generateFont(params);
         } finally { generator.dispose(); }
     }
@@ -113,7 +113,7 @@ public class LoginScreen extends ScreenAdapter {
         Drawable red = frame("loginRed", "842D24");
         Drawable redDown = frame("loginRedDown", "A6402D");
         place(label("扬帆南海 · 通商万国", 32), 576, 672, 768, 56);
-        Label local = label("账号登录 · 进度自动同步云端", 24);
+        Label local = label("本机登录 · 本机存档（关掉不丢）", 24);
         local.setColor(Color.valueOf("D3C5A7"));
         place(local, 544, 600, 832, 40);
 
@@ -146,7 +146,7 @@ public class LoginScreen extends ScreenAdapter {
         register.addListener(new ClickListener() {
             @Override public void clicked(InputEvent e, float x, float y) { doRegister(user.getText(), pass.getText()); }
         });
-        msg = label("注册云端账号，或登录已有账号。", 24);
+        msg = label("注册一个本机账号，或登录已有账号。", 24);
         msg.setWrap(true);
         place(msg, 520, 144, 880, 72);
         String[] helpers = {"公告", "客服", "设置"};
@@ -171,40 +171,57 @@ public class LoginScreen extends ScreenAdapter {
         if (loginSkin != null) { loginSkin.dispose(); loginSkin = null; }
     }
 
-    private boolean authenticating;
-    private void doRegister(String u, String p) { authenticate(u, p, true); }
-    private void doLogin(String u, String p) { authenticate(u, p, false); }
-    private void authenticate(String u, String p, boolean register) {
-        if (switching || authenticating || stage == null) return;
+    private void doRegister(String u, String p) {
+        if (switching || stage == null) { return; }
         if (u == null || p == null || u.trim().isEmpty() || p.isEmpty()) {
-            msg.setText("请输入用户名和密码。"); return;
+            msg.setText("请输入用户名和密码。");
+            return;
         }
-        authenticating = true;
-        msg.setText("正在连接云端，请稍候……");
-        final Stage active = stage;
-        game.accounts.authenticate(u, p, register, new com.shipgame.nanhai.data.AccountStore.Callback<SaveData>() {
-            public void success(SaveData data) {
-                authenticating = false;
-                if (stage != active || game.getScreen() != LoginScreen.this) return;
-                try {
-                    game.state = data == null ? GameState.newGame() : GameState.fromSave(data);
-                } catch (RuntimeException e) {
-                    msg.setText("云端进度格式错误，请联系维护者。进度未覆盖。");
-                    return;
-                }
-                game.currentUser = u.trim();
-                if (data == null) game.accounts.sync(game.currentUser, game.state.toSave(),
-                        new com.shipgame.nanhai.data.AccountStore.Callback<Void>() {
-                            public void success(Void ignored) { }
-                            public void failure(String message) { if (game.state != null) game.state.toast(message); }
-                        });
-                enterVoyage();
+        try {
+            if (game.accounts.userExists(u)) {
+                msg.setText("账号已存在，请登录。");
+                return;
             }
-            public void failure(String message) {
-                authenticating = false;
-                if (stage == active) msg.setText(message);
+            if (!game.accounts.register(u, p)) {
+                msg.setText("注册失败。");
+                return;
             }
-        });
+            game.currentUser = u.trim();
+            game.state = GameState.newGame();
+            game.accounts.save(game.currentUser, game.state.toSave());
+            enterVoyage();
+        } catch (Throwable t) { // Errors too: nothing on this path may kill the process
+            Gdx.app.error("LoginScreen", "register failed", t);
+            msg.setText("注册错误。");
+        }
+    }
+
+    private void doLogin(String u, String p) {
+        if (switching || stage == null) { return; }
+        Gdx.app.error("LoginScreen", "login click: user='" + (u == null ? "<null>" : u) + "'");
+        if (u == null || p == null) {
+            msg.setText("用户名或密码不对，或账号不存在。");
+            return;
+        }
+        try {
+            if (!game.accounts.login(u, p)) {
+                msg.setText("用户名或密码不对，或账号不存在。");
+                return;
+            }
+            game.currentUser = u.trim();
+            SaveData s = game.accounts.load(game.currentUser);
+            game.state = s == null ? GameState.newGame() : GameState.fromSave(s);
+            if (s == null) {
+                game.accounts.save(game.currentUser, game.state.toSave());
+            }
+            Gdx.app.error("LoginScreen", "login ok for '" + game.currentUser
+                    + "', state dockedPort=" + game.state.dockedPort
+                    + ", lastPort=" + game.state.lastPort);
+            enterVoyage();
+        } catch (Throwable t) { // Errors too: corrupt data must not kill the app
+            Gdx.app.error("LoginScreen", "login failed", t);
+            msg.setText("登录错误。");
+        }
     }
 
     /**

@@ -38,6 +38,7 @@ import com.shipgame.nanhai.NanHaiVoyage;
 import com.shipgame.nanhai.PixelMapRenderer;
 import com.shipgame.nanhai.data.Catalog;
 import com.shipgame.nanhai.data.GameState;
+import com.shipgame.nanhai.data.SaveData;
 import com.shipgame.nanhai.ui.IconLib;
 import com.shipgame.nanhai.ui.QuestUi;
 import com.shipgame.nanhai.ui.IntelPanel;
@@ -120,7 +121,7 @@ public class VoyageScreen extends ScreenAdapter {
             + "3. 岛屿探索：靠近岛屿后可以搜索草药和《山海经》异兽。发现后会收入货舱并加入图鉴，也可以带到港口出售。\n"
             + "4. 海盗战斗：点击海盗船即可锁定并自动开炮。再次点击取消锁定，也可以驶出战斗范围逃跑。\n"
             + "5. 船只成长：耐久代表船的生命；仓库升级可增加货舱容量；编制升级后可以雇佣更多船员；炮火和船员会提高开炮速度。\n"
-            + "6. 补给与同步：回港可补给、修船、升级，进度自动同步。没钱补给时可以借债，但每次靠港会增加 2% 利息。\n"
+            + "6. 补给与存档：回港可补给、修船、升级和保存进度。没钱补给时可以借债，但每次靠港会增加 2% 利息。\n"
             + "7. 地图：点击右上角小地图打开全图，再点港口或岛屿，船会自动驶向目标。";
 
     private final NanHaiVoyage game;
@@ -665,7 +666,7 @@ public class VoyageScreen extends ScreenAdapter {
         }
         if (overlay == Overlay.AVATAR) {
             if (captainPanel == null) captainPanel = new CaptainMenuPanel(game.skin,
-                    this::logoutToLogin, this::closePopup);
+                    this::saveNow, this::tryReloadLatestSave, this::logoutToLogin, this::closePopup);
             captainPanel.setSize(CaptainMenuPanel.WIDTH, CaptainMenuPanel.HEIGHT);
             captainPanel.setTransform(true);
             captainPanel.setScale(2f / 3f);
@@ -1238,15 +1239,16 @@ public class VoyageScreen extends ScreenAdapter {
         menuHeader(box, "航程失败 · " + causeLabel);
         box.add(wrapLbl(causeLabel + "，航程失败。")).width(MENU_W - 10).left().padBottom(6).row();
         Table act = new Table();
+        act.add(btn("读取存档", this::tryReloadLatestSave)).width(240).height(46);
         act.add(btn("重新开始", this::restartNewGame)).width(240).height(46).padLeft(10);
         box.add(act).width(MENU_W).padTop(4).row();
         box.add(wrapLbl("重新开始：以新商人起步（银 1000、补给 500、耐久 500、空货舱），\n"
-                + "进度将自动同步至本账号，覆盖旧进度。"))
+                + "进度会写回本账号存档，覆盖旧档。读取存档则回最近一次靠港。"))
                 .width(MENU_W - 10).left().padTop(6).row();
     }
 
     /** 重新开始: discard everything and start a brand-new game (银 1000 / 补给 500 /
-     * 耐久 500 / empty holds), write it back into the current account's cloud state
+     * 耐久 500 / empty holds), write it back into the current account's local save
      * (overwriting the old slot) and enter the voyage at the start port. */
     private void restartNewGame() {
         GameState fresh = GameState.newGame();
@@ -1258,7 +1260,7 @@ public class VoyageScreen extends ScreenAdapter {
         dismissedIsland = -1;
         overlay = fresh.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE;
         rebuildMenu();
-        g.toast("重新开始：银 1000 / 补给 500 / 耐久 500，进度将自动同步。");
+        g.toast("重新开始：银 1000 / 补给 500 / 耐久 500，已写回本机存档。");
     }
 
     /** User-facing phrasing for the two failure reasons the model can set. */
@@ -1794,7 +1796,7 @@ public class VoyageScreen extends ScreenAdapter {
         return -1;
     }
 
-    /** Checkpoint before clearing the session and returning to login.
+    /** Save before clearing the session and returning to login.
      * Uses the same deferred screen-switch pattern as LoginScreen.enterVoyage
      * (never setScreen() from inside a click dispatch — Android surface race). */
     private void logoutToLogin() {
@@ -1802,16 +1804,18 @@ public class VoyageScreen extends ScreenAdapter {
             return;
         }
         logoutSwitching = true;
-        if (!persist()) {
-            logoutSwitching = false;
-            return; // Keep the running state if a durable checkpoint could not be written.
+        try {
+            if (game.currentUser != null) {
+                game.accounts.save(game.currentUser, g.toSave());
+            }
+        } catch (Throwable ignored) {
+            // 存档失败不能卡住退出登录。
         }
         Gdx.input.setInputProcessor(null);
         Gdx.app.postRunnable(new Runnable() {
             @Override
             public void run() {
                 try {
-                    game.accounts.logout();
                     game.currentUser = null;
                     game.state = null;
                     game.setScreen(new LoginScreen(game));
@@ -2053,29 +2057,47 @@ public class VoyageScreen extends ScreenAdapter {
         }
     }
 
-    private String syncError;
-    private float syncClock;
-
-    private boolean persist() {
+    private void persist() {
         if (game.currentUser != null && g != null) {
-            final GameState snapshotOwner = g;
-            return game.accounts.sync(game.currentUser, g.toSave(), new com.shipgame.nanhai.data.AccountStore.Callback<Void>() {
-                public void success(Void ignored) { syncError = null; }
-                public void failure(String message) {
-                    if (g == snapshotOwner && !message.equals(syncError)) g.toast(message);
-                    syncError = message;
-                }
-            });
+            game.accounts.save(game.currentUser, g.toSave());
         }
-        return true;
+    }
+
+    /** 存档按钮：立刻把当前进度写入本机存档。 */
+    private void saveNow() {
+        if (game.currentUser == null) {
+            g.toast("没有登录账号，无法保存进度。");
+            return;
+        }
+        game.accounts.save(game.currentUser, g.toSave());
+        g.toast("进度已保存到本机存档。");
+    }
+
+    /** 读档按钮 / 失败弹窗「读取存档」：回到最近一次写入的本机存档。
+     * 没有存档时提示并留在当前界面，不跳回登录。 */
+    private void tryReloadLatestSave() {
+        if (game.currentUser == null) {
+            g.toast("没有登录账号，无法读取存档。");
+            return;
+        }
+        SaveData s = game.accounts.load(game.currentUser);
+        if (s == null) {
+            g.toast("没有存档");
+            return;
+        }
+        game.state = GameState.fromSave(s);
+        g = game.state;
+        dismissedPort = -1;
+        dismissedIsland = -1;
+        dismissedFail = false;
+        overlay = g.dockedPort >= 0 ? Overlay.PORT : Overlay.NONE;
+        rebuildMenu();
     }
 
     // ------------------------------------------------------------ render
 
     @Override
     public void render(float delta) {
-        syncClock += delta;
-        if (syncClock >= 30f && g != null) { syncClock = 0; persist(); }
         if (!loggedFirstFrame) {
             loggedFirstFrame = true;
             Gdx.app.error("VoyageEnter", "first render frame OK (world x=" + (g == null ? -1 : g.x)

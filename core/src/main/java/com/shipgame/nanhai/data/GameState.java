@@ -353,7 +353,9 @@ public class GameState {
             g.questClaimSellPorcelain = s.questClaimSellPorcelain;
             g.questClaimIslandExplore = s.questClaimIslandExplore;
             copy(s.costPaid, g.costPaid);
-            // Cloud checkpoints preserve position; transient combat and navigation reset.
+            // Local save checkpoints preserve position; transient combat and
+            // navigation reset. A loaded save is always a playable dock snapshot
+            // (失败状态不写回读档)。
             g.x = (!Float.isNaN(s.x) && !Float.isInfinite(s.x)) ? s.x : Catalog.PORT_X[lp] + 90f;
             g.y = (!Float.isNaN(s.y) && !Float.isInfinite(s.y)) ? s.y : Catalog.PORT_Y[lp];
             g.headingDeg = (!Float.isNaN(s.headingDeg) && !Float.isInfinite(s.headingDeg)) ? s.headingDeg : 0f;
@@ -362,11 +364,13 @@ public class GameState {
             g.autoSail = false;
             g.autoSailPort = -1;
             g.autoSailIsle = -1;
-            g.failed = s.failed;
-            g.toast("云端进度已恢复。");
+            g.failed = false;
+            g.toast("已读取靠港存档。");
             return g;
-        } catch (RuntimeException t) {
-            throw new IllegalArgumentException("Invalid cloud state", t);
+        } catch (Throwable t) {
+            // Corrupt save: start a fresh game instead of dying.
+            Gdx.app.error("GameState", "save corrupt, starting new game", t);
+            return newGame();
         }
     }
 

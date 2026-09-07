@@ -1,5 +1,11 @@
 # Cloud save v1
 
+> **DISABLED for now — local saves active until a rented server is ready.**
+> Since v0.27.7 the client uses device-local register/login (Preferences) and
+> `saves/<user>.json`; `assets/cloud.properties` carries no URL. Keep this
+> backend, its Flyway SQL and the commented cloud `AccountStore` in the tree
+> for the future cloud rollout.
+
 The Android/libGDX client now uses a Spring Boot REST service. PostgreSQL is the deployment database; file-backed H2 in PostgreSQL mode provides zero-install local development. JDBC keeps the normalized SQL mapping explicit; Flyway owns schema changes. The `shared` module contains the wire DTO and catalog; it has no libGDX or Spring dependency. Spring Boot 3.5 uses Java 17 ([requirements](https://docs.spring.io/spring-boot/3.5/system-requirements.html)).
 
 ## Run locally
