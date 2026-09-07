@@ -2315,11 +2315,20 @@ public class VoyageScreen extends ScreenAdapter {
             // enemy HP bar and gun-range ring. This makes combat legible even if
             // the texture is tiny on a phone.
             float hp = g.pirateHpMax <= 0f ? 0f : MathUtils.clamp(g.pirateHp / g.pirateHpMax, 0f, 1f);
+            // 0.27.5: own-ship durability bar mirrors the pirate bar (dark tray
+            // + red fill) under the player hull, live-bound to hull/hullMax.
+            // Same visibility gate as the pirate bar: only while the pirate is
+            // alive, gone the moment combat ends.
+            float selfHp = g.hullMax <= 0f ? 0f : MathUtils.clamp(g.hull / g.hullMax, 0f, 1f);
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(0.08f, 0.03f, 0.03f, 0.95f);
             shapes.rect(g.pirateX - 34f, g.pirateY + 30f, 68f, 8f);
             shapes.setColor(PIRATE_C);
             shapes.rect(g.pirateX - 32f, g.pirateY + 32f, 64f * hp, 4f);
+            shapes.setColor(0.08f, 0.03f, 0.03f, 0.95f);
+            shapes.rect(g.x - 34f, g.y - 46f, 68f, 8f);
+            shapes.setColor(PIRATE_C);
+            shapes.rect(g.x - 32f, g.y - 44f, 64f * selfHp, 4f);
             shapes.end();
             shapes.begin(ShapeRenderer.ShapeType.Line);
             shapes.setColor(g.combatLock ? Color.YELLOW : PIRATE_C);
@@ -2329,6 +2338,9 @@ public class VoyageScreen extends ScreenAdapter {
             game.fontSmall.draw(game.batch,
                     g.combatLock ? "海盗 已锁定" : "海盗 点船锁定",
                     g.pirateX - 42f, g.pirateY + 56f);
+            // Tiny 「我」 tag under the own bar so the two red bars in combat
+            // can never be confused (pirate = above enemy, 我 = under player).
+            game.fontSmall.draw(game.batch, "我", g.x - 8f, g.y - 60f);
             game.batch.end();
         }
 
