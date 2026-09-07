@@ -23,7 +23,7 @@ import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
 import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
 import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.ScreenUtils;
-import com.badlogic.gdx.utils.viewport.FitViewport;
+import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.shipgame.nanhai.NanHaiVoyage;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.data.SaveData;
@@ -34,6 +34,7 @@ public class LoginScreen extends ScreenAdapter {
     private final NanHaiVoyage game;
     private Stage stage;
     private Texture bgTex;
+    private Image bg;              // 0.27.4: covers the full extended viewport
     private Skin loginSkin;
     private Label msg;
     private boolean switching;
@@ -95,14 +96,17 @@ public class LoginScreen extends ScreenAdapter {
 
     private void buildUi() {
         releaseUi();
-        stage = new Stage(new FitViewport(1920, 1080), game.batch);
+        // 0.27.4: ExtendViewport fills any aspect ratio edge-to-edge (no black
+        // or solid side bars); the artwork below is sized to cover the whole world.
+        stage = new Stage(new ExtendViewport(1920, 1080), game.batch);
         stage.getViewport().update(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), true);
         Gdx.input.setInputProcessor(stage);
         loginSkin = UiFactory.create(font(32), font(24));
         bgTex = new Texture(Gdx.files.internal("textures/login/harbor-hd.png"));
         bgTex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
-        Image bg = new Image(bgTex); bg.setTouchable(Touchable.disabled);
-        place(bg, 0, 0, 1920, 1080);
+        bg = new Image(bgTex); bg.setTouchable(Touchable.disabled);
+        place(bg, 0, 0, (int) stage.getViewport().getWorldWidth(),
+                (int) stage.getViewport().getWorldHeight());
 
         Drawable navy = frame("loginNavy", "102735F5");
         Drawable hover = frame("loginHover", "244655");
@@ -162,6 +166,7 @@ public class LoginScreen extends ScreenAdapter {
             Gdx.input.setInputProcessor(null);
         }
         if (stage != null) { stage.dispose(); stage = null; }
+        bg = null;
         if (bgTex != null) { bgTex.dispose(); bgTex = null; }
         if (loginSkin != null) { loginSkin.dispose(); loginSkin = null; }
     }
@@ -274,6 +279,9 @@ public class LoginScreen extends ScreenAdapter {
         // during the transition (IME hide, immersive-mode focus change).
         if (stage != null) {
             stage.getViewport().update(width, height, true);
+            if (bg != null) {
+                bg.setSize(stage.getViewport().getWorldWidth(), stage.getViewport().getWorldHeight());
+            }
         }
     }
 

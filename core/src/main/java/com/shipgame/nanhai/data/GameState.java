@@ -46,6 +46,9 @@ public class GameState {
     public boolean autoSail;
     public int autoSailPort = -1;   // auto-sail target port (>=0) when sailing to a port
     public int autoSailIsle = -1;   // auto-sail target island when sailing to an island
+    // 0.27.4: player ship collision radius used against the circular port/island
+    // hitboxes. Kept a bit under the sprite half-width so sailing feels fair.
+    private static final float SHIP_COLLIDE_R = 34f;
 
     // 0.26.2: weather is always 晴 (sunny). Wind still shifts so sailing keeps
     // its variety; rain/fog no longer occur.
@@ -547,7 +550,7 @@ public class GameState {
                 tx = Catalog.ISLAND_X[autoSailIsle];
                 ty = Catalog.ISLAND_Y[autoSailIsle];
             }
-            float want = MathUtils.atan2(ty - y, tx - x) * MathUtils.radiansToDegrees;
+            float want = autoSailCourse(tx, ty); // 0.27.4: steer around land
             headingDeg = approachAngle(headingDeg, want, Catalog.TURN_RATE * turnMult() * dt);
             holdAccel = true;
             holdDecel = false;
@@ -581,6 +584,106 @@ public class GameState {
         y += MathUtils.sin(rad) * speed * dt;
         x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
         y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
+        // 0.27.4: hard land collision — ports and islands are solid circles. The
+        // ship stops against them and slides along the edge instead of passing
+        // through (no tunneling: resolution runs every frame after integration).
+        // Obstacle radii stay a few units inside DOCK_RANGE/ISLAND_RANGE so the
+        // ship can still enter range for the tap-to-open menus.
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            resolveCollision(Catalog.PORT_X[i], Catalog.PORT_Y[i],
+                    Catalog.DOCK_RANGE - SHIP_COLLIDE_R - 6f);
+        }
+        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+            resolveCollision(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i],
+                    Catalog.ISLAND_RANGE - SHIP_COLLIDE_R - 6f);
+        }
+    }
+
+    /** Push the ship out of an obstacle circle and kill the inward velocity so
+     * it stops and slides tangentially. Boundary = obstacle radius + ship radius. */
+    private void resolveCollision(float ox, float oy, float hitR) {
+        float dx = x - ox, dy = y - oy;
+        float limit = hitR + SHIP_COLLIDE_R;
+        float d2 = dx * dx + dy * dy;
+        if (d2 >= limit * limit) {
+            return;
+        }
+        float d = (float) Math.sqrt(d2);
+        float nx, ny;
+        if (d < 0.001f) { // dead center (e.g. a legacy save parked on a port): push east
+            nx = 1f;
+            ny = 0f;
+        } else {
+            nx = dx / d;
+            ny = dy / d;
+        }
+        x = ox + nx * limit;
+        y = oy + ny * limit;
+        float vx = MathUtils.cosDeg(headingDeg) * speed;
+        float vy = MathUtils.sinDeg(headingDeg) * speed;
+        float vn = vx * nx + vy * ny; // radial component (negative = into the land)
+        if (vn < 0f) {
+            vx -= vn * nx;
+            vy -= vn * ny;
+            speed = (float) Math.sqrt(vx * vx + vy * vy);
+            if (speed > 0.5f) {
+                headingDeg = MathUtils.atan2(vy, vx) * MathUtils.radiansToDegrees;
+            } else {
+                speed = 0f; // head-on impact: stop dead against the land
+            }
+        }
+    }
+
+    /** 0.27.4: auto-sail course to (tx,ty) deflected around any port/island
+     * circle currently blocking the straight lane (same circular hitboxes as
+     * the collision model). The destination itself is never avoided. */
+    private float autoSailCourse(float tx, float ty) {
+        float dx = tx - x, dy = ty - y;
+        float targetDist = (float) Math.sqrt(dx * dx + dy * dy);
+        if (targetDist < 1f) {
+            return MathUtils.atan2(dy, dx) * MathUtils.radiansToDegrees;
+        }
+        float ux = dx / targetDist, uy = dy / targetDist;
+        float nearestT = Float.MAX_VALUE;
+        float avoidDeg = Float.NaN;
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            if (autoSailPort >= 0 && i == autoSailPort) continue;
+            float[] hit = avoidCheck(Catalog.PORT_X[i], Catalog.PORT_Y[i],
+                    Catalog.DOCK_RANGE - SHIP_COLLIDE_R - 6f, ux, uy, targetDist);
+            if (hit != null && hit[0] < nearestT) {
+                nearestT = hit[0];
+                avoidDeg = hit[1];
+            }
+        }
+        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+            if (autoSailIsle >= 0 && i == autoSailIsle) continue;
+            float[] hit = avoidCheck(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i],
+                    Catalog.ISLAND_RANGE - SHIP_COLLIDE_R - 6f, ux, uy, targetDist);
+            if (hit != null && hit[0] < nearestT) {
+                nearestT = hit[0];
+                avoidDeg = hit[1];
+            }
+        }
+        if (!Float.isNaN(avoidDeg)) {
+            return avoidDeg;
+        }
+        return MathUtils.atan2(dy, dx) * MathUtils.radiansToDegrees;
+    }
+
+    /** Returns {distanceAlongLane, courseDeg} when this circle blocks the lane,
+     * else null. The course heads at the tangent point on the side away from
+     * the obstacle's offset, so the ship rounds it and resumes the direct line. */
+    private float[] avoidCheck(float ox, float oy, float hitR, float ux, float uy, float targetDist) {
+        float r = hitR + SHIP_COLLIDE_R + 24f; // hull clearance margin
+        float oxr = ox - x, oyr = oy - y;
+        float t = oxr * ux + oyr * uy;               // distance along the lane
+        if (t < 40f || t > targetDist - 20f) return null; // behind / past the target
+        float lateral = oxr * uy - oyr * ux;         // signed offset from the lane
+        if (Math.abs(lateral) >= r) return null;     // lane is clear here
+        float side = lateral >= 0f ? -1f : 1f;
+        float wpx = ox + uy * side * r, wpy = oy - ux * side * r;
+        float deg = MathUtils.atan2(wpy - y, wpx - x) * MathUtils.radiansToDegrees;
+        return new float[]{t, deg};
     }
 
     private void drain(float dt) {

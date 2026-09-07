@@ -32,7 +32,7 @@ import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.ScreenUtils;
-import com.badlogic.gdx.utils.viewport.FitViewport;
+import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 import com.shipgame.nanhai.NanHaiVoyage;
 import com.shipgame.nanhai.PixelMapRenderer;
@@ -49,6 +49,8 @@ import com.shipgame.nanhai.ui.PortDockPanel;
 import com.shipgame.nanhai.ui.CodexPanel;
 import com.badlogic.gdx.scenes.scene2d.Group;
 import com.shipgame.nanhai.ui.WorldMapOverlay;
+import com.shipgame.nanhai.ui.VoyageHud;
+import com.shipgame.nanhai.ui.VoyageSceneArt;
 
 public class VoyageScreen extends ScreenAdapter {
 
@@ -167,6 +169,10 @@ public class VoyageScreen extends ScreenAdapter {
     private int selectedShip = -1;       // 0.26.4 商城：网格里点开的船（-1 = 网格）
     private int shopCat = 0;             // 船只 / 战船 / 货船 / 特种船
     private boolean logoutSwitching;     // 0.26.6 退出登录防重入
+    private VoyageHud voyageHud;
+    private VoyageSceneArt voyageArt;
+    private float seaTime;
+    private final int[] trackedQuests = {-1, -1};
     private Label hudClock;              // 0.26.4 左下 第N日 HH:MM 白天/夜晚
     private Label sunTip;                // 今日：晴 label under the minimap
 
@@ -193,7 +199,7 @@ public class VoyageScreen extends ScreenAdapter {
     private static final String[] STAT_NAMES = {"银两", "补给", "耐久", "船员"};
 
     private boolean stickActive;
-    private float stickCX = 170f, stickCY = 180f, stickR = 60f;
+    private float stickCX = 272f * 2f/3f, stickCY = 232f * 2f/3f, stickR = 152f * 2f/3f;
     private float stickKX, stickKY;
     private int stickPointer = -1;
     private boolean accelDown, decelDown;
@@ -224,8 +230,8 @@ public class VoyageScreen extends ScreenAdapter {
             disposeQuietly();
             g = (g != null) ? g : GameState.newGame();
             worldCam = new OrthographicCamera();
-            worldVp = new FitViewport(960, 540, worldCam);
-            hudVp = new FitViewport(HUD_W, HUD_H);
+            worldVp = new ExtendViewport(960, 540, worldCam); // 0.27.4: no side bars
+            hudVp = new ExtendViewport(HUD_W, HUD_H);
             stage = new Stage(hudVp, game.batch);
             shapes = new ShapeRenderer();
             pixelMap = null; // vector fallbacks still render the ship + map
@@ -244,9 +250,9 @@ public class VoyageScreen extends ScreenAdapter {
     private void buildAll() {
         g = game.state;
         worldCam = new OrthographicCamera();
-        worldVp = new FitViewport(960, 540, worldCam);
+        worldVp = new ExtendViewport(960, 540, worldCam); // 0.27.4: fills the screen
         Gdx.app.error("VoyageEnter", "world camera+viewport created");
-        hudVp = new FitViewport(HUD_W, HUD_H);
+        hudVp = new ExtendViewport(HUD_W, HUD_H);
         stage = new Stage(hudVp, game.batch);
         Gdx.app.error("VoyageEnter", "hud viewport+stage created");
         shapes = new ShapeRenderer();
@@ -303,6 +309,8 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void disposeQuietly() {
+        if (voyageHud != null) { voyageHud.dispose(); voyageHud = null; }
+        if (voyageArt != null) { voyageArt.dispose(); voyageArt = null; }
         if (questUi != null) { questUi.dispose(); questUi = null; }
         if (intelUi != null) { intelUi.dispose(); intelUi = null; }
         if (shopPanel != null) { shopPanel.dispose(); shopPanel = null; }
@@ -340,151 +348,46 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void buildHud() {
         stage.clear();
+        if (voyageHud != null) voyageHud.dispose();
+        if (voyageArt == null) voyageArt = new VoyageSceneArt();
+        Runnable world = () -> {
+            if (overlay == Overlay.NONE) { overlay = Overlay.MAP; rebuildMenu(); }
+        };
+        Runnable[] shortcuts = {this::toggleCargo, this::toggleCodex, this::toggleShop,
+                () -> {
+                    if (g.dockedPort >= 0) {
+                        overlay = Overlay.MARKET; marketBuyPage = marketSellPage = 0; rebuildMenu();
+                    } else { contextReopen(); }
+                }, this::toggleQuestOverlay,
+                () -> g.toast("活动尚未开放，敬请期待。"),
+                () -> g.toast("福利尚未开放，敬请期待。")};
+        voyageHud = new VoyageHud(game.skin, this::toggleAvatar, this::statClicked, shortcuts,
+                world, this::toggleMine, this::openIntel, this::contextReopen,
+                () -> { if (g.autoSail) { g.cancelAutoSail(); rebuildMenu(); } else world.run(); },
+                () -> { g.cancelAutoSail(); rebuildMenu(); }, () -> g.lockPirate(), () -> g.cancelLock(),
+                card -> {
+                    if (trackedQuests[card] >= 0) selectedQuest = trackedQuests[card];
+                    toggleQuestOverlay();
+                });
+        stage.addActor(voyageHud);
+        applyHudScale(); // 0.27.4: scale the 1920×1080 HUD grid over the full viewport
+        statVals = voyageHud.stats; hudLine = voyageHud.status; hudClock = voyageHud.clock;
+        btnAccel = voyageHud.accel; btnDecel = voyageHud.decel;
+        btnCancelAuto = voyageHud.cancelAuto; btnLockPirate = voyageHud.lock; btnCancelLock = voyageHud.cancelLock;
+        hold(btnAccel, true); hold(btnDecel, false);
+        menuRoot = new Table(); menuRoot.setFillParent(true);
+        menuRoot.setTouchable(Touchable.childrenOnly);
+        menuRoot.center().top().padTop(78); stage.addActor(menuRoot);
+    }
 
-        // --- Top-left: circular captain avatar (tap opens save/load). ---
-        // 0.27.0: navy disc inside a gold Tang ring, matching the premium chrome.
-        TextureRegionDrawable avatarIcon = IconLib.hud("avatar");
-        Table avatarBtn = new Table();
-        avatarBtn.setName("船长");
-        avatarBtn.setBackground(circleBg(new Color(0.09f, 0.15f, 0.23f, 0.96f)));
-        if (avatarIcon != null) {
-            avatarBtn.add(new Image(avatarIcon)).size(50, 50);
-        } else {
-            avatarBtn.add(new Label("船长", game.skin, "small"));
-        }
-        Image avRing = new Image(game.skin.getDrawable("ringGold"));
-        avRing.setTouchable(Touchable.disabled);
-        avRing.setSize(AV_R * 2f + 8f, AV_R * 2f + 8f);
-        avatarBtn.addActor(avRing);
-        avatarBtn.addListener(click(this::toggleAvatar));
-        avatarBtn.setBounds(AV_X - AV_R, AV_Y - AV_R, AV_R * 2f, AV_R * 2f);
-        stage.addActor(avatarBtn);
-
-        // --- Stat panel right of the avatar: ICON + NUMBER per resource, each
-        // cell tappable -> detail popup (Overlay.STAT). 0.27.0: gold-rimmed navy
-        // panel, gold numerals. ---
-        Table statPanel = new Table();
-        statPanel.setBackground(game.skin.getDrawable("panelGold"));
-        for (int i = 0; i < 4; i++) {
-            final int idx = i;
-            Table cell = new Table();
-            cell.setName(STAT_NAMES[i]);
-            TextureRegionDrawable ico = IconLib.hud(STAT_SLUGS[i]);
-            if (ico != null) {
-                cell.add(new Image(ico)).size(26, 26).padRight(4);
-            }
-            statVals[i] = new Label("0", game.skin, "goldSmall");
-            statVals[i].setAlignment(Align.left);
-            cell.add(statVals[i]).width(52).left();
-            cell.addListener(click(() -> statClicked(idx)));
-            statPanel.add(cell).width(STAT_CELL_W).height(STAT_CELL_H);
-        }
-        statPanel.pack();
-        statPanel.setPosition(AV_X + AV_R + 10f, STAT_Y);
-        stage.addActor(statPanel);
-
-        // Caption row under the stat panel: the rest of the voyage status.
-        // 0.27.0: pale gold so it reads as part of the ornate resource block.
-        hudLine = new Label("", game.skin, "goldSmall");
-        hudLine.setAlignment(Align.left);
-        hudLine.setWrap(false);
-        hudLine.setBounds(16f, STAT_Y - 28f, 660f, 22f);
-        stage.addActor(hudLine);
-
-        // 0.26.4 game clock, bottom-left corner: 第N日 HH:MM 白天/夜晚. The
-        // label is small so it never collides with the toast at screen bottom.
-        // 0.27.0: pale gold to match the HUD chrome.
-        hudClock = new Label("", game.skin, "goldSmall");
-        hudClock.setAlignment(Align.left);
-        hudClock.setWrap(false);
-        hudClock.setBounds(14f, 12f, 340f, 20f);
-        stage.addActor(hudClock);
-
-        // --- Bottom-right 加速 / 减速 (hold to keep sailing). ---
-        Table right = new Table();
-        right.setFillParent(true);
-        right.bottom().right().pad(16);
-        // 0.27.0: Tang chrome — jade 加速 / cinnabar 减速, gold-rimmed pills.
-        btnAccel = new TextButton("加速", game.skin, "jade");
-        btnDecel = new TextButton("减速", game.skin, "cinnabar");
-        hold(btnAccel, true);
-        hold(btnDecel, false);
-        right.add(btnAccel).width(124).height(72).pad(6).row();
-        right.add(btnDecel).width(124).height(72).pad(6);
-        stage.addActor(right);
-
-        // --- Sun weather icon + 今日：晴 tip under the round minimap (0.26.2:
-        // no rain, no fog).
-        TextureRegionDrawable sun = IconLib.hud("sun");
-        if (sun != null) {
-            Image sunImg = new Image(sun);
-            sunImg.setBounds(MM_CX - 100f, MM_CY - MM_R - 34f, 22f, 22f);
-            stage.addActor(sunImg);
-        }
-        sunTip = new Label("今日：晴", game.skin, "small");
-        sunTip.setBounds(MM_CX - 72f, MM_CY - MM_R - 30f, 150f, 20f);
-        stage.addActor(sunTip);
-
-        // --- Top-right icon rail (0.26.5): SEVEN round icon buttons in one
-        // horizontal row just LEFT of the round minimap: 货物/图鉴/港口/情报/
-        // 任务/商城/我的. Row is right-aligned against the minimap circle so the
-        // minimap stays at the far top-right; built right-to-left so the row can
-        // never wrap and buttons stay exactly one screen width apart.
-        String[] railSlugs = {"mine", "shop", "quest", "intel", "port", "codex", "cargo"};
-        String[] railNames = {"我的", "商城", "任务", "情报", "港口", "图鉴", "货物"};
-        Runnable[] railActs = {this::toggleMine, this::toggleShop, this::toggleQuestOverlay,
-                this::openIntel, this::contextReopen, this::toggleCodex, this::toggleCargo};
-        for (int i = 0; i < railSlugs.length; i++) {
-            Table b = iconBtn(railNames[i], railSlugs[i], railActs[i]);
-            float bx = NR_RIGHT_EDGE - i * (NR_D + NR_GAP) - NR_D;
-            b.setBounds(bx, NR_ROW_Y - NR_D / 2f, NR_D, NR_D);
-            stage.addActor(b);
-        }
-        // Active-quest card: a bordered frame (gold rim + dark body) with the ONE
-        // current quest's title + progress. Tapping it opens the full quest popup.
-        // 0.26.6 position = far right edge, mid/lower (QP_X/QP_Y), clear of the
-        // minimap, the rail row, 加速/减速 and the joystick.
-        Table frame = new Table();
-        frame.setName("任务卡");
-        frame.setBackground(borderedBg());
-        frame.addListener(click(this::toggleQuestOverlay));
-        Table body = new Table();
-        body.setBackground(game.skin.getDrawable("panelGold"));
-        questCardLabel = new Label("", game.skin, "small");
-        questCardLabel.setAlignment(Align.center);
-        questCardLabel.setEllipsis(false);
-        body.add(questCardLabel).expand().fill().pad(2);
-        frame.add(body).grow().pad(2);
-        frame.setVisible(false);
-        frame.setBounds(QP_X, QP_Y, QP_W, QP_H);
-        stage.addActor(frame);
-        questCard = frame;
-        questCardLabel.setVisible(false);
-
-        // Contextual 取消自动 / 取消锁定 — slim strip at the very top-center so no
-        // popup or HUD element can swallow their touches.
-        btnCancelAuto = new TextButton("取消自动", game.skin, "danger");
-        btnLockPirate = new TextButton("锁定海盗", game.skin, "go");
-        btnCancelLock = new TextButton("取消锁定", game.skin, "danger");
-        btnCancelAuto.addListener(click(() -> {
-            g.cancelAutoSail();
-            rebuildMenu();
-        }));
-        btnLockPirate.addListener(click(() -> g.lockPirate()));
-        btnCancelLock.addListener(click(() -> g.cancelLock()));
-        Table mid = new Table();
-        mid.setFillParent(true);
-        mid.top().padTop(8);
-        mid.add(btnCancelAuto).width(132).height(38).pad(4);
-        mid.add(btnLockPirate).width(132).height(38).pad(4);
-        mid.add(btnCancelLock).width(132).height(38).pad(4);
-        stage.addActor(mid);
-
-        // Popup root: right side, clear of the minimap circle on top-right.
-        menuRoot = new Table();
-        menuRoot.setFillParent(true);
-        menuRoot.center().top().padTop(78);
-        stage.addActor(menuRoot);
+    /** Keep the full HUD visible and steering hit areas aligned on wide devices. */
+    private void applyHudScale() {
+        if (voyageHud == null || hudVp == null) return;
+        voyageHud.layoutViewport(hudVp.getWorldWidth(), hudVp.getWorldHeight());
+        float scale = voyageHud.getScaleX();
+        stickCX = 272f * scale;
+        stickCY = 232f * scale;
+        stickR = 152f * scale;
     }
 
     /** Tap a top stat cell: opens (or switches) the detail popup for that stat. */
@@ -571,26 +474,6 @@ public class VoyageScreen extends ScreenAdapter {
         }
     }
 
-    /** Round icon button: navy disc + centered pixel icon inside a gold Tang
-     * ring, named after its meaning so the desktop smoke test can find it. */
-    private Table iconBtn(String name, String slug, Runnable onTap) {
-        Table b = new Table();
-        b.setName(name);
-        b.setBackground(circleBg(new Color(0.09f, 0.15f, 0.23f, 0.96f)));
-        TextureRegionDrawable ico = IconLib.hud(slug);
-        if (ico != null) {
-            b.add(new Image(ico)).size(30, 30);
-        } else {
-            b.add(new Label(name, game.skin, "small"));
-        }
-        Image ring = new Image(game.skin.getDrawable("ringGold"));
-        ring.setTouchable(Touchable.disabled);
-        ring.setSize(NR_D + 8f, NR_D + 8f);
-        b.addActor(ring);
-        b.addListener(click(onTap));
-        return b;
-    }
-
     /** Highlight for the currently selected quest row (0.26.6): the same
      * gold-rimmed 9-patch used by the active-quest card, so the selected quest
      * reads clearly against the TextButton rows. */
@@ -601,25 +484,6 @@ public class VoyageScreen extends ScreenAdapter {
             return nd.tint(new Color(0.66f, 0.55f, 0.24f, 1f));
         }
         return base;
-    }
-
-    /** Gold-rimmed card background: an 8px 9-patch white texture tinted gold
-     * under the dark panel, padded 2px, so the quest card has a real frame. */
-    private Drawable borderedBg() {
-        Drawable base = game.skin.getDrawable("patch");
-        if (base instanceof NinePatchDrawable) {
-            NinePatchDrawable nd = (NinePatchDrawable) base;
-            return nd.tint(new Color(0.93f, 0.78f, 0.28f, 1f));
-        }
-        return base;
-    }
-
-    /** Tinted copy of the white circle texture (never mutates the skin copy). */
-    private Drawable circleBg(Color c) {
-        TextureRegionDrawable base = (TextureRegionDrawable) game.skin.getDrawable("circle");
-        TextureRegionDrawable d = new TextureRegionDrawable(base.getRegion());
-        d.tint(c);
-        return d;
     }
 
     /** The round rail 任务 icon and the active-quest card both open/close the
@@ -1844,38 +1708,38 @@ public class VoyageScreen extends ScreenAdapter {
 
             boolean done = isQuestComplete(g, q);
             boolean claimed = isQuestClaimed(g, q);
-            if (done && !claimed) {
-                detTbl.add(questButton("领取奖励", true, () -> {
-                    // The world keeps sailing while this popup is open at sea, so
-                    // re-check on tap: the quest may have changed underneath us.
-                    if (isQuestClaimed(g, q) || !isQuestComplete(g, q)) {
-                        g.toast("这个任务现在不能领奖。");
-                        rebuildMenu();
-                        return;
-                    }
-                    String msg = claimQuest(g, q);
-                    g.toast(msg);
-                    try {
-                        persist(); // a save failure must never crash the claim
-                    } catch (Throwable t) {
-                        Gdx.app.error("VoyageScreen", "persist after quest claim failed", t);
-                    }
-                    selectedQuest = getActiveQuestIndex();
-                    rebuildMenu();
-                })).width(568).height(64).left().padBottom(16).row();
-            } else if (claimed) {
-                detTbl.add(questInfo("奖励已领取 ✓")).width(568).left().padBottom(16).row();
-            } else {
-                TextButton pending = questUi.button("未完成，无法领取", false);
-                pending.setDisabled(true);
-                detTbl.add(pending).width(568).height(64).padBottom(16).row();
-            }
-
             boolean hasNav = q.targetPort >= 0 || q.targetIsland >= 0;
-            if (hasNav && g.dockedPort < 0 && !g.worldPaused()) {
+            boolean canGo = hasNav && g.dockedPort < 0 && !g.worldPaused();
+            // 0.27.4: 领取 / 前往 side by side; 领取 is disabled until the quest is
+            // complete and unclaimed, 前往 until the ship is at sea.
+            Table actions = new Table();
+            TextButton claim = questUi.button("领取", true);
+            claim.setDisabled(!(done && !claimed));
+            claim.addListener(click(() -> {
+                // The world keeps sailing while this popup is open at sea, so
+                // re-check on tap: the quest may have changed underneath us.
+                if (isQuestClaimed(g, q) || !isQuestComplete(g, q)) {
+                    g.toast("这个任务现在不能领奖。");
+                    rebuildMenu();
+                    return;
+                }
+                String msg = claimQuest(g, q);
+                g.toast(msg);
+                try {
+                    persist(); // a save failure must never crash the claim
+                } catch (Throwable t) {
+                    Gdx.app.error("VoyageScreen", "persist after quest claim failed", t);
+                }
+                selectedQuest = getActiveQuestIndex();
+                rebuildMenu();
+            }));
+            actions.add(claim).width(270).height(64);
+            if (hasNav) {
                 final String dst = q.targetPort >= 0 ? Catalog.PORTS[q.targetPort]
                         : Catalog.ISLANDS[q.targetIsland];
-                detTbl.add(questButton("前往目标：" + dst, false, () -> {
+                TextButton go = questUi.button("前往", false);
+                go.setDisabled(!canGo);
+                go.addListener(click(() -> {
                     if (q.targetPort >= 0) {
                         g.startAutoSail(q.targetPort);
                     } else {
@@ -1884,8 +1748,16 @@ public class VoyageScreen extends ScreenAdapter {
                     g.toast("自动驶向 " + dst + "。");
                     closePopup();
                     rebuildMenu();
-                })).width(568).height(64).left().padBottom(8).row();
-            } else if (hasNav && (g.dockedPort >= 0 || g.worldPaused())) {
+                }));
+                actions.add(go).width(270).height(64).padLeft(28);
+            }
+            detTbl.add(actions).width(568).left().padBottom(8).row();
+            if (claimed) {
+                detTbl.add(questInfo("奖励已领取 ✓")).width(568).left().padBottom(16).row();
+            } else if (!done) {
+                detTbl.add(questInfo("（完成目标后即可领取）")).width(568).left().padBottom(16).row();
+            }
+            if (hasNav && !canGo) {
                 detTbl.add(questInfo("（先离港再前往）")).width(568).left().padBottom(8).row();
             }
         } else if (getActiveQuestIndex() < 0) {
@@ -2173,29 +2045,25 @@ public class VoyageScreen extends ScreenAdapter {
         return b;
     }
 
-    /** Active-quest card under the rail (0.26.5): the ONE current active quest
-     * (first incomplete/unclaimed) shown as 标题（进度）. The card hides while any
-     * popup is open so it never collides with overlays. */
+    /** Existing sequential quests are shown as current + next, never invented side quests. */
     private void updateQuestButtonLabel() {
-        if (g == null || questCard == null || questCardLabel == null) return;
-        int activeIdx = getActiveQuestIndex();
-        if (activeIdx >= 0 && activeIdx < QUESTS.length) {
-            QuestDef q = QUESTS[activeIdx];
-            int prog = getQuestProgress(g, q.progressType);
-            int target = q.targetAmount > 0 ? q.targetAmount : 1;
-            String body;
-            if (isQuestComplete(g, q)) {
-                body = q.title + "（可领奖）";
-            } else if (q.targetAmount <= 0) {
-                body = q.title + "（欠 " + prog + " 两）";
-            } else {
-                body = q.title + "（" + prog + "/" + target + "）";
+        if (g == null || voyageHud == null) return;
+        int active = getActiveQuestIndex();
+        trackedQuests[0] = active;
+        trackedQuests[1] = active >= 0 && active + 1 < QUESTS.length ? active + 1 : -1;
+        for (int card = 0; card < 2; card++) {
+            int index = trackedQuests[card];
+            if (index < 0) {
+                voyageHud.quest(card, card == 0 ? "航海日志 · 功成" : "下一程 · 自由航行",
+                        card == 0 ? "当前任务均已完成，继续探索南海。" : "寻访各港，发现更多奇珍异兽。", "点击查看任务日志");
+                continue;
             }
-            questCardLabel.setText(body);
+            QuestDef q = QUESTS[index];
+            int progress = getQuestProgress(g, q.progressType);
+            String count = q.targetAmount <= 0 ? "欠款 " + progress + " 两" : "进度 " + Math.min(progress, q.targetAmount) + "/" + q.targetAmount;
+            voyageHud.quest(card, (card == 0 ? "主线 · " : "下一程 · ") + q.title,
+                    q.description, card == 1 ? "待前序领奖解锁" : isQuestComplete(g, q) ? "已完成 · 点击领奖" : count);
         }
-        boolean show = activeIdx >= 0 && overlay == Overlay.NONE;
-        questCard.setVisible(show);
-        questCardLabel.setVisible(show);
     }
 
     /** 任务追踪：看过一次「情报」或某货的「行情」即完成 tutorial quest 6. */
@@ -2312,14 +2180,18 @@ public class VoyageScreen extends ScreenAdapter {
         btnCancelLock.setVisible(g.combatLock && overlay != Overlay.MAP);
         hudLine.setText(statusText());
         updateStatValues();   // live numbers in the top stat cells
-        updateQuestButtonLabel(); // active-quest pill stays current while sailing
+        updateQuestButtonLabel();
+        int activeQuest = getActiveQuestIndex();
+        voyageHud.update(g, overlay == Overlay.NONE,
+                activeQuest >= 0 && isQuestComplete(g, QUESTS[activeQuest]), stickKX, stickKY);
+        seaTime += delta;
 
         ScreenUtils.clear(WATER); // 0.26.2: 无雨雾，永远晴天
         // (dead RAIN/FOG water tints removed; weather is permanently CLEAR)
         Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(com.badlogic.gdx.graphics.GL20.GL_SRC_ALPHA, com.badlogic.gdx.graphics.GL20.GL_ONE_MINUS_SRC_ALPHA);
 
-        worldCam.position.set(g.x, g.y, 0);
+        worldCam.position.set(g.x, g.y + 56f, 0);
         worldCam.update();
         worldVp.apply();
         shapes.setProjectionMatrix(worldCam.combined);
@@ -2338,8 +2210,6 @@ public class VoyageScreen extends ScreenAdapter {
         if (mapOpen) {
             radarT += delta;   // freezes while the map is closed, resumes on reopen
             drawFullMap();
-        } else {
-            drawHudDecor();
         }
         stage.getRoot().setVisible(!mapOpen);
         stage.act(delta);
@@ -2347,12 +2217,6 @@ public class VoyageScreen extends ScreenAdapter {
             stage.draw();
         }
 
-        if (!mapOpen && g.toastT > 0) {
-            game.batch.begin();
-            layout.setText(game.font, g.toast);
-            game.font.draw(game.batch, g.toast, (HUD_W - layout.width) / 2f, 46f);
-            game.batch.end();
-        }
     }
 
     private String statusText() {
@@ -2401,11 +2265,12 @@ public class VoyageScreen extends ScreenAdapter {
     private void drawWorld() {
         if (pixelMap != null) {
             game.batch.begin();
-            pixelMap.drawWater(game.batch, g);
+            voyageArt.sea(game.batch, g, seaTime);
             game.batch.end();
             // Islands / ports / pirate only — the player ship is layered last.
             game.batch.begin();
-            pixelMap.drawMarkers(game.batch, g);
+            pixelMap.drawMarkers(game.batch, g, false);
+            voyageArt.ports(game.batch, g);
             game.batch.end();
         }
         // The camera centers on the ship (see render) and the ship is always drawn
@@ -2416,11 +2281,12 @@ public class VoyageScreen extends ScreenAdapter {
         // and the app dies on the first voyage frame (the 0.24.x login crash).
         boolean shipSpriteOk = pixelMap != null && pixelMap.shipSpriteOk;
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        drawShipSilhouette(g.x, g.y, g.headingDeg, shipSpriteOk ? 0.94f : 1.5f);
+        if (voyageArt == null) drawShipSilhouette(g.x, g.y, g.headingDeg, shipSpriteOk ? 0.94f : 1.5f);
         shapes.end();
-        if (shipSpriteOk) {
+        if (voyageArt != null || shipSpriteOk) {
             game.batch.begin();
-            pixelMap.drawShip(game.batch, g);
+            if (voyageArt != null) voyageArt.ship(game.batch, g);
+            else pixelMap.drawShip(game.batch, g);
             game.batch.end();
         }
 
@@ -2469,6 +2335,7 @@ public class VoyageScreen extends ScreenAdapter {
         game.batch.begin();
         BitmapFont f = game.fontSmall;
         for (int i = 0; i < Catalog.PORTS.length; i++) {
+            if (i == g.dockedPort || i == g.nearestPortInRange()) continue;
             f.draw(game.batch, Catalog.PORTS[i], Catalog.PORT_X[i] + 18, Catalog.PORT_Y[i] + 10);
         }
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
@@ -2503,254 +2370,6 @@ public class VoyageScreen extends ScreenAdapter {
         return !Float.isNaN(v) && !Float.isInfinite(v);
     }
 
-    // ------------------------------------------------------- HUD drawing
-
-    /** Round minimap (top-right), virtual stick (left) and captain avatar. */
-    private void drawHudDecor() {
-        boolean mapOpen = overlay == Overlay.MAP;
-        if (!mapOpen) {
-            drawRoundMinimap();
-        }
-        drawAvatarAndStick();
-    }
-
-    /** Captain avatar (top-left, under the status line) + bottom-left joystick. */
-    private void drawAvatarAndStick() {
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        // avatar ring + round color block (0.27.0 Tang gold ring, navy disc)
-        shapes.setColor(0.98f, 0.80f, 0.40f, 1f);
-        shapes.circle(AV_X, AV_Y, AV_R + 3f);
-        shapes.setColor(0.16f, 0.28f, 0.44f, 1f);
-        shapes.circle(AV_X, AV_Y, AV_R);
-        shapes.setColor(0.30f, 0.44f, 0.62f, 1f);
-        shapes.circle(AV_X, AV_Y, AV_R * 0.55f);
-
-        // virtual joystick base (bottom-left)
-        shapes.setColor(0f, 0f, 0f, 0.35f);
-        shapes.circle(stickCX, stickCY, stickR);
-        shapes.setColor(0.09f, 0.16f, 0.25f, 0.6f);
-        shapes.circle(stickCX, stickCY, stickR - 7f);
-        shapes.setColor(0.88f, 0.82f, 0.70f, 0.55f);
-        float knx = stickCX, kny = stickCY;
-        if (stickActive) {
-            knx = stickCX + stickKX * (stickR - 20f);
-            kny = stickCY + stickKY * (stickR - 20f);
-        }
-        shapes.circle(knx, kny, 20f);
-        shapes.end();
-
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.90f, 0.78f, 0.42f, 0.85f); // gold stick rim
-        shapes.circle(stickCX, stickCY, stickR);
-        shapes.setColor(0.98f, 0.82f, 0.46f, 0.95f);
-        shapes.circle(AV_X, AV_Y, AV_R + 3f);
-        shapes.end();
-
-        game.batch.begin();
-        layout.setText(game.fontSmall, "船长");
-        game.fontSmall.draw(game.batch, "船长", AV_X + AV_R + 10f, AV_Y + 4f);
-        game.batch.end();
-    }
-
-    /** Round minimap (0.27.2): a tracking viewport instead of the old static
-     * whole-chart miniature. The map content follows the ship — a square world
-     * region around the ship (side = 2 * MM_WORLD_HALF, matching the main
-     * camera's width) is shown inside the circle, clamped to the world bounds
-     * so the map never scrolls past the sea edge. The chart is baked once from
-     * the whole world into miniChartTex (masked to a circle so no rectangular
-     * corner artifact can show), and each frame draws the sub-region covering
-     * the clamped viewport. The ship marker stays centered and stable, with a
-     * heading tick and a soft glow; near the world borders it drifts toward the
-     * circle edge the way clamped tracking minimaps do. */
-    private void drawRoundMinimap() {
-        finishMiniChartTexture(); // promote the just-baked pixmap to a texture
-        ensureMiniChartTexture();
-        if (miniChartTex == null) {
-            return;
-        }
-        // Tracking viewport: world rect centered on the ship, clamped to bounds.
-        float wx0 = MathUtils.clamp(g.x - MM_WORLD_HALF, 0f, Catalog.WORLD_W);
-        float wx1 = MathUtils.clamp(g.x + MM_WORLD_HALF, 0f, Catalog.WORLD_W);
-        float wy0 = MathUtils.clamp(g.y - MM_WORLD_HALF, 0f, Catalog.WORLD_H);
-        float wy1 = MathUtils.clamp(g.y + MM_WORLD_HALF, 0f, Catalog.WORLD_H);
-        // Sub-region of the baked whole-chart texture covering that rect.
-        // (Matches the baking transform: pixmap row 0 is the world's north edge.)
-        float texW = miniHalf * 2f;
-        float scale = texW / Catalog.WORLD_W;
-        float off = (texW - Catalog.WORLD_H * scale) / 2f;
-        float u0 = wx0 / Catalog.WORLD_W;
-        float u1 = wx1 / Catalog.WORLD_W;
-        float vTop = (off + wy1 * scale) / texW;
-        float vBot = (off + wy0 * scale) / texW;
-        TextureRegion view = new TextureRegion(miniChartTex, u0, vTop, u1, vBot);
-
-        Gdx.gl.glEnable(GL20.GL_BLEND);
-        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        game.batch.begin();
-        game.batch.draw(view, MM_CX - miniHalf, MM_CY - miniHalf,
-                miniHalf * 2f, miniHalf * 2f);
-        game.batch.end();
-
-        // Ship marker: centered when unclamped, drifting toward the circle edge
-        // near the world borders (tracking-viewport behavior).
-        float pxPerUnit = (miniHalf * 2f) / (wx1 - wx0);
-        float shipSX = MM_CX - miniHalf + (g.x - wx0) * pxPerUnit;
-        float shipSY = MM_CY - miniHalf + (g.y - wy0) * pxPerUnit;
-
-        // Soft white glow under the marker so it pops against sea and land alike.
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(1f, 1f, 1f, 0.10f);
-        shapes.circle(shipSX, shipSY, 8.5f);
-        shapes.setColor(1f, 1f, 1f, 0.22f);
-        shapes.circle(shipSX, shipSY, 6f);
-        shapes.setColor(1f, 1f, 1f, 1f);
-        shapes.circle(shipSX, shipSY, 3.6f);
-        float rad = g.headingDeg * MathUtils.degreesToRadians;
-        shapes.rectLine(shipSX, shipSY, shipSX + MathUtils.cos(rad) * 9f,
-                shipSY + MathUtils.sin(rad) * 9f, 2f);
-        // Soft rim: concentric translucent rings that fade the chart's hard edge
-        // into the dark ring — keeps the circular look crisp.
-        for (int k = 0; k < 10; k++) {
-            float t = k / 10f;
-            float rr = MM_R - 2f - 2f * t;
-            float alpha = 0.15f * (1f - t);
-            shapes.setColor(0.03f, 0.09f, 0.14f, alpha);
-            shapes.circle(MM_CX, MM_CY, rr);
-        }
-        shapes.end();
-        // Outer ring (thin, bright gold) + tiny inner glint ring (0.27.0 chrome).
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.98f, 0.80f, 0.40f, 0.95f);
-        shapes.circle(MM_CX, MM_CY, MM_R + 4.5f);
-        shapes.setColor(0.85f, 0.68f, 0.32f, 0.7f);
-        shapes.circle(MM_CX, MM_CY, MM_R + 8.5f);
-        shapes.setColor(1f, 1f, 1f, 0.5f);
-        shapes.circle(shipSX, shipSY, 5f);
-        shapes.end();
-
-        // Caption above the circle (pale gold, kept short and centered).
-        game.batch.begin();
-        game.batch.setColor(0.96f, 0.88f, 0.65f, 1f);
-        layout.setText(game.fontSmall, "小地图");
-        game.fontSmall.draw(game.batch, "小地图", MM_CX - layout.width / 2f, MM_CY + MM_R + 22f);
-        game.batch.setColor(1f, 1f, 1f, 1f);
-        game.batch.end();
-    }
-
-    /** Lazily bakes the whole-chart minimap (sea, land blocks, islands, port
-     * dots) into a square texture once; the per-frame tracking viewport then
-     * samples a sub-region of it. The pixmap is alpha-masked to a circle so no
-     * square-corner rectangle artifact ever shows outside the rim. */
-    private void ensureMiniChartTexture() {
-        if (miniChartTex != null || miniChartPm != null) return;
-        int half = miniHalf;
-        // Base: deep sea across the whole square (circle clip comes at draw time
-        // via the fade donut, so corners just look like dark open water).
-        Pixmap pm = new Pixmap(half * 2, half * 2, Pixmap.Format.RGBA8888);
-        pm.setColor(0.05f, 0.155f, 0.235f, 1f);
-        pm.fill();
-        float scale = (float) (half * 2) / Catalog.WORLD_W;
-        float off = (half * 2 - Catalog.WORLD_H * scale) / 2f; // y offset (4:3 world)
-        // Land masses (must mirror the full-map chart land shapes).
-        pm.setColor(0.52f, 0.44f, 0.29f, 1f);
-        fillChartLandPix(pm, scale, off);
-        // Island blobs.
-        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            int px = Math.round(Catalog.ISLAND_X[i] * scale);
-            int py = Math.round(off + Catalog.ISLAND_Y[i] * scale);
-            fillPixCircle(pm, px, py, 1.6f, 0.26f, 0.56f, 0.31f, 1f);
-        }
-        // Port dots: tiny gold squares with a dark outline, every port visible.
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            int px = Math.round(Catalog.PORT_X[i] * scale);
-            int py = Math.round(off + Catalog.PORT_Y[i] * scale);
-            fillPixCircle(pm, px, py, 2.6f, 0f, 0f, 0f, 0.55f);
-            fillPixCircle(pm, px, py, 1.7f, 0.93f, 0.80f, 0.28f, 1f);
-        }
-        // 0.27.2: circular alpha mask — removes the old square-corner rectangle
-        // artifact that used to stick out of the minimap's circle rim.
-        int c = miniHalf;
-        for (int yy = 0; yy < pm.getHeight(); yy++) {
-            for (int xx = 0; xx < pm.getWidth(); xx++) {
-                float ddx = xx - c + 0.5f;
-                float ddy = yy - c + 0.5f;
-                if (ddx * ddx + ddy * ddy > c * c) {
-                    pm.setColor(0f, 0f, 0f, 0f);
-                    pm.drawPixel(xx, yy);
-                }
-            }
-        }
-        miniChartPm = pm; // promoted to a GL texture on the next frame
-    }
-
-    /** Flood-fill helpers used only for baking the static mini-chart texture. */
-    private void fillPixCircle(Pixmap pm, int cx, int cy, float r, float r2, float g2, float b, float a) {
-        int r0 = Math.max(0, (int) (cx - r - 1)), r1 = Math.min(pm.getWidth() - 1, (int) (cx + r + 1));
-        int s0 = Math.max(0, (int) (cy - r - 1)), s1 = Math.min(pm.getHeight() - 1, (int) (cy + r + 1));
-        for (int yy = s0; yy <= s1; yy++) {
-            for (int xx = r0; xx <= r1; xx++) {
-                float dx = xx - cx, dy = yy - cy;
-                if (dx * dx + dy * dy <= r * r) {
-                    pm.setColor(r2, g2, b, a);
-                    pm.drawPixel(xx, yy);
-                }
-            }
-        }
-    }
-
-    /** Draws the same land masses the full map uses, into the Pixmap (y-up flips
-     * to y-down pixel rows here). Land rects are small, so blitting them onto the
-     * texture is exact and cheap. */
-    private void fillChartLandPix(Pixmap pm, float scale, float off) {
-        float[][] rects = new float[][] {
-                {0f, 2350f, 4800f, 3600f}, // mainland China band (top edge)
-                {0f, 700f, 1500f, 2350f},  // Indochina west block
-                {1150f, 900f, 1500f, 1300f}, // 占城 coast finger
-                {0f, 500f, 1150f, 800f},   // Mekong south bulge
-                {2150f, 1300f, 2550f, 2050f}, // Hainan
-                {3050f, 3300f, 3400f, 3600f}  // 扬州 (north river mouth)
-        };
-        for (float[] rc : rects) {
-            int x0 = Math.round(rc[0] * scale);
-            int x1 = Math.round(rc[2] * scale);
-            int yTop = Math.round(off + rc[3] * scale); // world y up -> pix y down
-            int yBot = Math.round(off + rc[1] * scale);
-            if (x1 < 0 || x0 >= pm.getWidth() || yBot < 0 || yTop >= pm.getHeight()) continue;
-            x0 = Math.max(0, x0);
-            x1 = Math.min(pm.getWidth() - 1, x1);
-            yTop = Math.max(0, yTop);
-            yBot = Math.min(pm.getHeight() - 1, yBot);
-            for (int yy = yTop; yy <= yBot; yy++) {
-                for (int xx = x0; xx <= x1; xx++) {
-                    pm.drawPixel(xx, yy);
-                }
-            }
-        }
-        // Coastal ruffles keep the pixel look (deterministic, mirrors the full
-        // map's circle blobs scaled to this texture).
-        float[][] blobs = new float[][] {
-                {1800f, 2250f, 46f}, {2550f, 2440f, 38f}, {4300f, 2520f, 38f},
-                {900f, 650f, 44f}, {2350f, 1700f, 62f}, {2350f, 1420f, 56f},
-                {3100f, 3400f, 22f}
-        };
-        for (float[] bl : blobs) {
-            fillPixCircle(pm, Math.round(bl[0] * scale), Math.round(off + bl[1] * scale),
-                    bl[2] * scale * 0.5f, 0.52f, 0.44f, 0.29f, 1f);
-        }
-    }
-
-    /** Promote the just-baked minimap pixmap to a GL texture exactly once. */
-    private void finishMiniChartTexture() {
-        if (miniChartPm == null) return;
-        miniChartTex = new Texture(miniChartPm);
-        miniChartTex.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
-        // (non-POT sizes are fine on GLES2+; Nearest keeps the pixel chart crisp)
-        miniChartPm.dispose();
-        miniChartPm = null;
-    }
-
-
-
     private WorldMapOverlay worldMap() {
         if (worldMap == null) worldMap = new WorldMapOverlay(game);
         return worldMap;
@@ -2768,17 +2387,10 @@ public class VoyageScreen extends ScreenAdapter {
             hudVp.unproject(tmp.set(screenX, screenY, 0));
             float hx = tmp.x, hy = tmp.y;
 
-            // Captain avatar (top-left): tap it to open the paused 船长菜单 with
-            // 保存进度 / 读取存档 / 关闭. Only from a neutral overlay, so an open
-            // popup must first be closed via its own button.
-            if (overlay == Overlay.NONE) {
-                float adx = hx - AV_X, ady = hy - AV_Y;
-                if (adx * adx + ady * ady <= (AV_R + 12f) * (AV_R + 12f)) {
-                    overlay = Overlay.AVATAR;
-                    rebuildMenu();
-                    return true;
-                }
-            }
+            if (overlay == Overlay.MAP) return handleFullMapTap(hx, hy);
+            // Visible Scene2D controls win over port/enemy hit areas beneath them.
+            Actor hudHit = stage.hit(hx, hy, true);
+            if (hudHit != null && hudHit != stage.getRoot()) return false;
 
             // Virtual joystick: usable whenever no modal popup is open. While
             // docked with the port menu closed the world is NOT paused, so the
@@ -2787,7 +2399,7 @@ public class VoyageScreen extends ScreenAdapter {
             boolean modal = overlay == Overlay.PORT || overlay == Overlay.ISLAND || overlay == Overlay.FAIL
                     || overlay == Overlay.MARKET || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
                     || overlay == Overlay.INTEL || overlay == Overlay.QUESTS || overlay == Overlay.MINE;
-            if (!modal && overlay != Overlay.MAP
+            if (overlay == Overlay.NONE
                     && dx * dx + dy * dy <= (stickR + 26f) * (stickR + 26f)) {
                 undockIfNeeded();
                 stickActive = true;
@@ -2795,19 +2407,6 @@ public class VoyageScreen extends ScreenAdapter {
                 setStick(hx, hy);
                 g.onManualSteer();
                 return true;
-            }
-            // Round minimap (top-right): toggle the full map. Only from a neutral
-            // overlay so an open popup must be closed via its own 关闭 button.
-            if (overlay == Overlay.NONE) {
-                float mdx = hx - MM_CX, mdy = hy - MM_CY;
-                if (mdx * mdx + mdy * mdy <= (MM_R + 14f) * (MM_R + 14f)) {
-                    overlay = Overlay.MAP;
-                    rebuildMenu();
-                    return true;
-                }
-            }
-            if (overlay == Overlay.MAP) {
-                return handleFullMapTap(hx, hy);
             }
             // 0.27.2: world-space tap on a port/island icon opens its menu ONLY
             // when the ship is within the existing dock/search range. Proximity
@@ -2891,7 +2490,9 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private boolean handleFullMapTap(float hx, float hy) {
-        int target = worldMap().hit(hx, hy, HUD_W, HUD_H);
+        // The extended HUD viewport may exceed HUD_W×HUD_H on non-16:9 screens;
+        // map the tap through the ACTUAL world size so it lines up with the chart.
+        int target = worldMap().hit(hx, hy, hudVp.getWorldWidth(), hudVp.getWorldHeight());
         if (target == WorldMapOverlay.EMPTY) return true;
         overlay = Overlay.NONE;
         if (target >= 0) {
@@ -2914,10 +2515,13 @@ public class VoyageScreen extends ScreenAdapter {
         if (hudVp != null) {
             hudVp.update(width, height, true);
         }
+        applyHudScale();
     }
 
     @Override
     public void hide() {
+        if (voyageHud != null) { voyageHud.dispose(); voyageHud = null; }
+        if (voyageArt != null) { voyageArt.dispose(); voyageArt = null; }
         if (questUi != null) { questUi.dispose(); questUi = null; }
         if (intelUi != null) { intelUi.dispose(); intelUi = null; }
         if (shopPanel != null) { shopPanel.dispose(); shopPanel = null; }

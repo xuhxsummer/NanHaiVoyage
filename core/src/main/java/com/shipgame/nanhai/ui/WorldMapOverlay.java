@@ -28,9 +28,6 @@ public final class WorldMapOverlay implements Disposable {
     private static final Color JADE = Color.valueOf("97AC77");
     private static final Color NAVY = Color.valueOf("102733E8");
     private static final Color RED = Color.valueOf("D45E46");
-    // Decorative trade connections between existing Catalog ports, not new destinations.
-    private static final int[][] LANES = {{20,12},{12,11},{11,10},{10,1},{1,0},{0,2},
-            {2,5},{5,6},{6,7},{7,8},{8,9},{9,19},{19,16},{16,18},{18,17},{0,17}};
     private final NanHaiVoyage game;
     private final Texture background;
     private final GlyphLayout glyphs = new GlyphLayout();
@@ -120,11 +117,9 @@ public final class WorldMapOverlay implements Disposable {
         try {
             batch.setColor(Color.WHITE);
             batch.begin(); batch.draw(background, 0, 0, WIDTH, HEIGHT); batch.end();
+            // 0.27.4: 航线 polylines removed — the chart keeps ports, islands,
+            // markers, labels and the live auto-sail target line only.
             s.begin(ShapeRenderer.ShapeType.Filled);
-            for (int[] lane : LANES) {
-                Node a = nodes[lane[0]], b = nodes[lane[1]];
-                dashed(s, a.x,a.y,b.x,b.y, new Color(.72f,.59f,.34f,.28f), 1.5f);
-            }
             float mx = projectX(state.x), my = projectY(state.y);
             int target = state.autoSailPort >= 0 ? state.autoSailPort
                     : state.autoSailIsle >= 0 ? Catalog.PORTS.length + state.autoSailIsle : EMPTY;

@@ -107,12 +107,17 @@ public class PixelMapRenderer {
      * here: VoyageScreen layers its vector hull outline first (so it can never be
      * hidden under an island/port tile), then the sprite on top. */
     public void drawMarkers(SpriteBatch batch, GameState g) {
+        drawMarkers(batch, g, true);
+    }
+
+    /** Voyage art supplies its own ports; other callers retain the original markers. */
+    public void drawMarkers(SpriteBatch batch, GameState g, boolean includePorts) {
         Color old = batch.getColor();
         batch.setColor(Color.WHITE);
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
             drawMarker(batch, island, Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], ISLAND_SIZE, ISLAND_SIZE, 0f);
         }
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
+        for (int i = 0; includePorts && i < Catalog.PORTS.length; i++) {
             drawMarker(batch, port, Catalog.PORT_X[i], Catalog.PORT_Y[i], PORT_SIZE, PORT_SIZE, 0f);
         }
         if (g.pirateAlive) {
