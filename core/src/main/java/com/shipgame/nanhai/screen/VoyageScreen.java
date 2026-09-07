@@ -12,6 +12,7 @@ import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector3;
@@ -54,6 +55,9 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float MM_CX = HUD_W - 102f;
     private static final float MM_CY = HUD_H - 100f;
     private static final float MM_R = 82f;
+    // 0.27.2: tracking-minimap half-side in world units (== main camera half
+    // width), so the round minimap follows the ship's view and never distorts.
+    private static final float MM_WORLD_HALF = 480f;
     // Captain avatar (top-left): tap opens the 船长菜单 (save/load). Right of it
     // sits the stat panel with ICON+NUMBER for 银两/补给/耐久/船员; each cell
     // opens a short detail popup.
@@ -138,6 +142,10 @@ public class VoyageScreen extends ScreenAdapter {
     private int dismissedPort = -1;
     private int dismissedIsland = -1;
     private boolean dismissedFail;
+    // 0.27.2: proximity hint state — each nearby port/island nudges the player
+    // to TAP the icon once; the hint re-arms only after leaving its range.
+    private int hintPort = -1;
+    private int hintIsland = -1;
     private int selectedQuest = -1;
     private int selectedShip = -1;       // 0.26.4 商城：网格里点开的船（-1 = 网格）
     private int shopCat = 0;             // 0.26.4 商城左侧分类（目前仅 船只=0）
@@ -506,7 +514,23 @@ public class VoyageScreen extends ScreenAdapter {
             overlay = Overlay.ISLAND;
             rebuildMenu();
         } else {
-            g.toast("不在港口或岛屿附近：靠近港口/岛屿会自动弹出菜单。");
+            // 0.27.2: 关闭菜单后船仍留在原地；站在港口/岛屿范围内再点图标可重开。
+            int np = g.nearestPortInRange();
+            if (np >= 0) {
+                g.dock(np);
+                overlay = Overlay.PORT;
+                persist();
+                rebuildMenu();
+                return;
+            }
+            int ni = g.nearestIslandInRange();
+            if (ni >= 0) {
+                g.enterIsland(ni);
+                overlay = Overlay.ISLAND;
+                rebuildMenu();
+                return;
+            }
+            g.toast("不在港口或岛屿附近：需先驶近，再点击图标打开菜单。");
         }
     }
 
@@ -703,14 +727,16 @@ public class VoyageScreen extends ScreenAdapter {
 
     // ------------------------------------------------------------- popups
 
-    /** Closes whatever popup is open. A closed popup stays closed for the current
-     * context (port / island / failure) so the auto-open logic cannot fight the
-     * player's 关闭 tap. */
+    /** Closes whatever popup is open. 0.27.2: closing a port/island menu undocks
+     * / leaves the island IN PLACE — the ship is never teleported or snapped, and
+     * the world resumes simulating from exactly where it was. */
     private void closePopup() {
         if (overlay == Overlay.PORT && g.dockedPort >= 0) {
-            dismissedPort = g.dockedPort;
+            g.undockInPlace();
+            dismissedPort = -1;
         } else if (overlay == Overlay.ISLAND && g.islandMenu >= 0) {
-            dismissedIsland = g.islandMenu;
+            g.leaveIslandInPlace();
+            dismissedIsland = -1;
         } else if (overlay == Overlay.FAIL) {
             dismissedFail = true;
         } else if (overlay == Overlay.PORT || overlay == Overlay.ISLAND) {
@@ -2394,12 +2420,11 @@ public class VoyageScreen extends ScreenAdapter {
             }
         }
 
-        // Context transitions. Explicitly dismissed popups stay dismissed until the
-        // context changes; otherwise dock/island/fail auto-open their popup. While
-        // the full-map modal is up, nothing auto-opens under it: the modal keeps
-        // covering the whole UI until the player closes it, then the pending
-        // context popup opens normally.
-        // Sub-views of the docked menu must never be stomped by the docked auto-
+        // Context transitions. 0.27.2: ONLY the fail popup auto-opens. Port/island
+        // menus NEVER auto-open on proximity — the player must tap the port/island
+        // icon while in range (see WorldInput). While the full-map modal is up,
+        // nothing opens under it.
+        // Sub-views of the docked menu must never be stomped by the fail auto-
         // open: 行情 (PRICE) used to flash back to PORT the frame after opening, and
         // the same applies to 市场 (MARKET), the 船长菜单 (AVATAR) and the first-run
         // 玩法说明 (HOWTO).
@@ -2410,17 +2435,23 @@ public class VoyageScreen extends ScreenAdapter {
         if (overlay != Overlay.MAP && !dockSub && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             rebuildMenu();
-        } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && !dockSub
-                && overlay != Overlay.PORT && overlay != Overlay.ISLAND
-                && g.dockedPort >= 0 && dismissedPort != g.dockedPort) {
-            overlay = Overlay.PORT;
-            persist();
-            rebuildMenu();
-        } else if (overlay != Overlay.MAP && overlay != Overlay.FAIL && !dockSub
-                && overlay != Overlay.PORT && overlay != Overlay.ISLAND
-                && g.islandMenu >= 0 && dismissedIsland != g.islandMenu) {
-            overlay = Overlay.ISLAND;
-            rebuildMenu();
+        }
+        // 0.27.2: proximity only nudges (toast once per port/island), never opens.
+        if (overlay == Overlay.NONE && !g.worldPaused() && !g.autoSail) {
+            int np = g.nearestPortInRange();
+            if (np >= 0 && np != hintPort) {
+                hintPort = np;
+                g.toast("已靠近「" + Catalog.PORTS[np] + "」：点击港口图标可停靠。");
+            } else if (np < 0) {
+                hintPort = -1;
+            }
+            int ni = g.nearestIslandInRange();
+            if (ni >= 0 && ni != hintIsland) {
+                hintIsland = ni;
+                g.toast("已靠近「" + Catalog.ISLANDS[ni] + "」：点击岛屿图标可搜采。");
+            } else if (ni < 0) {
+                hintIsland = -1;
+            }
         }
 
         btnCancelAuto.setVisible(g.autoSail && overlay != Overlay.MAP);
@@ -2668,38 +2699,53 @@ public class VoyageScreen extends ScreenAdapter {
         game.batch.end();
     }
 
-    /** Round minimap (0.26.5): a whole-chart miniature — no rectangular camera
-     * frustum/window anymore. The ENTIRE world (sea + land + ports + islands)
-     * is drawn at a fixed scale inside the circle, so the player always sees
-     * where they are relative to every port. The ship is a small marker with a
-     * heading tick and a soft glow; the circle rim is a soft gradient edge, and
-     * a single thin outer ring finishes it off. The chart itself is static, so
-     * it is drawn once into a cached texture (miniChartTex) at full res and the
-     * ship marker is drawn live on top every frame. */
+    /** Round minimap (0.27.2): a tracking viewport instead of the old static
+     * whole-chart miniature. The map content follows the ship — a square world
+     * region around the ship (side = 2 * MM_WORLD_HALF, matching the main
+     * camera's width) is shown inside the circle, clamped to the world bounds
+     * so the map never scrolls past the sea edge. The chart is baked once from
+     * the whole world into miniChartTex (masked to a circle so no rectangular
+     * corner artifact can show), and each frame draws the sub-region covering
+     * the clamped viewport. The ship marker stays centered and stable, with a
+     * heading tick and a soft glow; near the world borders it drifts toward the
+     * circle edge the way clamped tracking minimaps do. */
     private void drawRoundMinimap() {
         finishMiniChartTexture(); // promote the just-baked pixmap to a texture
         ensureMiniChartTexture();
-        // Soft outer glow ring, then the chart texture clipped by an alpha-fade
-        // donut so no rectangle/frustum edge shows inside the circle.
-        game.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA); // (default)
+        if (miniChartTex == null) {
+            return;
+        }
+        // Tracking viewport: world rect centered on the ship, clamped to bounds.
+        float wx0 = MathUtils.clamp(g.x - MM_WORLD_HALF, 0f, Catalog.WORLD_W);
+        float wx1 = MathUtils.clamp(g.x + MM_WORLD_HALF, 0f, Catalog.WORLD_W);
+        float wy0 = MathUtils.clamp(g.y - MM_WORLD_HALF, 0f, Catalog.WORLD_H);
+        float wy1 = MathUtils.clamp(g.y + MM_WORLD_HALF, 0f, Catalog.WORLD_H);
+        // Sub-region of the baked whole-chart texture covering that rect.
+        // (Matches the baking transform: pixmap row 0 is the world's north edge.)
+        float texW = miniHalf * 2f;
+        float scale = texW / Catalog.WORLD_W;
+        float off = (texW - Catalog.WORLD_H * scale) / 2f;
+        float u0 = wx0 / Catalog.WORLD_W;
+        float u1 = wx1 / Catalog.WORLD_W;
+        float vTop = (off + wy1 * scale) / texW;
+        float vBot = (off + wy0 * scale) / texW;
+        TextureRegion view = new TextureRegion(miniChartTex, u0, vTop, u1, vBot);
+
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         game.batch.begin();
-        if (miniChartTex != null) {
-            game.batch.draw(miniChartTex, MM_CX - miniHalf, MM_CY - miniHalf,
-                    miniHalf * 2f, miniHalf * 2f);
-        }
+        game.batch.draw(view, MM_CX - miniHalf, MM_CY - miniHalf,
+                miniHalf * 2f, miniHalf * 2f);
         game.batch.end();
 
-        // Ship marker + soft rim fade are drawn with the shape renderer.
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        // Mini-chart world->screen mapping (matches the texture generation).
-        float scale = miniHalf * 2f / Catalog.WORLD_W;
-        float offX = MM_CX - miniHalf;
-        float offY = MM_CY - miniHalf;
-        float shipSX = offX + g.x * scale;
-        float shipSY = offY + g.y * scale;
+        // Ship marker: centered when unclamped, drifting toward the circle edge
+        // near the world borders (tracking-viewport behavior).
+        float pxPerUnit = (miniHalf * 2f) / (wx1 - wx0);
+        float shipSX = MM_CX - miniHalf + (g.x - wx0) * pxPerUnit;
+        float shipSY = MM_CY - miniHalf + (g.y - wy0) * pxPerUnit;
+
         // Soft white glow under the marker so it pops against sea and land alike.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(1f, 1f, 1f, 0.10f);
         shapes.circle(shipSX, shipSY, 8.5f);
         shapes.setColor(1f, 1f, 1f, 0.22f);
@@ -2710,7 +2756,7 @@ public class VoyageScreen extends ScreenAdapter {
         shapes.rectLine(shipSX, shipSY, shipSX + MathUtils.cos(rad) * 9f,
                 shipSY + MathUtils.sin(rad) * 9f, 2f);
         // Soft rim: concentric translucent rings that fade the chart's hard edge
-        // into the dark ring — the "soft edge" instead of a rect frustum.
+        // into the dark ring — keeps the circular look crisp.
         for (int k = 0; k < 10; k++) {
             float t = k / 10f;
             float rr = MM_R - 2f - 2f * t;
@@ -2738,9 +2784,10 @@ public class VoyageScreen extends ScreenAdapter {
         game.batch.end();
     }
 
-    /** Lazily bakes the static whole-chart minimap (sea, land blocks, islands,
-     * port dots) into a square texture once, so per-frame minimap drawing is a
-     * single textured quad + the live ship marker. */
+    /** Lazily bakes the whole-chart minimap (sea, land blocks, islands, port
+     * dots) into a square texture once; the per-frame tracking viewport then
+     * samples a sub-region of it. The pixmap is alpha-masked to a circle so no
+     * square-corner rectangle artifact ever shows outside the rim. */
     private void ensureMiniChartTexture() {
         if (miniChartTex != null || miniChartPm != null) return;
         int half = miniHalf;
@@ -2766,6 +2813,19 @@ public class VoyageScreen extends ScreenAdapter {
             int py = Math.round(off + Catalog.PORT_Y[i] * scale);
             fillPixCircle(pm, px, py, 2.6f, 0f, 0f, 0f, 0.55f);
             fillPixCircle(pm, px, py, 1.7f, 0.93f, 0.80f, 0.28f, 1f);
+        }
+        // 0.27.2: circular alpha mask — removes the old square-corner rectangle
+        // artifact that used to stick out of the minimap's circle rim.
+        int c = miniHalf;
+        for (int yy = 0; yy < pm.getHeight(); yy++) {
+            for (int xx = 0; xx < pm.getWidth(); xx++) {
+                float ddx = xx - c + 0.5f;
+                float ddy = yy - c + 0.5f;
+                if (ddx * ddx + ddy * ddy > c * c) {
+                    pm.setColor(0f, 0f, 0f, 0f);
+                    pm.drawPixel(xx, yy);
+                }
+            }
         }
         miniChartPm = pm; // promoted to a GL texture on the next frame
     }
@@ -3072,6 +3132,34 @@ public class VoyageScreen extends ScreenAdapter {
             }
             if (overlay == Overlay.MAP) {
                 return handleFullMapTap(hx, hy);
+            }
+            // 0.27.2: world-space tap on a port/island icon opens its menu ONLY
+            // when the ship is within the existing dock/search range. Proximity
+            // alone never opens anything; closing never moves the ship.
+            if (overlay == Overlay.NONE) {
+                worldVp.unproject(tmp.set(screenX, screenY, 0));
+                float wx = tmp.x, wy = tmp.y;
+                for (int i = 0; i < Catalog.PORTS.length; i++) {
+                    float ddx = wx - Catalog.PORT_X[i], ddy = wy - Catalog.PORT_Y[i];
+                    if (ddx * ddx + ddy * ddy <= Catalog.DOCK_RANGE * Catalog.DOCK_RANGE
+                            && Catalog.dist(g.x, g.y, Catalog.PORT_X[i], Catalog.PORT_Y[i]) < Catalog.DOCK_RANGE) {
+                        g.dock(i);
+                        overlay = Overlay.PORT;
+                        persist();
+                        rebuildMenu();
+                        return true;
+                    }
+                }
+                for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+                    float ddx = wx - Catalog.ISLAND_X[i], ddy = wy - Catalog.ISLAND_Y[i];
+                    if (ddx * ddx + ddy * ddy <= Catalog.ISLAND_RANGE * Catalog.ISLAND_RANGE
+                            && Catalog.dist(g.x, g.y, Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i]) < Catalog.ISLAND_RANGE) {
+                        g.enterIsland(i);
+                        overlay = Overlay.ISLAND;
+                        rebuildMenu();
+                        return true;
+                    }
+                }
             }
             // Lock a pirate ship: tap near it while sailing.
             if (g.pirateAlive && overlay == Overlay.NONE) {

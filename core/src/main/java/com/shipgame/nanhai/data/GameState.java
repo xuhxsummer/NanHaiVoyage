@@ -520,9 +520,18 @@ public class GameState {
             if (pirateSpawnTimer <= 0f) {
                 spawnPirate();
             }
-            if (leaveCooldown <= 0f) {
-                tryApproach();
-            }
+        }
+        // 0.27.2: 靠近港口/岛屿不再自动靠泊/登岛（tryApproach 已移除）——
+        // 玩家必须在范围内点击港口/岛屿图标才会打开对应菜单。自动航行
+        // 抵达目标时停船等待，由界面提示点击。
+        if (autoSail && autoSailPort >= 0
+                && Catalog.dist(x, y, Catalog.PORT_X[autoSailPort], Catalog.PORT_Y[autoSailPort]) < Catalog.DOCK_RANGE) {
+            stopAutoSail();
+            speed = 0f;
+        } else if (autoSail && autoSailIsle >= 0
+                && Catalog.dist(x, y, Catalog.ISLAND_X[autoSailIsle], Catalog.ISLAND_Y[autoSailIsle]) < Catalog.ISLAND_RANGE) {
+            stopAutoSail();
+            speed = 0f;
         }
         // 0.26.4 游戏时钟只在世界真实运行时推进；停靠/菜单/教学/失败等暂停。
         advanceClock(dt);
@@ -596,23 +605,57 @@ public class GameState {
         weather = WeatherKind.CLEAR; // 0.26.2: 常年晴，无雨雾
     }
 
-    private void tryApproach() {
+    /** 附近在停靠范围内的港口（纯查询，不改变任何状态），否则 -1。 */
+    public int nearestPortInRange() {
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             if (Catalog.dist(x, y, Catalog.PORT_X[i], Catalog.PORT_Y[i]) < Catalog.DOCK_RANGE) {
-                dock(i);
-                return;
+                return i;
             }
         }
+        return -1;
+    }
+
+    /** 附近在搜采范围内的岛屿（纯查询，不改变任何状态），否则 -1。 */
+    public int nearestIslandInRange() {
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
             if (Catalog.dist(x, y, Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i]) < Catalog.ISLAND_RANGE) {
-                islandMenu = i;
-                islandGathered = false;
-                speed = 0f;
-                stopAutoSail();
-                toast("靠近" + Catalog.ISLANDS[i] + "，可搜采。世界暂停。");
-                return;
+                return i;
             }
         }
+        return -1;
+    }
+
+    /** 玩家点击岛屿图标主动登岛（仅当船在搜采范围内时由界面调用）。 */
+    public void enterIsland(int idx) {
+        if (idx < 0 || idx >= Catalog.ISLANDS.length) {
+            return;
+        }
+        islandMenu = idx;
+        islandGathered = false;
+        speed = 0f;
+        stopAutoSail();
+        toast("登岛「" + Catalog.ISLANDS[idx] + "」，可搜采。世界暂停。");
+    }
+
+    /** 关闭港口菜单：不传送、不吸附，船留在原地，世界继续模拟。 */
+    public void undockInPlace() {
+        if (dockedPort < 0) {
+            return;
+        }
+        dockedPort = -1;
+        // 0.26.3: 离港即停捕鱼（渔夫只能在家门口作业）。
+        fishingOn = false;
+        fishTimer = 0f;
+        leaveCooldown = 2.2f;
+    }
+
+    /** 关闭岛屿菜单：不传送、不吸附，船留在原地，世界继续模拟。 */
+    public void leaveIslandInPlace() {
+        if (islandMenu < 0) {
+            return;
+        }
+        islandMenu = -1;
+        leaveCooldown = 2.2f;
     }
 
     public void dock(int port) {
@@ -1153,7 +1196,8 @@ public class GameState {
         toast("自动驶向 " + Catalog.PORTS[port]);
     }
 
-    /** Full-map tap on an island: sail there; arriving opens the island menu. */
+    /** Full-map tap on an island: sail there; arriving stops the ship and the
+     * player taps the island icon to open the search menu (0.27.2). */
     public void startAutoSailIsle(int idx) {
         if (worldPaused() || pirateAlive) {
             return;
