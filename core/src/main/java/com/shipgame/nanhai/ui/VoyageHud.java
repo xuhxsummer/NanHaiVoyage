@@ -21,6 +21,8 @@ public final class VoyageHud extends Group implements Disposable {
     private final Label[] questTitles=new Label[2],questBodies=new Label[2],questProgress=new Label[2];
     private final Image knob,dot,speedNeedle;
     private final VoyageMinimap minimap;
+    private final Image captainPortrait;
+    private int shownAvatar = -1;
     private final Array<float[]> anchors = new Array<>();
     public VoyageHud(Skin skin,Runnable captain,IntConsumer stat,Runnable[] shortcuts,Runnable world,
                      Runnable mine,Runnable intel,Runnable port,Runnable autoAction,Runnable cancel,Runnable lockAction,Runnable unlock,IntConsumer quest){
@@ -31,7 +33,10 @@ public final class VoyageHud extends Group implements Disposable {
         resources.pad(8,16,8,8);
         for(int i=0;i<4;i++){final int idx=i;Table cell=new Table();cell.setName(names[i]);cell.add(icon(icons[i])).size(40).padRight(4);
             Table copy=new Table();stats[i]=ui.label("0",28,VoyageHudChrome.PAPER);copy.add(stats[i]).left().row();copy.add(ui.label(names[i],20,VoyageHudChrome.GOLD)).left();cell.add(copy);cell.addListener(click(()->stat.accept(idx)));resources.add(cell).width(158).height(64);}
-        Table badge=badge("船长","ship",128,captain);badge.setBounds(24,936,128,128);addActor(badge);
+        Table badge=new Table();badge.setName("船长");
+        captainPortrait=new Image(IconLib.avatar(0));captainPortrait.setName("船长头像");
+        badge.add(captainPortrait).size(112);badge.addListener(click(captain));
+        badge.setBounds(24,936,128,128);addActor(badge);
         status=ui.label("",21,VoyageHudChrome.PAPER);status.setEllipsis(true);status.setBounds(168,928,640,32);addActor(status);
         textLink("我的船只",mine,168,880,136);textLink("港口",port,312,880,80);textLink("情报",intel,400,880,80);
         String[] rail={"货舱","图鉴","船坞","商行","任务","活动","福利"};String[] glyph={"cargo","book","anchor","helm","quest","cargo","gift"};
@@ -89,6 +94,7 @@ public final class VoyageHud extends Group implements Disposable {
     private static ClickListener click(Runnable r){return new ClickListener(){@Override public void clicked(InputEvent e,float x,float y){e.stop();r.run();}};}
     public void quest(int card,String title,String body,String progress){questTitles[card].setText(title);questBodies[card].setText(body);questProgress[card].setText(progress);}
     public void update(GameState g,boolean neutral,boolean ready,float kx,float ky){
+        if(shownAvatar!=g.avatarIndex){shownAvatar=g.avatarIndex;captainPortrait.setDrawable(IconLib.avatar(shownAvatar));}
         speedNeedle.setY(120+com.badlogic.gdx.math.MathUtils.clamp(g.speed/Catalog.MAX_SPEED,0,1)*216);
         minimap.update(g);coords.setText("X:"+(int)g.x+"  Y:"+(int)g.y);questGroup.setVisible(neutral);dot.setVisible(ready);
         toast.setText(g.toastT>0?g.toast:"祝您一路顺风，贸易通达！" );toastBar.setHeight(g.toast.length()>38&&g.toastT>0?80:56);

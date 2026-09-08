@@ -15,15 +15,12 @@ public final class Catalog {
             "泉州", "福州", "明州", "钦州", "邕州", "暹罗", "渤泥", "吕宋", "苏禄", "爪哇",
             "扬州" // 0.26.3: 故乡，北缘海岸；新档从这里起航。附加在末尾以保持旧档港口序号
     };
+    // 0.28.9: leave a navigable channel between the enlarged land envelopes.
     public static final float[] PORT_X = {
-            3200f, 3900f, 2500f, 2400f, 2300f, 1800f, 1200f, 1400f, 900f, 1600f,
-            4150f, 4400f, 4650f, 1300f, 2050f, 550f, 2900f, 4300f, 3300f, 2300f,
-            3100f // 扬州：北缘沿海，四周留空不与其他港口重叠
+            3200f, 3858f, 2431f, 2400f, 2300f, 1800f, 1200f, 1400f, 900f, 1600f, 4103f, 4213f, 4602f, 1300f, 2050f, 550f, 2900f, 4300f, 3300f, 2300f, 3100f
     };
     public static final float[] PORT_Y = {
-            2800f, 2700f, 2400f, 1900f, 1400f, 2200f, 1800f, 1100f, 800f, 400f,
-            3000f, 3260f, 3520f, 2450f, 3150f, 1650f, 550f, 1250f, 700f, 200f,
-            3400f // 扬州
+            2800f, 2591f, 2359f, 1900f, 1410f, 2200f, 1800f, 1100f, 800f, 400f, 2909f, 3304f, 3402f, 2450f, 3150f, 1650f, 550f, 1250f, 700f, 212f, 3400f
     };
     /** 0.26.3: 故乡港口序号（PORTS 数组末尾，追加顺序固定）。 */
     public static final int YANGZHOU = PORTS.length - 1;
@@ -33,12 +30,10 @@ public final class Catalog {
             "东沙", "中沙", "永兴", "黄岩", "万山", "担杆", "川山", "涠洲", "海陵", "硇洲"
     };
     public static final float[] ISLAND_X = {
-            3600f, 2800f, 2000f,
-            4450f, 3350f, 2300f, 3700f, 3000f, 3400f, 2800f, 2050f, 2500f, 2700f
+            3538f, 2800f, 2000f, 4450f, 3350f, 2300f, 3700f, 3023f, 3392f, 2793f, 2050f, 2504f, 2748f
     };
     public static final float[] ISLAND_Y = {
-            2500f, 1700f, 1200f,
-            2400f, 1300f, 1080f, 1450f, 2350f, 2250f, 2500f, 2450f, 2650f, 2250f
+            2478f, 1700f, 1200f, 2400f, 1300f, 1070f, 1450f, 2332f, 2237f, 2523f, 2450f, 2707f, 2228f
     };
 
     public static final String[] GOODS = {
@@ -149,8 +144,9 @@ public final class Catalog {
         return FISH_PRICE[i];
     }
 
-    public static final float DOCK_RANGE = 78f;
-    public static final float ISLAND_RANGE = 70f;
+    // Enclose the enlarged land mesh plus the largest ship, leaving water to stop in.
+    public static final float DOCK_RANGE = 218f;
+    public static final float ISLAND_RANGE = 164f;
     public static final float PIRATE_RANGE = 430f;
     public static final float PIRATE_FLEE_RANGE = 540f;
     public static final float MAX_SPEED = 150f;

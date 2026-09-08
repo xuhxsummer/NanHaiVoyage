@@ -25,6 +25,7 @@ public class NanHaiVoyage extends Game {
     public GameState state;
     /** Backend-provided update checker (Android: GitHub Releases). Null on desktop. */
     public UpdateChecker updateChecker;
+    private final com.badlogic.gdx.utils.Array<FreeTypeFontGenerator> fontGenerators=new com.badlogic.gdx.utils.Array<>();
 
     @Override
     public void create() {
@@ -87,8 +88,9 @@ public class NanHaiVoyage extends Game {
             // text can never silently render as tofu again (the old hand-written
             // FONT_CHARS list + hand-subsetted TTF missed 足/·/， etc).
             p.characters = FreeTypeFontGenerator.DEFAULT_CHARS + uiChars();
+            p.incremental = true; // Nicknames can introduce CJK characters outside the UI strings.
             BitmapFont f = gen.generateFont(p);
-            gen.dispose();
+            fontGenerators.add(gen);
             return f;
         } catch (Exception ex) {
             Gdx.app.error("NanHaiVoyage", "font load failed", ex);
@@ -104,9 +106,10 @@ public class NanHaiVoyage extends Game {
             getScreen().hide();
         }
         IconLib.dispose();
-        if (skin != null) skin.dispose();
-        if (font != null) font.dispose();
-        if (fontSmall != null) fontSmall.dispose();
+        if (skin != null) skin.dispose(); // Skin owns both shared fonts.
+        else { if (font != null) font.dispose(); if (fontSmall != null) fontSmall.dispose(); }
+        for(FreeTypeFontGenerator generator:fontGenerators) generator.dispose();
+        fontGenerators.clear();
         if (batch != null) batch.dispose();
     }
 }

@@ -4,6 +4,7 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.TextureData;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.FileTextureData;
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
@@ -70,6 +71,62 @@ public final class IconLib {
 
     public static TextureRegionDrawable island(int i) {
         return named("islands", "island", Catalog.ISLANDS, i);
+    }
+
+    /** Four circular captain portraits; missing PNGs get distinct Tang-style placeholder portraits. */
+    public static TextureRegionDrawable avatar(int index) {
+        final int id=Math.max(0,Math.min(3,index));
+        String key="avatars/avatar_0"+(id+1);
+        if(!cache.containsKey(key)) {
+            Texture texture=new Texture(new AvatarData(key,id));
+            texture.setFilter(Texture.TextureFilter.Linear,Texture.TextureFilter.Linear);
+            cache.put(key,new TextureRegionDrawable(new TextureRegion(texture)));
+        }
+        return cache.get(key);
+    }
+
+    private static final class AvatarData implements TextureData {
+        private final String path; private final int id; private boolean prepared;
+        AvatarData(String path,int id){this.path="textures/"+path+".png";this.id=id;}
+        public TextureDataType getType(){return TextureDataType.Pixmap;}
+        public boolean isPrepared(){return prepared;}
+        public void prepare(){prepared=true;}
+        public int getWidth(){return 256;}
+        public int getHeight(){return 256;}
+        public Pixmap.Format getFormat(){return Pixmap.Format.RGBA8888;}
+        public boolean useMipMaps(){return false;}
+        public boolean isManaged(){return true;}
+        public boolean disposePixmap(){return true;}
+        public void consumeCustomData(int target){throw new UnsupportedOperationException();}
+        public Pixmap consumePixmap() {
+            prepared=false;
+            Pixmap p=new Pixmap(256,256,Pixmap.Format.RGBA8888);
+            p.setBlending(Pixmap.Blending.None);
+            if(Gdx.files.internal(path).exists()) {
+                Pixmap source=new Pixmap(Gdx.files.internal(path));
+                p.setFilter(Pixmap.Filter.BiLinear);
+                int side=Math.min(source.getWidth(),source.getHeight());
+                p.drawPixmap(source,(source.getWidth()-side)/2,(source.getHeight()-side)/2,side,side,0,0,256,256);
+                source.dispose();
+            } else {
+                p.setColor(new int[]{0x294e58ff,0x5b3438ff,0x465d3fff,0x3d425aff}[id]); p.fill();
+                p.setColor(new int[]{0x9b503bff,0x50778aff,0xc29952ff,0x6b6ca0ff}[id]);
+                p.fillCircle(128,240,90);
+                p.setColor(0xdec299ff);p.fillRectangle(113,157,30,40);p.fillCircle(128,109,48);
+                p.setColor(0x282622ff);p.fillRectangle(81,58,94,32);
+                if(id%2==0) {p.fillRectangle(78,48,100,30);p.fillRectangle(65,65,126,15);}
+                else {p.fillCircle(128,47,24);p.fillRectangle(79,78,13,71);p.fillRectangle(164,78,13,71);}
+                p.fillCircle(111,111,4);p.fillCircle(145,111,4);
+                p.setColor(0x9c6046ff);p.fillRectangle(117,140,22,3);
+                p.setColor(0xe0c591ff);p.fillTriangle(91,182,124,236,126,198);p.fillTriangle(165,182,132,236,130,198);
+            }
+            for(int y=0;y<256;y++) for(int x=0;x<256;x++) {
+                float d=(x-127.5f)*(x-127.5f)+(y-127.5f)*(y-127.5f);
+                if(d>126*126) p.drawPixel(x,y,0);
+                else if(d>120*120) p.drawPixel(x,y,0xd8b673ff);
+            }
+            return p;
+        }
     }
 
     /** Drawable for Catalog.FISH[i] (0.26.3 渔获), or null if missing. */

@@ -6,6 +6,7 @@ package com.shipgame.nanhai.data;
  */
 public final class VoyageGeometry {
     private VoyageGeometry() {}
+    public static final float PORT_SCALE = 4.5f, ISLAND_SCALE = 4f;
     public static final class Ship {
         public final float length, beam, height;
         public final int sails, color;
@@ -23,7 +24,9 @@ public final class VoyageGeometry {
     };
     public static int shipIndex(int id) { return id>=0 && id<SHIPS.length ? id:0; }
     public static Ship ship(int id) { return SHIPS[shipIndex(id)]; }
-    public static float landRadius(boolean port, int id) { return (port ? 34f:25f)+(id%4); }
+    public static float landRadius(boolean port, int id) {
+        return ((port ? 34f:25f)+(id%4)) * (port ? PORT_SCALE:ISLAND_SCALE);
+    }
     public static float shoreRadius(boolean port, int id, int vertex) {
         // An irregular, star-shaped shore, with its outermost tip exactly on the envelope.
         return landRadius(port,id)*(vertex==0 ? 1f : .80f+.18f*(float)(.5+.5*Math.sin(id*2.31+vertex*1.73)));

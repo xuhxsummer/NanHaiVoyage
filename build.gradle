@@ -53,6 +53,7 @@ tasks.register('prepareWaterAssets', Sync) {
         include 'textures/ships/ship_*.png'
         include 'textures/ports/port_*.png'
         include 'textures/islands/island_*.png'
+        include 'textures/avatars/avatar_*.png'
         include 'textures/beasts/beast_*.png', 'textures/beasts/beast_*.jpg'
         include 'textures/herbs/herb_*.png'
         exclude 'textures/beasts/*_alt.*'

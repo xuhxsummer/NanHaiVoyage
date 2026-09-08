@@ -74,12 +74,12 @@ public class Voyage3dSmokeLauncher {
                     }
                     if(frame==206) require(renderer.chaseDistance()>300,"return is smooth");
                     if(frame==330) {
-                        require(renderer.chaseDistance()<157,"normal chase restored"); snap("restored");
-                        state.x=Catalog.PORT_X[0]+76; state.y=Catalog.PORT_Y[0]; state.headingDeg=180;
+                        require(renderer.chaseDistance()<VoyageWorldRenderer.SAIL_DISTANCE+2,"normal chase restored"); snap("restored");
+                        state.x=Catalog.PORT_X[0]+Catalog.DOCK_RANGE-4; state.y=Catalog.PORT_Y[0]; state.headingDeg=180;
                         state.startAutoSail(0);
                     }
                     if(frame==390) {
-                        require(!state.autoSail && state.nearestPortInRange()==0 && state.speed==0,"auto-sail stops in original docking range");
+                        require(!state.autoSail && state.nearestPortInRange()==0 && state.speed==0,"auto-sail stops in enlarged docking range");
                         closeOverlay(); state.undockInPlace(); state.speed=0;
                         // A full-map modal must still open and close via the real input path.
                         Gdx.input.getInputProcessor().touchDown(1174,104,0,0);
@@ -94,8 +94,8 @@ public class Voyage3dSmokeLauncher {
                     }
                     if(frame==450) {
                         require(renderer.camera.viewportWidth==1600,"resize camera"); snap("wide");
-                        // Touch docking uses a perspective proxy and the original range gate.
-                        state.x=Catalog.PORT_X[0]+74; state.y=Catalog.PORT_Y[0]; state.headingDeg=180;
+                        // Touch docking uses a perspective proxy and the shared range gate.
+                        state.x=Catalog.PORT_X[0]+Catalog.DOCK_RANGE-6; state.y=Catalog.PORT_Y[0]; state.headingDeg=180;
                         closeOverlay();
                     }
                     if(frame==540) {

@@ -88,3 +88,10 @@ tasks.register('maxAccountSmoke', JavaExec) {
     mainClass.set('com.shipgame.nanhai.lwjgl3.MaxAccountSmokeLauncher')
     workingDir = rootProject.file('assets').path
 }
+
+tasks.register('voyageFeelSmoke', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.VoyageFeelSmokeLauncher')
+    workingDir = rootProject.file('assets').path
+}

@@ -295,7 +295,7 @@ public class SmokeTestLauncher {
                                 "stat popup not open, got " + voyageOverlay());
                         require(findText("银两 · 说明") != null, "银两 detail popup missing");
                         // tapping the NEXT cell switches the popup content
-                        tapScreen(STAT_X0 + STAT_W + STAT_W / 2, STAT_YC); // 补给
+                        require(tapButton("补给"), "could not switch stat nav");
                         step = 7;
                         nextStepFrame = frame + 10;
                         break;
@@ -311,13 +311,14 @@ public class SmokeTestLauncher {
                         require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
                                 "stat popup did not close, got " + voyageOverlay());
                         // tap the 船长 avatar -> save/load menu
-                        tapScreen(AVATAR_X, AVATAR_YC);
+                        require(tapButton("船长"), "could not open captain page");
                         step = 9;
                         nextStepFrame = frame + 10;
                         break;
                     case 9: // avatar menu open
                         require(voyageOverlay() != null && voyageOverlay().name().equals("AVATAR"),
                                 "avatar menu not open, got " + voyageOverlay());
+                        require(tapButton("存档"), "captain save nav missing");
                         require(findText("保存进度") != null && findText("读取存档") != null,
                                 "avatar save/load buttons missing");
                         require(tapButton("关闭"), "could not close avatar menu");
@@ -469,10 +470,8 @@ public class SmokeTestLauncher {
                         h0 = voyageState().headingDeg;
                         require(voyageState().dockedPort == Catalog.YANGZHOU, "expected still docked at 扬州 before joystick, got "
                                 + voyageState().dockedPort);
-                        // 0.25.5 heading joystick: the stick aims an absolute compass
-                        // heading (manualHeadingActive), not an angular steerInput.
-                        // Aim 60 deg off the current heading so the turn is certain.
-                        joystickAimAt(h0 + 60f);
+                        // Chase-view helm controls relative yaw, including from rest.
+                        joystickAimAt(180f);
                         step = 15;
                         nextStepFrame = frame + 4;
                         break;
@@ -480,8 +479,8 @@ public class SmokeTestLauncher {
                         GameState st2 = voyageState();
                         require(st2.dockedPort == -1,
                                 "joystick did not undock the ship (dockedPort=" + st2.dockedPort + ")");
-                        require(st2.manualHeadingActive,
-                                "joystick drag did not arm the heading aim (manualHeadingActive=false)");
+                        require(st2.steerInput < 0 && !st2.manualHeadingActive,
+                                "left helm did not arm relative yaw");
                         System.out.println("SMOKE: docked+menu-closed joystick undocked & aiming (dockedPort=-1)");
                         step = 16;
                         nextStepFrame = frame + 16; // let the turn accumulate
@@ -774,6 +773,7 @@ public class SmokeTestLauncher {
                     case 71:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("AVATAR"),
                                 "avatar menu not open, got " + voyageOverlay());
+                        require(tapButton("账号"), "captain account nav missing");
                         require(findText("退出登录") != null, "avatar menu lacks 退出登录 button");
                         require(tapButton("退出登录"), "could not tap 退出登录");
                         step = 72;
@@ -987,6 +987,7 @@ public class SmokeTestLauncher {
             }
 
             private Actor findExactButtonIn(String text, Actor a) {
+                if (!a.isVisible()) return null;
                 if (a instanceof TextButton && text.equals(((TextButton) a).getText().toString())) return a;
                 if (text.equals(a.getName())) return a;   // 0.26.2 named icon buttons
                 if (a instanceof Group) {

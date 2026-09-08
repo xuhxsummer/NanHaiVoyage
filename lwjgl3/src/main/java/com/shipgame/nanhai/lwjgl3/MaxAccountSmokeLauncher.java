@@ -72,15 +72,21 @@ public final class MaxAccountSmokeLauncher {
                 } catch(Throwable t) { fail(t); }
             }
             private void open() {
+                TextButton debug=stage.getRoot().findActor("调试");
+                for(EventListener listener:debug.getListeners()) if(listener instanceof ClickListener)
+                    ((ClickListener)listener).clicked(new InputEvent(),1,1);
                 TextButton button=stage.getRoot().findActor("满级账号"); require(button!=null,"captain button missing");
                 for(EventListener listener:button.getListeners()) if(listener instanceof ClickListener)
                     ((ClickListener)listener).clicked(new InputEvent(),1,1);
                 require(stage.getRoot().findActor("confirmFillAccount")!=null,"confirmation missing");
             }
             private void answer(boolean yes) {
-                Dialog dialog=stage.getRoot().findActor("confirmFillAccount");
-                for(Actor actor:dialog.getButtonTable().getChildren()) if(actor instanceof TextButton && ((TextButton)actor).getText().toString().equals(yes?"继续":"取消")) {
-                    actor.fire(new ChangeListener.ChangeEvent()); return;
+                Table confirmation=stage.getRoot().findActor("confirmFillAccount");
+                TextButton button=confirmation.findActor(yes?"继续":"取消");
+                if(button!=null) {
+                    for(EventListener listener:button.getListeners()) if(listener instanceof ClickListener)
+                        ((ClickListener)listener).clicked(new InputEvent(),1,1);
+                    return;
                 }
                 throw new AssertionError("confirmation answer missing");
             }

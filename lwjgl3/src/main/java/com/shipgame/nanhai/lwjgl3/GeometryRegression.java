@@ -7,6 +7,19 @@ import java.lang.reflect.Method;
 public final class GeometryRegression {
     public static void main(String[] args) throws Exception {
         Method move=GameState.class.getDeclaredMethod("move",float.class); move.setAccessible(true);
+        Method steering=GameState.class.getDeclaredMethod("applySteerAndSpeed",float.class); steering.setAccessible(true);
+        for(int angle=0;angle<360;angle+=30) for(float speed:new float[]{0,.01f,2,60}) for(int direction:new int[]{-1,1}) {
+            GameState g=GameState.newGame(); g.undockInPlace(); g.headingDeg=angle; g.speed=speed; g.steerInput=direction;
+            g.holdDecel=true; steering.invoke(g,.1f);
+            float delta=((g.headingDeg-angle+540)%360)-180;
+            require(delta*direction<0,"screen-relative helm at heading "+angle+" speed "+speed);
+        }
+        GameState profile=GameState.newGame();profile.setProfile("  海风船长  ",3);
+        GameState loaded=GameState.fromSave(profile.toSave());
+        require(loaded.nickname.equals("海风船长") && loaded.avatarIndex==3,"profile round trip");
+        SaveData legacy=new SaveData();legacy.nickname=null;legacy.avatarIndex=99;
+        loaded=GameState.fromSave(legacy);
+        require(loaded.nickname.equals("船长") && loaded.avatarIndex==3,"legacy profile defaults");
         int impacts=0;
         for(int ship=0;ship<Catalog.SHIPS.length;ship++) for(boolean port:new boolean[]{true,false}) {
             int count=port?Catalog.PORTS.length:Catalog.ISLANDS.length;
@@ -29,14 +42,21 @@ public final class GeometryRegression {
                 g.x=ox; g.y=oy; g.ensureLandClearance();
                 require(Catalog.dist(g.x,g.y,ox,oy)>=limit-.01,"legacy save overlap");
                 require(port?g.nearestPortInRange()==i:g.nearestIslandInRange()==i,"interaction range");
-                g.x=ox+120; g.y=oy; g.headingDeg=180; g.pirateSpawnTimer=10000;
+                g.x=ox+(port?Catalog.DOCK_RANGE:Catalog.ISLAND_RANGE)+60; g.y=oy; g.headingDeg=180; g.pirateSpawnTimer=10000;
                 if(port) g.startAutoSail(i); else g.startAutoSailIsle(i);
                 for(int step=0;step<1200 && g.autoSail;step++) g.update(1f/60);
                 require(!g.autoSail && g.speed==0,"auto arrival");
                 require(Catalog.dist(g.x,g.y,ox,oy)>=limit-.01,"auto penetration");
             }
         }
-        System.out.println("GEOMETRY PASS: "+impacts+" high-speed impacts; every ship/land docking, auto arrival, legacy recovery");
+        for(int target=0;target<Catalog.PORTS.length+Catalog.ISLANDS.length;target++) {
+            GameState g=GameState.newGame();g.undockInPlace();g.pirateSpawnTimer=100000;g.supply=100000;
+            boolean port=target<Catalog.PORTS.length;int id=port?target:target-Catalog.PORTS.length;
+            if(port)g.startAutoSail(id);else g.startAutoSailIsle(id);
+            for(int step=0;step<36000&&g.autoSail;step++)g.update(1f/30);
+            require(!g.autoSail && g.speed==0,"long route from Yangzhou to "+(port?Catalog.PORTS[id]:Catalog.ISLANDS[id]));
+        }
+        System.out.println("GEOMETRY PASS: "+impacts+" high-speed impacts; every ship/land docking, auto arrival, legacy recovery; helm/profile; 34 long routes from Yangzhou");
     }
     private static void require(boolean ok,String message) { if(!ok) throw new AssertionError(message); }
 }

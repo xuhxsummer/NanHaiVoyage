@@ -1,6 +1,8 @@
 package com.shipgame.nanhai.data;
 
 public class SaveData {
+    public String nickname = "船长";
+    public int avatarIndex;
     public float x, y, headingDeg;
     public int dockedPort = -1;
     public boolean failed;

@@ -5,6 +5,14 @@ import com.badlogic.gdx.math.MathUtils;
 
 /** Runtime voyage: ship, cargo, weather, pirates, port/island actions. */
 public class GameState {
+    public String nickname = "船长";
+    public int avatarIndex;
+
+    public void setProfile(String name, int avatar) {
+        String clean = name == null ? "" : name.trim().replaceAll("[\\p{Cntrl}]", "");
+        nickname = clean.isEmpty() ? "船长" : clean.substring(0, Math.min(16, clean.length()));
+        avatarIndex = MathUtils.clamp(avatar, 0, 3);
+    }
 
     // 0.26.2: weather is always sunny. Kept as a one-value enum so later
     // versions can reintroduce rain/fog without a save-data migration.
@@ -75,7 +83,7 @@ public class GameState {
     public final boolean[] ballFromPlayer = new boolean[MAX_BALLS];
 
     public boolean holdAccel, holdDecel;
-    public float steerInput; // -1..1 from stick / A-D
+    public float steerInput; // Screen-left is -1; subtract it: +heading yaws left in (x, height, -y).
     public boolean manualHeadingActive;
     public float desiredHeadingDeg;
 
@@ -148,7 +156,7 @@ public class GameState {
         GameState g = new GameState();
         // 0.26.3: 扬州是故乡，新档从这里起航（北缘海岸，初始渔夫编制 2）。
         int home = Catalog.YANGZHOU;
-        g.x = Catalog.PORT_X[home] + 90f;
+        g.x = Catalog.PORT_X[home] + Catalog.DOCK_RANGE - 8f;
         g.y = Catalog.PORT_Y[home];
         g.headingDeg = 0f;
         g.hull = g.hullMax;
@@ -171,6 +179,8 @@ public class GameState {
 
     public SaveData toSave() {
         SaveData s = new SaveData();
+        s.nickname = nickname;
+        s.avatarIndex = avatarIndex;
         s.dockedPort = dockedPort;
         s.failed = failed;
         s.questVisitPortSet = questVisitPortSet;
@@ -259,6 +269,7 @@ public class GameState {
             return newGame();
         }
         try {
+            g.setProfile(s.nickname, s.avatarIndex);
             float oldHullMax = s.hullMax <= 0 ? Catalog.HULL_MAX : s.hullMax;
             float oldSupplyMax = s.supplyMax <= 0 ? Catalog.SUPPLY_MAX : s.supplyMax;
             g.hullMax = Math.max(Catalog.HULL_MAX, oldHullMax);
@@ -563,7 +574,7 @@ public class GameState {
             headingDeg = approachAngle(headingDeg, desiredHeadingDeg, Catalog.TURN_RATE * turnMult() * dt);
         } else {
             if (Math.abs(steerInput) > 0.08f) {
-                headingDeg += steerInput * Catalog.TURN_RATE * turnMult() * dt;
+                headingDeg -= steerInput * Catalog.TURN_RATE * turnMult() * dt;
             }
         }
         headingDeg = wrapDeg(headingDeg);
@@ -794,7 +805,7 @@ public class GameState {
         // 0.26.3: 离港即停捕鱼（渔夫只能在家门口作业）。
         fishingOn = false;
         fishTimer = 0f;
-        x = Catalog.PORT_X[p] + 95f;
+        x = Catalog.PORT_X[p] + Catalog.DOCK_RANGE + 12f;
         y = Catalog.PORT_Y[p] + 10f;
         headingDeg = 0f;
         speed = 0f;
@@ -808,7 +819,7 @@ public class GameState {
         }
         int i = islandMenu;
         islandMenu = -1;
-        x = Catalog.ISLAND_X[i] + 90f;
+        x = Catalog.ISLAND_X[i] + Catalog.ISLAND_RANGE + 12f;
         y = Catalog.ISLAND_Y[i];
         leaveCooldown = 2.2f;
         toast("离开岛屿。");

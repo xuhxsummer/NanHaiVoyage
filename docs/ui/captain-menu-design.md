@@ -1,3 +1,5 @@
+> 0.28.9 replaces this historical popup with a fullscreen captain page. See [release notes](../release-0.28.9.md) for profile, navigation, and persistence behavior.
+
 # 船长菜单 · 世界暂停
 
 已阅读 `03-captain-menu.md`、全局布局规范，并打开 `assets/ui-refs/03-captain-menu.png`。独立 `CaptainMenuPanel` 对应参考图的居中窄面板、铜金边框、墨蓝底、暂停说明及三枚纵向大按钮。尺寸 752×560 设计像素，8px 网格，沿用现有 HUD 的 2/3 缩放，背景继续显示航行场景。

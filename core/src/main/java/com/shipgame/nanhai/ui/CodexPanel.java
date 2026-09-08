@@ -148,7 +148,9 @@ public final class CodexPanel extends Table implements Disposable {
         section(content,"可能掉落");paragraph(content,"暂无记载");
         section(content,"栖息地");paragraph(content,known?"岛屿搜采；具体地点暂无记载。":"？？？");
         section(content,"传说故事");paragraph(content,"暂无记载");
-        ScrollPane scroll=new ScrollPane(content,skin);scroll.setScrollingDisabled(true,false);
+        ScrollPane.ScrollPaneStyle scrollStyle=new ScrollPane.ScrollPaneStyle(skin.get(ScrollPane.ScrollPaneStyle.class));
+        scrollStyle.background=null;
+        ScrollPane scroll=new ScrollPane(content,scrollStyle);scroll.setScrollingDisabled(true,false);
         scroll.setFadeScrollBars(false);scroll.setOverscroll(false,false);
         right.add(scroll).size(560,592);
         return right;
@@ -163,9 +165,9 @@ public final class CodexPanel extends Table implements Disposable {
         Label label=label(text,22,QuestUi.INK);label.setWrap(true);
         content.add(label).width(528).left().pad(8).row();
     }
-    private Label label(String text,int size,Color color) {return chrome.label(text,size,color);}
+    private Label label(String text,int size,Color color) {return chrome.label(text,Math.max(24,size),color);}
     private TextButton button(String text,boolean selected,Runnable action) {
-        TextButton button=chrome.button(text,selected);
+        TextButton button=chrome.button(text,selected); button.getLabel().setFontScale(24f/22f);
         button.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event,float x,float y) {action.run();}
         });return button;

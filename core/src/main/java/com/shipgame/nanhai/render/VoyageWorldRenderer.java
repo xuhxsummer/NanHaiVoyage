@@ -5,6 +5,7 @@ import com.badlogic.gdx.graphics.*;
 import com.badlogic.gdx.graphics.VertexAttributes.Usage;
 import com.badlogic.gdx.graphics.g3d.*;
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
+import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute;
 import com.badlogic.gdx.graphics.g3d.attributes.FloatAttribute;
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight;
 import com.badlogic.gdx.graphics.g3d.utils.MeshPartBuilder;
@@ -19,7 +20,7 @@ import com.shipgame.nanhai.data.VoyageGeometry;
 
 /** Map (x,y) becomes (x,height,-y); gameplay owns land-clearance correction. */
 public final class VoyageWorldRenderer implements Disposable {
-    public static final float SAIL_DISTANCE = 155f;
+    public static final float SAIL_DISTANCE = 185f;
     public static final float COMBAT_DISTANCE = 600f;
     public final PerspectiveCamera camera = new PerspectiveCamera(58f, 1280, 720);
     private final ModelBatch batch = new ModelBatch();
@@ -29,9 +30,14 @@ public final class VoyageWorldRenderer implements Disposable {
     private final ModelCache sceneryCache = new ModelCache();
     private final ModelInstance[] ships = new ModelInstance[Catalog.SHIPS.length];
     private final ModelInstance pirate, ocean, ripples, foam, wake, whiteBall, blackBall;
+    private final ModelInstance[] idleRings = new ModelInstance[3];
     private final VoyageWater water = new VoyageWater();
     private final Vector3 target = new Vector3(), desired = new Vector3(), point = new Vector3();
     private float distance = SAIL_DISTANCE, heading, time;
+    private final Vector3 chasePosition = new Vector3(), orbit = new Vector3();
+    private float lookYaw, lookPitch, returnYaw, returnPitch, returnTime;
+    private boolean looking;
+    public static final float LOOK_RETURN_SECONDS = .32f;
     private boolean initialized;
     private boolean highWaterQuality = true;
     private static final long ATTR = Usage.Position | Usage.Normal;
@@ -49,17 +55,19 @@ public final class VoyageWorldRenderer implements Disposable {
         ripples = new ModelInstance(waterLines());
         foam = new ModelInstance(foamModel());
         wake = new ModelInstance(wakeModel());
+        Model idleRing = idleRingModel();
+        for (int i=0;i<idleRings.length;i++) idleRings[i]=new ModelInstance(idleRing);
         whiteBall = new ModelInstance(keep(new ModelBuilder().createSphere(5, 5, 5, 8, 6,
                 material(.98f, .92f, .70f), ATTR)));
         blackBall = new ModelInstance(keep(new ModelBuilder().createSphere(5, 5, 5, 8, 6,
                 material(.10f, .08f, .06f), ATTR)));
         for (int i = 0; i < Catalog.PORTS.length; i++) {
-            ModelInstance instance = new ModelInstance(landModel(true, i));
+            ModelInstance instance = new ModelInstance(keep(VoyageLandModels.create(true, i)));
             instance.transform.setToTranslation(Catalog.PORT_X[i], 0, -Catalog.PORT_Y[i]);
             scenery.add(instance);
         }
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            ModelInstance instance = new ModelInstance(landModel(false, i));
+            ModelInstance instance = new ModelInstance(keep(VoyageLandModels.create(false, i)));
             instance.transform.setToTranslation(Catalog.ISLAND_X[i], 0, -Catalog.ISLAND_Y[i]);
             scenery.add(instance);
         }
@@ -189,110 +197,6 @@ public final class VoyageWorldRenderer implements Disposable {
         return material(((rgb>>16)&255)/255f, ((rgb>>8)&255)/255f, (rgb&255)/255f);
     }
 
-    private Model landModel(boolean port, int id) {
-        ModelBuilder b = new ModelBuilder(); b.begin();
-        java.util.Random random = new java.util.Random((port ? 7109L:1907L)+id*104729L);
-        float radius=VoyageGeometry.landRadius(port,id);
-        Material sand=material(.20f+random.nextFloat()*.10f,.36f+random.nextFloat()*.16f,.22f+random.nextFloat()*.10f);
-        Material rock=material(.16f+random.nextFloat()*.14f,.24f+random.nextFloat()*.16f,.18f+random.nextFloat()*.12f);
-        MeshPartBuilder shore=part(b,"shore",sand);
-        int count=14+id%5;
-        for(int v=0;v<count;v++) {
-            float a=v*MathUtils.PI2/count, c=(v+1)*MathUtils.PI2/count;
-            float r=VoyageGeometry.shoreRadius(port,id,v), t=VoyageGeometry.shoreRadius(port,id,(v+1)%count);
-            Vector3 p=new Vector3(MathUtils.cos(a)*r,2,MathUtils.sin(a)*r);
-            Vector3 q=new Vector3(MathUtils.cos(c)*t,2,MathUtils.sin(c)*t);
-            shore.triangle(new Vector3(0,2,0),q,p);
-            shore.rect(p,q,new Vector3(q.x,-2,q.z),new Vector3(p.x,-2,p.z),new Vector3(p.x+q.x,0,p.z+q.z).nor());
-        }
-        if(port) {
-            Material wall=material(.48f+random.nextFloat()*.18f,.20f+random.nextFloat()*.10f,.11f+random.nextFloat()*.08f);
-            Material roof=color(new int[]{0x172c35,0x263b38,0x3b3028,0x24413d,0x332c3b,0x1d3445}[id%6]);
-            Material trim=color(0xc08b43);
-            int houses=10+id%4;
-            for(int h=0;h<houses;h++) {
-                float angle=h*MathUtils.PI2/houses, x=MathUtils.cos(angle)*19, z=MathUtils.sin(angle)*19;
-                float height=5+random.nextFloat()*5, base=2+(h%3)*1.8f;
-                box(b,"stoneTerrace",rock,x,base*.5f,z,8,base,7);
-                box(b,"house"+h,wall,x,base+height/2,z,6,height,5);
-                tiledRoof(b,roof,trim,x,base+height,z,8.5f,7.4f);
-                if(h%3==0) tiledRoof(b,roof,trim,x,base+height*.48f,z,8,7);
-                for(int side:new int[]{-1,1}) {
-                    for(int pillar=0;pillar<3;pillar++)
-                        box(b,"redPillar",wall,x-2.8f+pillar*2.8f,base+height*.5f,z+side*2.8f,.35f,height,.35f);
-                    box(b,"gallery",trim,x,base+1,z+side*2.9f,6,.2f,.25f);
-                }
-                {
-                    Material lantern=material(1.0f,.56f,.12f);
-                    lantern.set(ColorAttribute.createEmissive(.45f,.15f,.025f,1));
-                    box(b,"lantern"+h,lantern,x+2.7f,base+height*.7f,z+3.1f,.65f,1.0f,.65f);
-                }
-            }
-            float pierLength=10+id%5*2;
-            box(b,"pier",color(0x624126),radius-pierLength/2-2,3,0,pierLength,3,7);
-            for(int plank=0;plank<12;plank++) {
-                float px=radius-pierLength-2+plank* pierLength/12;
-                box(b,"dockPlank",trim,px,4.55f,0,.12f,.12f,6.5f);
-                if(plank%3==0) for(int side:new int[]{-1,1})
-                    box(b,"dockPile",wall,px,2.8f,side*2.9f,.45f,6,.45f);
-            }
-            // Small moored junk silhouette beside the pier.
-            float boatX=radius-9, boatZ=8;
-            box(b,"mooredHull",color(0x3b2114),boatX,4,boatZ,11,2.5f,4.5f);
-            box(b,"mooredMast",color(0x6b4523),boatX,11,boatZ,0.7f,14,0.7f);
-            box(b,"mooredSail",color(0xd8b779),boatX+1,10,boatZ,0.7f,8,7);
-            int levels=(id==0 ? 3 : 1+id%4);
-            for(int level=0;level<levels;level++) {
-                float width=9-level*1.1f;
-                box(b,"tower"+level,wall,-7,7+level*8,-3,width,8,width);
-                tiledRoof(b,roof,trim,-7,12+level*8,-3,13-level,13-level);
-                box(b,"towerTrim"+level,trim,-7,12.8f+level*8,-3,width+.8f,.35f,width+.8f);
-            }
-            MeshPartBuilder hill=part(b,"hillside",rock);
-            hill.setVertexTransform(new Matrix4().setToTranslation(-17,7+id%3*2,0));
-            hill.cone(15,14+id%3*4,16,7+id%4);
-            // A compact rear ridge gives the harbor a mountain backdrop without
-            // changing the gameplay collision footprint.
-            MeshPartBuilder ridge=part(b,"mountainRidge",rock);
-            ridge.setVertexTransform(new Matrix4().setToTranslation(7,10,-radius*.42f));
-            ridge.cone(Math.min(radius*.52f,22),22+id%3*7,18,7);
-            for(int crag=0;crag<5;crag++) {
-                float x=-14+crag*6, z=-15+Math.abs(crag-2)*1.5f;
-                float height=16+random.nextFloat()*19;
-                MeshPartBuilder cliff=part(b,"ridgeSpire",rock);
-                cliff.setVertexTransform(new Matrix4().setToTranslation(x,height*.5f+2,z));
-                cliff.cone(8,height,9,5);
-                MeshPartBuilder crown=part(b,"ridgeGreen",sand);
-                crown.setVertexTransform(new Matrix4().setToTranslation(x,height*.78f,z));
-                crown.cone(6,height*.35f,7,6);
-            }
-        } else {
-            // Reef arcs, cliff stacks and wooded peaks use different silhouettes.
-            int kind=id%3, peaks=2+id%4;
-            for(int k=0;k<peaks;k++) {
-                float angle=(k/(float)peaks)*MathUtils.PI2+.17f*id;
-                float x=MathUtils.cos(angle)*radius*.48f, z=MathUtils.sin(angle)*radius*.48f;
-                float height=kind==0 ? 15+random.nextFloat()*23 : kind==1 ? 7+random.nextFloat()*12 : 3+random.nextFloat()*5;
-                MeshPartBuilder peak=part(b,"rock"+k,rock);
-                peak.setVertexTransform(new Matrix4().setToTranslation(x,2+height/2,z));
-                if(kind==1) peak.cylinder(12,height,11,5+id%4);
-                else peak.cone(15,height,14,6+id%3);
-                if(kind!=2) {
-                    box(b,"trunk"+k,color(0x684529),x,5,z,1.4f,7,1.4f);
-                    MeshPartBuilder tree=part(b,"tree"+k,material(.13f,.31f+id*.008f,.18f));
-                    tree.setVertexTransform(new Matrix4().setToTranslation(x,11,z)); tree.cone(8,10,8,5);
-                }
-            }
-            if(kind==2) {
-                // Shallow enclosed lagoon: water inset, surrounded by the solid reef platform.
-                MeshPartBuilder lagoon=part(b,"lagoon",material(.10f,.56f,.58f));
-                lagoon.setVertexTransform(new Matrix4().setToTranslation(0,2.1f,0));
-                lagoon.cylinder(17+id*.25f,.15f,12,11);
-            }
-        }
-        return keep(b.end());
-    }
-
     private Model oceanModel() {
         ModelBuilder b=new ModelBuilder(); b.begin();
         MeshPartBuilder p=part(b,"ocean",waterMaterial(.035f,.25f,.32f));
@@ -345,6 +249,21 @@ public final class VoyageWorldRenderer implements Disposable {
         return keep(b.end());
     }
 
+    private Model idleRingModel() {
+        ModelBuilder b=new ModelBuilder(); b.begin();
+        Material mat=material(.38f,.66f,.69f);
+        mat.set(new BlendingAttribute(GL20.GL_SRC_ALPHA,GL20.GL_ONE_MINUS_SRC_ALPHA,.14f));
+        MeshPartBuilder p=part(b,"idleHullRipples",mat);
+        for (int i=0;i<64;i++) {
+            // Small gaps soften the fallback ring instead of drawing a solid white outline.
+            if (i%9==0) continue;
+            float a=i*MathUtils.PI2/64, c=(i+1)*MathUtils.PI2/64;
+            float ax=MathUtils.cos(a),az=MathUtils.sin(a),cx=MathUtils.cos(c),cz=MathUtils.sin(c);
+            p.rect(ax,0,az, ax*.98f,0,az*.98f, cx*.98f,0,cz*.98f, cx,0,cz, 0,1,0);
+        }
+        return keep(b.end());
+    }
+
     public void resize(int width, int height) {
         if (width<=0 || height<=0) return;
         camera.viewportWidth=width; camera.viewportHeight=height;
@@ -365,8 +284,23 @@ public final class VoyageWorldRenderer implements Disposable {
         // Aim above the hull to put the visible ship in the lower middle, with a horizon.
         target.set(g.x+fx*22,36,-g.y+fz*22);
         desired.set(g.x-fx*distance,85+combat*255,-g.y-fz*distance);
-        if (!initialized || camera.position.dst2(desired)>1600f*1600f) camera.position.set(desired);
-        else camera.position.lerp(desired,1f-(float)Math.exp(-8f*dt));
+        if (!initialized || chasePosition.dst2(desired)>1600f*1600f) chasePosition.set(desired);
+        else chasePosition.lerp(desired,1f-(float)Math.exp(-8f*dt));
+        if (!looking && returnTime < LOOK_RETURN_SECONDS) {
+            returnTime = Math.min(LOOK_RETURN_SECONDS, returnTime + dt);
+            float t = returnTime / LOOK_RETURN_SECONDS;
+            float remaining = 1f - t*t*(3f-2f*t);
+            lookYaw = returnYaw * remaining;
+            lookPitch = returnPitch * remaining;
+        }
+        orbit.set(chasePosition).sub(target);
+        float elevation = MathUtils.atan2(orbit.y, (float)Math.hypot(orbit.x,orbit.z)) * MathUtils.radiansToDegrees;
+        float radius = orbit.len();
+        float yaw = MathUtils.atan2(orbit.z,orbit.x) * MathUtils.radiansToDegrees + lookYaw;
+        float pitch = MathUtils.clamp(elevation + lookPitch, -6f, 72f);
+        camera.position.set(target).add(MathUtils.cosDeg(yaw)*MathUtils.cosDeg(pitch)*radius,
+                MathUtils.sinDeg(pitch)*radius, MathUtils.sinDeg(yaw)*MathUtils.cosDeg(pitch)*radius);
+        camera.position.y = Math.max(9f,camera.position.y);
         initialized=true;
         camera.up.set(Vector3.Y); camera.lookAt(target); camera.update();
         Gdx.gl.glViewport(0,0,Gdx.graphics.getWidth(),Gdx.graphics.getHeight());
@@ -388,6 +322,18 @@ public final class VoyageWorldRenderer implements Disposable {
             if (highWaterQuality) batch.render(foam,light);
         }
         batch.render(sceneryCache,light);
+        if (!customWater && g.speed<22) {
+            VoyageGeometry.Ship hull=VoyageGeometry.ship(g.ship);
+            for (int i=0;i<idleRings.length;i++) {
+                float phase=(time*.24f+i/(float)idleRings.length)%1f;
+                ModelInstance ring=idleRings[i];
+                ring.transform.setToTranslation(g.x,.85f,-g.y).rotate(Vector3.Y,g.headingDeg)
+                        .scale(25*hull.length+phase*13,1,10*hull.beam+phase*10);
+                ((BlendingAttribute)ring.materials.first().get(BlendingAttribute.Type)).opacity=
+                        .18f*MathUtils.sin(phase*MathUtils.PI)*(1-MathUtils.clamp(g.speed/22,0,1));
+                batch.render(ring,light);
+            }
+        }
         if (!customWater && g.speed>1) {
             wake.transform.setToTranslation(g.x,.25f,-g.y).rotate(Vector3.Y,g.headingDeg).scale(MathUtils.clamp(g.speed/90,.2f,1.3f),1,1);
             batch.render(wake,light);
@@ -424,6 +370,22 @@ public final class VoyageWorldRenderer implements Disposable {
         return Intersector.intersectRaySphere(ray,point.set(x,height,-y),radius,null);
     }
     public float chaseDistance() { return distance; }
+    public void beginLook() { looking = true; }
+    /** Deltas are viewport-normalized, so the same gesture works on phones and desktop. */
+    public void dragLook(float dx, float dy) {
+        if (!looking) return;
+        lookYaw = MathUtils.clamp(lookYaw - dx*180f, -150f, 150f);
+        lookPitch = MathUtils.clamp(lookPitch + dy*100f, -50f, 60f);
+    }
+    public void endLook() {
+        looking = false; returnYaw = lookYaw; returnPitch = lookPitch; returnTime = 0f;
+    }
+    public void resetLook() {
+        looking = false; lookYaw = lookPitch = returnYaw = returnPitch = 0f;
+        returnTime = LOOK_RETURN_SECONDS;
+    }
+    public float lookYaw() { return lookYaw; }
+    public float lookPitch() { return lookPitch; }
     /** Low uses fewer water triangles/waves/normal layers and a shorter whitecap distance. */
     public void setWaterQuality(boolean high) { highWaterQuality = high; }
     public boolean hasWaterShader() { return water.available(); }

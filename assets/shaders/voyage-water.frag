@@ -32,6 +32,17 @@ void main() {
     vec2 fine=slope(chop2);
     slopes+=vec2(fine.x*.8+fine.y*.6,-fine.x*.6+fine.y*.8)*0.16;
 #endif
+    // Hull-sized wavelets continue at rest; their clock never depends on input or speed.
+    vec2 relative=v_surface.xz-u_ship;
+    vec2 sideAxis=vec2(-u_forward.y,u_forward.x);
+    float along=dot(relative,u_forward),signedSide=dot(relative,sideAxis);
+    float aspect=u_hull.y/u_hull.x;
+    float hullDistance=length(vec2(along*aspect,signedSide))-u_hull.y;
+    float idleEnvelope=smoothstep(-0.8,1.0,hullDistance)*(1.0-smoothstep(2.0,13.0,hullDistance));
+    idleEnvelope*=1.0-smoothstep(3.0,22.0,u_speed);
+    float idlePhase=hullDistance*1.1-u_time*2.4+sin(along*0.09+u_time*0.7)*0.24;
+    vec2 radial=normalize(u_forward*(along*aspect*aspect)+sideAxis*signedSide+vec2(0.0001));
+    slopes+=radial*cos(idlePhase)*idleEnvelope*0.10;
     vec3 n=normalize(v_normal+vec3(slopes.x,0.0,slopes.y)*(0.45+u_wind*0.55)*nearDetail);
     float nv=max(dot(n,view),0.001);
     float fresnel=0.0204+0.9796*pow(1.0-nv,5.0);
@@ -66,9 +77,7 @@ void main() {
 #endif
     float shoreFoam=(1.0-smoothstep(0.5,5.0,abs(v_shore-2.0+sin(u_time*1.3)*1.1)))*foamTex.g*0.65;
     // Bright V arms, eddies and bubbly central churn share the displaced surface.
-    vec2 relative=v_surface.xz-u_ship;
     float aft=-dot(relative,u_forward)-u_hull.x;
-    float signedSide=dot(relative,vec2(-u_forward.y,u_forward.x));
     float side=abs(signedSide),lengthOfWake=40.0+u_speed*2.8;
     float progress=clamp(aft/lengthOfWake,0.0,1.0);
     vec2 wakeUV=vec2(aft*0.034-u_time*0.11,signedSide*0.049+sin(aft*0.035)*0.14);
@@ -80,7 +89,8 @@ void main() {
     float churn=(1.0-smoothstep(u_hull.y*0.25,u_hull.y+max(aft,0.0)*0.07,side))*(1.0-progress)*0.7;
     float wake=max(arm*(0.24+wakeTex.g*1.2),churn*wakeTex.r);
     wake*=smoothstep(-5.0,4.0,aft)*(1.0-smoothstep(0.35,1.0,progress))*smoothstep(1.0,35.0,u_speed);
-    float foam=clamp(max(max(caps,shoreFoam),wake),0.0,0.98);
+    float idleFoam=pow(max(sin(idlePhase),0.0),6.0)*idleEnvelope*(0.035+foamTex.g*0.055)*nearDetail;
+    float foam=clamp(max(max(max(caps,shoreFoam),wake),idleFoam),0.0,0.98);
     color=mix(color,vec3(0.72,0.83,0.81),foam);
     vec3 horizon=environment(normalize(vec3(-view.x,0.015,-view.z)));
     float fog=1.0-exp(-pow(distanceToEye/4300.0,1.6));
