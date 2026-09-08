@@ -11,6 +11,7 @@ import com.shipgame.nanhai.data.AccountStore;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.screen.LoginScreen;
 import com.shipgame.nanhai.ui.UiFactory;
+import com.shipgame.nanhai.ui.IconLib;
 import com.shipgame.nanhai.ui.UpdateChecker;
 
 public class NanHaiVoyage extends Game {
@@ -102,6 +103,7 @@ public class NanHaiVoyage extends Game {
         if (getScreen() != null) {
             getScreen().hide();
         }
+        IconLib.dispose();
         if (skin != null) skin.dispose();
         if (font != null) font.dispose();
         if (fontSmall != null) fontSmall.dispose();

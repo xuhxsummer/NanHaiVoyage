@@ -30,6 +30,7 @@ import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.ScreenUtils;
+import com.badlogic.gdx.utils.Scaling;
 import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 import com.shipgame.nanhai.NanHaiVoyage;
@@ -1082,6 +1083,13 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void islandTable(Table box) {
         menuHeader(box, Catalog.ISLANDS[g.islandMenu] + " · 搜采");
+        TextureRegionDrawable art = IconLib.island(g.islandMenu);
+        if (art != null) {
+            Image portrait = new Image(art);
+            portrait.setScaling(Scaling.fit);
+            portrait.setName("islandArtwork");
+            box.add(portrait).size(MENU_W, 176).padBottom(8).row();
+        }
         Table actions = new Table();
         actions.add(btn("搜采", () -> {
             g.toast(g.gatherIsland());

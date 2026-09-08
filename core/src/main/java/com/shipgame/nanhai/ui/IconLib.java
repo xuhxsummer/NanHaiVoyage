@@ -1,8 +1,11 @@
 package com.shipgame.nanhai.ui;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.files.FileHandle;
+import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.graphics.glutils.FileTextureData;
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.shipgame.nanhai.data.Catalog;
 
@@ -10,10 +13,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Lazy, missing-safe pixel icons for goods / beasts / herbs.
- * Slugs are positional (index i -> Catalog array entry i), matching
- * tools/gen_icons.py. A missing file never crashes: null is returned and the
- * caller falls back to the plain text row.
+ * Shared, lazy icons. Imported illustrations use Catalog names; legacy pixel
+ * icons use positional slugs from tools/gen_icons.py. Missing art falls back to
+ * the old icon or null, allowing the caller to retain its text/marker.
  */
 public final class IconLib {
 
@@ -52,12 +54,22 @@ public final class IconLib {
 
     /** Drawable for Catalog.BEASTS[i], or null if missing. */
     public static TextureRegionDrawable beast(int i) {
-        return get("beasts", BEAST_SLUGS, i);
+        TextureRegionDrawable art = named("beasts", "beast", Catalog.BEASTS, i);
+        return art != null ? art : get("beasts", BEAST_SLUGS, i);
     }
 
     /** Drawable for Catalog.HERBS[i], or null if missing. */
     public static TextureRegionDrawable herb(int i) {
-        return get("herbs", HERB_SLUGS, i);
+        TextureRegionDrawable art = named("herbs", "herb", Catalog.HERBS, i);
+        return art != null ? art : get("herbs", HERB_SLUGS, i);
+    }
+
+    public static TextureRegionDrawable port(int i) {
+        return named("ports", "port", Catalog.PORTS, i);
+    }
+
+    public static TextureRegionDrawable island(int i) {
+        return named("islands", "island", Catalog.ISLANDS, i);
     }
 
     /** Drawable for Catalog.FISH[i] (0.26.3 渔获), or null if missing. */
@@ -110,6 +122,65 @@ public final class IconLib {
             Gdx.app.error("IconLib", "icon failed: " + folder + "/" + slug, t2);
             return null;
         }
+    }
+
+    private static TextureRegionDrawable named(String folder, String prefix, String[] names, int i) {
+        if (i < 0 || i >= names.length) return null;
+        String key = folder + "/" + prefix + "_" + names[i];
+        if (cache.containsKey(key)) return cache.get(key);
+        TextureRegionDrawable art = null;
+        try {
+            FileHandle file = Gdx.files.internal("textures/" + key + ".png");
+            if (!file.exists()) file = Gdx.files.internal("textures/" + key + ".jpg");
+            if (file.exists()) {
+                Texture texture = new Texture(new IllustrationData(file));
+                texture.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear);
+                art = new TextureRegionDrawable(new TextureRegion(texture));
+            }
+        } catch (RuntimeException ex) {
+            Gdx.app.error("IconLib", "illustration failed: " + key, ex);
+        }
+        cache.put(key, art);
+        return art;
+    }
+
+    /** At most 256² + mipmaps per illustration (the whole chart is ~11 MiB).
+     * FileTextureData reopens the original after Android GL context loss. The
+     * square power-of-two canvas preserves aspect ratio and GLES2 mip support;
+     * neither the decoded original nor the thumbnail is retained on the CPU. */
+    private static final class IllustrationData extends FileTextureData {
+        private static final int SIZE = 256;
+
+        IllustrationData(FileHandle file) { super(file, null, Pixmap.Format.RGBA8888, true); }
+        @Override public int getWidth() { return SIZE; }
+        @Override public int getHeight() { return SIZE; }
+
+        @Override public Pixmap consumePixmap() {
+            Pixmap source = super.consumePixmap();
+            Pixmap thumbnail = null;
+            try {
+                thumbnail = new Pixmap(SIZE, SIZE, Pixmap.Format.RGBA8888);
+                thumbnail.setBlending(Pixmap.Blending.None);
+                thumbnail.setFilter(Pixmap.Filter.BiLinear);
+                float scale = Math.min((float)SIZE / source.getWidth(), (float)SIZE / source.getHeight());
+                int width = Math.max(1, Math.round(source.getWidth() * scale));
+                int height = Math.max(1, Math.round(source.getHeight() * scale));
+                thumbnail.drawPixmap(source, 0, 0, source.getWidth(), source.getHeight(),
+                        (SIZE - width) / 2, (SIZE - height) / 2, width, height);
+                return thumbnail;
+            } catch (RuntimeException ex) {
+                if (thumbnail != null) thumbnail.dispose();
+                throw ex;
+            } finally { source.dispose(); }
+        }
+    }
+
+    /** Owned by the application, since several screens share these drawables. */
+    public static void dispose() {
+        for (TextureRegionDrawable icon : cache.values()) {
+            if (icon != null) icon.getRegion().getTexture().dispose();
+        }
+        cache.clear();
     }
 
     /** Smallest array length guard so slug tables can't drift from Catalog. */

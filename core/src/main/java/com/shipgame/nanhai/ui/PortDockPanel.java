@@ -3,7 +3,9 @@ package com.shipgame.nanhai.ui;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Disposable;
+import com.badlogic.gdx.utils.Scaling;
 import com.shipgame.nanhai.data.Catalog;
 import com.shipgame.nanhai.data.GameState;
 import java.util.function.Consumer;
@@ -19,12 +21,16 @@ public final class PortDockPanel extends Table implements Disposable {
     public void refresh(GameState g, Consumer<Action> action, Runnable close) {
         clearChildren(); setBackground(ui.frame); pad(24); top();
         Table header = new Table();
-        header.add().width(96);
+        TextureRegionDrawable art = IconLib.port(g.dockedPort);
+        Image portrait = new Image(art != null ? art : IconLib.hud("port"));
+        portrait.setScaling(Scaling.fit);
+        portrait.setName("portArtwork");
+        header.add(portrait).size(96);
         Table title = new Table(); title.setBackground(ui.blue); title.pad(0);
         title.add(ui.label(Catalog.PORTS[g.dockedPort] + " · 世界暂停", 32, QuestUi.PAPER));
         header.add(title).size(528, 64).expandX();
         header.add(button("关闭", "", null, true, close)).size(96, 56);
-        add(header).size(1104, 64).row();
+        add(header).size(1104, 96).row();
 
         Table resources = new Table(); resources.setBackground(ui.inset); resources.pad(8);
         resources.add(resource("silver", "银两 " + g.silver + " 两")).width(272);

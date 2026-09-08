@@ -45,12 +45,47 @@ subprojects {
 
 eclipse.project.name = 'NanHaiVoyage-parent'
 
-// Publish the water runtime maps and the brief's ship-icon addendum to both
-// backends. Unrelated WIP art and source water JPGs remain out of the APK.
+// Share runtime art with both backends. Keep source-name duplicates, alternate
+// drawings and source water maps out of the APK; ship the canonical Catalog art.
 tasks.register('prepareWaterAssets', Sync) {
     from('android/assets') {
         include 'textures/water/ocean_*.png'
         include 'textures/ships/ship_*.png'
+        include 'textures/ports/port_*.png'
+        include 'textures/islands/island_*.png'
+        include 'textures/beasts/beast_*.png', 'textures/beasts/beast_*.jpg'
+        include 'textures/herbs/herb_*.png'
+        exclude 'textures/beasts/*_alt.*'
     }
     into(layout.buildDirectory.dir('generated/water-assets'))
+    doLast {
+        // These are UI illustrations, displayed at <=256 px. Keep the supplied
+        // originals in android/assets, but cap packaged copies at 512 px so the
+        // repository's tracked APK remains below GitHub's 100 MiB file limit.
+        // ImageIO is part of the build JDK; no Python or external art tool needed.
+        fileTree(destinationDir).matching {
+            include 'textures/ports/*', 'textures/islands/*'
+            include 'textures/beasts/*', 'textures/herbs/*'
+        }.each { file ->
+            def source = javax.imageio.ImageIO.read(file)
+            if (source == null) throw new GradleException("Cannot decode illustration: $file")
+            double scale = Math.min(1d, 512d / Math.max(source.width, source.height))
+            if (scale < 1d) {
+                int width = Math.max(1, (int)Math.round(source.width * scale))
+                int height = Math.max(1, (int)Math.round(source.height * scale))
+                int type = source.colorModel.hasAlpha() ? java.awt.image.BufferedImage.TYPE_INT_ARGB
+                        : java.awt.image.BufferedImage.TYPE_INT_RGB
+                def thumbnail = new java.awt.image.BufferedImage(width, height, type)
+                def graphics = thumbnail.createGraphics()
+                try {
+                    graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                            java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+                    graphics.drawImage(source, 0, 0, width, height, null)
+                } finally { graphics.dispose() }
+                String format = file.name.endsWith('.jpg') ? 'jpg' : 'png'
+                if (!javax.imageio.ImageIO.write(thumbnail, format, file))
+                    throw new GradleException("Cannot write illustration: $file")
+            }
+        }
+    }
 }

@@ -11,6 +11,7 @@ android/libs/
 captures/
 
 Builds/
+Builds/*.apk
 assets/textures/ai-draft/
 assets/ui-refs/
 bug-missing-ship.jpg

@@ -22,7 +22,7 @@
 #   3. 运行 tools/check_ui_font.py（若存在）
 #   4. ./gradlew :android:assembleDebug 打包
 #   5. 复制 APK 到 Builds/NanHaiVoyage.apk
-#   6. git add（排除 bug-*.jpg / assets/saves/ / scratch / howto_* / __pycache__）
+#   6. git add（排除 APK / bug-*.jpg / assets/saves/ / scratch / howto_* / __pycache__）
 #      并提交 "vX.Y.Z: <说明>"，推送 origin 当前分支
 #   7. gh release create vX.Y.Z（标题 vX.Y.Z、说明为传入文案，附 Builds/NanHaiVoyage.apk）
 #      最后打印 Release URL
@@ -169,15 +169,17 @@ else
 fi
 
 # ---- git 提交与推送 ---------------------------------------------------------------
+# APKs are Release assets only, not git objects.
 if [[ "$SKIP_COMMIT" -eq 1 ]]; then
   echo ">> 已跳过 git 提交与推送（--skip-commit）"
 elif [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "[dry-run] git add（排除 bug-*.jpg / assets/saves/ / scratch / howto_* / __pycache__）"
+  echo "[dry-run] git add（排除 APK / bug-*.jpg / assets/saves/ / scratch / howto_* / __pycache__）"
   echo "[dry-run] git commit -m \"v${VERSION}: ${DESCRIPTION}\""
   echo "[dry-run] git push origin $(git branch --show-current)"
 else
-  echo ">> git add（排除 bug-*.jpg / assets/saves/ / scratch / howto_* / __pycache__）"
+  echo ">> git add（排除 APK / bug-*.jpg / assets/saves/ / scratch / howto_* / __pycache__）"
   git add -A -- \
+    ':(exclude,glob)**/*.apk' \
     ':(exclude)bug-*.jpg' \
     ':(exclude)assets/saves/' \
     ':(exclude,glob)**/scratch/**' \

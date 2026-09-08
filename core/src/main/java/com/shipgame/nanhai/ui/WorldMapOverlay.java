@@ -10,6 +10,7 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Rectangle;
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Disposable;
 import com.shipgame.nanhai.NanHaiVoyage;
 import com.shipgame.nanhai.data.Catalog;
@@ -19,6 +20,7 @@ import com.shipgame.nanhai.data.GameState;
 public final class WorldMapOverlay implements Disposable {
     public static final int CLOSE = -2, EMPTY = -1;
     private static final float WIDTH = 1920, HEIGHT = 1080;
+    private static final float ICON_SIZE = 56;
     private static final Rectangle FRAME = new Rectangle(24, 24, 1872, 1032);
     private static final Rectangle CLOSE_BOX = new Rectangle(1776, 928, 104, 112);
     private static final Rectangle TITLE = new Rectangle(48, 856, 592, 176);
@@ -39,7 +41,8 @@ public final class WorldMapOverlay implements Disposable {
         String name;
         float x, y;
         boolean port;
-        Rectangle label;
+        Rectangle label, icon;
+        TextureRegionDrawable art;
     }
 
     public WorldMapOverlay(NanHaiVoyage game) {
@@ -53,6 +56,8 @@ public final class WorldMapOverlay implements Disposable {
             n.name = n.port ? Catalog.PORTS[index] : Catalog.ISLANDS[index];
             n.x = projectX(n.port ? Catalog.PORT_X[index] : Catalog.ISLAND_X[index]);
             n.y = projectY(n.port ? Catalog.PORT_Y[index] : Catalog.ISLAND_Y[index]);
+            n.art = n.port ? IconLib.port(index) : IconLib.island(index);
+            n.icon = new Rectangle(n.x - ICON_SIZE / 2, n.y - ICON_SIZE / 2, ICON_SIZE, ICON_SIZE);
         }
         layoutLabels();
     }
@@ -72,7 +77,7 @@ public final class WorldMapOverlay implements Disposable {
                 Rectangle best = null;
                 float bestScore = Float.MAX_VALUE;
                 for (int ring = 0; ring < 6; ring++) {
-                    float gap = 24 + ring * 16;
+                    float gap = 36 + ring * 16;
                     float[][] offsets = {{gap,-16},{-w-gap,-16},{-w/2,gap},
                             {-w/2,-gap-32},{gap,gap},{-w-gap,gap},{gap,-gap-32},{-w-gap,-gap-32}};
                     for (float[] offset : offsets) {
@@ -83,7 +88,7 @@ public final class WorldMapOverlay implements Disposable {
                         if (r.overlaps(TITLE) || r.overlaps(LEGEND) || r.overlaps(CLOSE_BOX)) score += 10000;
                         for (Node other : nodes) {
                             if (other.label != null && r.overlaps(other.label)) score += 1000;
-                            if (r.overlaps(new Rectangle(other.x-20, other.y-20, 40, 40))) score += 1000;
+                            if (r.overlaps(other.icon)) score += 1000;
                         }
                         if (score < bestScore) { best = r; bestScore = score; }
                     }
@@ -99,10 +104,11 @@ public final class WorldMapOverlay implements Disposable {
         if (!FRAME.contains(x,y) || CLOSE_BOX.contains(x,y)) return CLOSE;
         if (TITLE.contains(x,y) || LEGEND.contains(x,y)) return EMPTY;
         int nearest = EMPTY;
-        float distance = 32 * 32;
+        float distance = Float.MAX_VALUE;
         for (int i = 0; i < nodes.length; i++) {
             float dx = x-nodes[i].x, dy = y-nodes[i].y, d = dx*dx+dy*dy;
-            if (d < distance) { nearest = i; distance = d; }
+            if ((d < 32 * 32 || (nodes[i].art != null && nodes[i].icon.contains(x,y)))
+                    && d < distance) { nearest = i; distance = d; }
         }
         if (nearest != EMPTY) return nearest;
         for (int i = 0; i < nodes.length; i++) if (nodes[i].label.contains(x,y)) return i;
@@ -131,8 +137,24 @@ public final class WorldMapOverlay implements Disposable {
                 s.setColor(.75f,.65f,.43f,.45f);
                 s.rectLine(n.x,n.y,MathUtils.clamp(n.x,n.label.x,n.label.x+n.label.width),
                         MathUtils.clamp(n.y,n.label.y,n.label.y+n.label.height),1);
-                marker(s,n.x,n.y,n.port);
+                if (n.art == null) marker(s,n.x,n.y,n.port);
+                else {
+                    s.setColor(.02f,.06f,.08f,.9f);
+                    s.rect(n.icon.x+3,n.icon.y-3,ICON_SIZE,ICON_SIZE);
+                    s.setColor(n.port?GOLD:JADE);
+                    s.rect(n.icon.x,n.icon.y,ICON_SIZE,ICON_SIZE);
+                    s.setColor(NAVY);
+                    s.rect(n.icon.x+2,n.icon.y+2,ICON_SIZE-4,ICON_SIZE-4);
+                }
             }
+            s.end();
+            batch.setColor(Color.WHITE);
+            batch.begin();
+            for (Node n : nodes) if (n.art != null)
+                n.art.draw(batch,n.icon.x+2,n.icon.y+2,ICON_SIZE-4,ICON_SIZE-4);
+            batch.end();
+            // Chrome, the live ship marker and names stay above the illustrations.
+            s.begin(ShapeRenderer.ShapeType.Filled);
             panel(s,TITLE); panel(s,LEGEND); panel(s,CLOSE_BOX);
             marker(s,136,160,true); marker(s,136,104,false);
             // Large visual cross; the whole 104 × 112 area is a close hit target.
