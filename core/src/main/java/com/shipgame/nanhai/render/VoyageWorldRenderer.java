@@ -132,8 +132,8 @@ public final class VoyageWorldRenderer implements Disposable {
         ModelBuilder b = new ModelBuilder(); b.begin();
         java.util.Random random = new java.util.Random((port ? 7109L:1907L)+id*104729L);
         float radius=VoyageGeometry.landRadius(port,id);
-        Material sand=material(.53f+random.nextFloat()*.25f,.49f+random.nextFloat()*.22f,.32f+random.nextFloat()*.23f);
-        Material rock=material(.23f+random.nextFloat()*.18f,.31f+random.nextFloat()*.18f,.24f+random.nextFloat()*.15f);
+        Material sand=material(.20f+random.nextFloat()*.10f,.36f+random.nextFloat()*.16f,.22f+random.nextFloat()*.10f);
+        Material rock=material(.16f+random.nextFloat()*.14f,.24f+random.nextFloat()*.16f,.18f+random.nextFloat()*.12f);
         MeshPartBuilder shore=part(b,"shore",sand);
         int count=14+id%5;
         for(int v=0;v<count;v++) {
@@ -145,14 +145,18 @@ public final class VoyageWorldRenderer implements Disposable {
             shore.rect(p,q,new Vector3(q.x,-2,q.z),new Vector3(p.x,-2,p.z),new Vector3(p.x+q.x,0,p.z+q.z).nor());
         }
         if(port) {
-            Material wall=material(.64f+random.nextFloat()*.23f,.53f+random.nextFloat()*.2f,.37f+random.nextFloat()*.2f);
-            Material roof=color(new int[]{0x314f58,0x9b4936,0x62634c,0x3c746b,0x866442,0x414c70}[id%6]);
+            Material wall=material(.48f+random.nextFloat()*.18f,.20f+random.nextFloat()*.10f,.11f+random.nextFloat()*.08f);
+            Material roof=color(new int[]{0x172c35,0x263b38,0x3b3028,0x24413d,0x332c3b,0x1d3445}[id%6]);
+            Material trim=color(0xc08b43);
             int houses=(id==0 ? 7 : 3+id%4);
             for(int h=0;h<houses;h++) {
                 float angle=h*MathUtils.PI2/houses, x=MathUtils.cos(angle)*15, z=MathUtils.sin(angle)*15;
                 float height=6+random.nextFloat()*7;
                 box(b,"house"+h,wall,x,2+height/2,z,8,height,7);
-                box(b,"roof"+h,roof,x,3+height,z,11,2,10);
+                MeshPartBuilder roofMesh=part(b,"roof"+h,roof);
+                roofMesh.setVertexTransform(new Matrix4().setToTranslation(x,3+height,z));
+                roofMesh.cone(11,2.8f,10,4);
+                box(b,"beam"+h,trim,x,2.8f+height,z,8.8f,.45f,7.8f);
                 if (id==0) {
                     Material lantern=material(1.0f,.56f,.12f);
                     box(b,"lantern"+h,lantern,x,4+height*.55f,z,1.2f,2.0f,1.2f);
@@ -160,14 +164,28 @@ public final class VoyageWorldRenderer implements Disposable {
             }
             float pierLength=10+id%5*2;
             box(b,"pier",color(0x624126),radius-pierLength/2-2,3,0,pierLength,3,7);
+            // Small moored junk silhouette beside the pier.
+            float boatX=radius-7, boatZ=8;
+            box(b,"mooredHull",color(0x3b2114),boatX,4,boatZ,11,2.5f,4.5f);
+            box(b,"mooredMast",color(0x6b4523),boatX,11,boatZ,0.7f,14,0.7f);
+            box(b,"mooredSail",color(0xd8b779),boatX+1,10,boatZ,0.7f,8,7);
             int levels=(id==0 ? 3 : 1+id%4);
             for(int level=0;level<levels;level++) {
-                box(b,"tower"+level,wall,-7,7+level*8,-3,9-level,8,9-level);
-                box(b,"eave"+level,roof,-7,12+level*8,-3,13-level,2,13-level);
+                float width=9-level*1.1f;
+                box(b,"tower"+level,wall,-7,7+level*8,-3,width,8,width);
+                MeshPartBuilder eave=part(b,"eave"+level,roof);
+                eave.setVertexTransform(new Matrix4().setToTranslation(-7,12+level*8,-3));
+                eave.cone(13-level,2.4f,13-level,4);
+                box(b,"towerTrim"+level,trim,-7,12.8f+level*8,-3,width+.8f,.35f,width+.8f);
             }
             MeshPartBuilder hill=part(b,"hillside",rock);
             hill.setVertexTransform(new Matrix4().setToTranslation(-17,7+id%3*2,0));
             hill.cone(15,14+id%3*4,16,7+id%4);
+            // A compact rear ridge gives the harbor a mountain backdrop without
+            // changing the gameplay collision footprint.
+            MeshPartBuilder ridge=part(b,"mountainRidge",rock);
+            ridge.setVertexTransform(new Matrix4().setToTranslation(7,10,-radius*.42f));
+            ridge.cone(Math.min(radius*.52f,22),22+id%3*7,18,7);
         } else {
             // Reef arcs, cliff stacks and wooded peaks use different silhouettes.
             int kind=id%3, peaks=2+id%4;
