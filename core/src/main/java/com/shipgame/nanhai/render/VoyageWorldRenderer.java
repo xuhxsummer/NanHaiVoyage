@@ -5,6 +5,7 @@ import com.badlogic.gdx.graphics.*;
 import com.badlogic.gdx.graphics.VertexAttributes.Usage;
 import com.badlogic.gdx.graphics.g3d.*;
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
+import com.badlogic.gdx.graphics.g3d.attributes.FloatAttribute;
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight;
 import com.badlogic.gdx.graphics.g3d.utils.MeshPartBuilder;
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
@@ -27,10 +28,11 @@ public final class VoyageWorldRenderer implements Disposable {
     private final Array<ModelInstance> scenery = new Array<>();
     private final ModelCache sceneryCache = new ModelCache();
     private final ModelInstance[] ships = new ModelInstance[Catalog.SHIPS.length];
-    private final ModelInstance pirate, ocean, ripples, wake, whiteBall, blackBall;
+    private final ModelInstance pirate, ocean, nearOcean, ripples, foam, wake, whiteBall, blackBall;
     private final Vector3 target = new Vector3(), desired = new Vector3(), point = new Vector3();
     private float distance = SAIL_DISTANCE, heading, time;
     private boolean initialized;
+    private boolean highWaterQuality = true;
     private static final long ATTR = Usage.Position | Usage.Normal;
     private static final Color SKY = new Color(.48f, .70f, .80f, 1);
 
@@ -43,7 +45,9 @@ public final class VoyageWorldRenderer implements Disposable {
         for (int i=0;i<ships.length;i++) ships[i] = new ModelInstance(shipModel(i, false));
         pirate = new ModelInstance(shipModel(4, true));
         ocean = new ModelInstance(oceanModel());
+        nearOcean = new ModelInstance(nearOceanModel());
         ripples = new ModelInstance(waterLines());
+        foam = new ModelInstance(foamModel());
         wake = new ModelInstance(wakeModel());
         whiteBall = new ModelInstance(keep(new ModelBuilder().createSphere(5, 5, 5, 8, 6,
                 material(.98f, .92f, .70f), ATTR)));
@@ -68,6 +72,11 @@ public final class VoyageWorldRenderer implements Disposable {
     private Model keep(Model model) { models.add(model); return model; }
     private static Material material(float r, float g, float b) {
         return new Material(ColorAttribute.createDiffuse(r, g, b, 1));
+    }
+    private static Material waterMaterial(float r, float g, float b) {
+        return new Material(ColorAttribute.createDiffuse(r, g, b, 1),
+                ColorAttribute.createSpecular(.55f, .78f, .86f, 1),
+                FloatAttribute.createShininess(72f));
     }
     private static MeshPartBuilder part(ModelBuilder b, String name, Material mat) {
         return b.part(name, GL20.GL_TRIANGLES, ATTR, mat);
@@ -215,13 +224,28 @@ public final class VoyageWorldRenderer implements Disposable {
 
     private Model oceanModel() {
         ModelBuilder b=new ModelBuilder(); b.begin();
-        MeshPartBuilder p=part(b,"ocean",material(.045f,.25f,.39f));
+        MeshPartBuilder p=part(b,"ocean",waterMaterial(.025f,.16f,.29f));
         // Subdivision keeps vertex fog local instead of fogging the whole plane from its far corners.
         for (int x=-40;x<40;x++) for (int z=-40;z<40;z++) {
             float px=x*225f,pz=z*225f;
-            p.rect(px,0,pz, px,0,pz+225, px+225,0,pz+225, px+225,0,pz, 0,1,0);
+            float y0=wave(px,pz), y1=wave(px,pz+225), y2=wave(px+225,pz+225), y3=wave(px+225,pz);
+            p.rect(px,y0,pz, px,y1,pz+225, px+225,y2,pz+225, px+225,y3,pz, 0,1,0);
         }
         return keep(b.end());
+    }
+
+    private Model nearOceanModel() {
+        ModelBuilder b=new ModelBuilder(); b.begin();
+        MeshPartBuilder p=part(b,"nearWater",waterMaterial(.04f,.34f,.43f));
+        float s=1100f;
+        for(int x=-5;x<5;x++) for(int z=-5;z<5;z++) {
+            float px=x*s,pz=z*s;
+            p.rect(px,wave(px,pz),pz, px,wave(px,pz+s),pz+s, px+s,wave(px+s,pz+s),pz+s, px+s,wave(px+s,pz),pz,0,1,0);
+        }
+        return keep(b.end());
+    }
+    private static float wave(float x,float z) {
+        return .65f*(float)Math.sin(x*.006+z*.003)+.28f*(float)Math.cos(z*.009-x*.002);
     }
 
     private Model waterLines() {
@@ -236,13 +260,26 @@ public final class VoyageWorldRenderer implements Disposable {
         }
         return keep(b.end());
     }
+    private Model foamModel() {
+        ModelBuilder b=new ModelBuilder(); b.begin();
+        MeshPartBuilder p=part(b,"whitecaps",waterMaterial(.65f,.88f,.88f));
+        java.util.Random r=new java.util.Random(81273L);
+        for(int i=0;i<180;i++) {
+            float x=-1450+r.nextFloat()*2900, z=-1450+r.nextFloat()*2900;
+            float w=3+r.nextFloat()*16;
+            p.rect(x,.9f,z,x,.9f,z+.7f,x+w,.9f,z+.7f,x+w,.9f,z,0,1,0);
+        }
+        return keep(b.end());
+    }
     private Model wakeModel() {
         ModelBuilder b=new ModelBuilder(); b.begin();
         MeshPartBuilder p=part(b,"foam",material(.65f,.81f,.79f));
-        for (int i=0;i<20;i++) {
-            float x=-27-i*5;
-            p.box(x,0,-11-i*.6f,4,.15f,1.7f);
-            p.box(x,0,11+i*.6f,4,.15f,1.7f);
+        for (int i=0;i<28;i++) {
+            float x=-25-i*4.2f, spread=8.5f+i*.42f;
+            float bend=(float)Math.sin(i*.38f)*2.4f;
+            p.box(x,0,-spread+bend,4.5f,.24f,1.8f);
+            p.box(x,0,spread+bend,4.5f,.24f,1.8f);
+            if(i%3==0) p.box(x-1.4f,0,-spread*.5f+bend,3.2f,.18f,1.2f);
         }
         return keep(b.end());
     }
@@ -276,12 +313,16 @@ public final class VoyageWorldRenderer implements Disposable {
         Gdx.gl.glDepthMask(true);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT|GL20.GL_DEPTH_BUFFER_BIT);
         ocean.transform.setToTranslation(g.x,-.2f,-g.y);
+        nearOcean.transform.setToTranslation(g.x,-.28f,-g.y);
         ripples.transform.setToTranslation(MathUtils.floor(g.x/38)*38, .05f+MathUtils.sin(time)*.03f,
                 MathUtils.floor(-g.y/38)*38+time%38);
+        foam.transform.setToTranslation(MathUtils.floor(g.x/90)*90, .72f,
+                MathUtils.floor(-g.y/90)*90+time%90);
         ship.transform.setToTranslation(g.x,MathUtils.sin(time*1.6f)*.45f,-g.y).rotate(Vector3.Y,g.headingDeg);
         pirate.transform.setToTranslation(g.pirateX,.2f,-g.pirateY).rotate(Vector3.Y,g.pirateHeading);
         batch.begin(camera);
-        batch.render(ocean,light); batch.render(ripples,light);
+        batch.render(ocean,light); batch.render(nearOcean,light); batch.render(ripples,light);
+        if (highWaterQuality) batch.render(foam,light);
         batch.render(sceneryCache,light);
         if (g.speed>1) {
             wake.transform.setToTranslation(g.x,.25f,-g.y).rotate(Vector3.Y,g.headingDeg).scale(MathUtils.clamp(g.speed/90,.2f,1.3f),1,1);
@@ -319,5 +360,7 @@ public final class VoyageWorldRenderer implements Disposable {
         return Intersector.intersectRaySphere(ray,point.set(x,height,-y),radius,null);
     }
     public float chaseDistance() { return distance; }
+    /** Disable scattered whitecaps on weaker devices while retaining waves, specular water and wake. */
+    public void setWaterQuality(boolean high) { highWaterQuality = high; }
     @Override public void dispose() { batch.dispose(); sceneryCache.dispose(); for (Model m:models) m.dispose(); models.clear(); }
 }
