@@ -1,6 +1,7 @@
 package com.shipgame.nanhai.screen;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.scenes.scene2d.ui.Dialog;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.InputAdapter;
 import com.badlogic.gdx.InputMultiplexer;
@@ -644,7 +645,7 @@ public class VoyageScreen extends ScreenAdapter {
         }
         if (overlay == Overlay.AVATAR) {
             if (captainPanel == null) captainPanel = new CaptainMenuPanel(game.skin,
-                    this::saveNow, this::tryReloadLatestSave, this::logoutToLogin, this::closePopup);
+                    this::saveNow, this::tryReloadLatestSave, this::logoutToLogin, this::confirmFillAccount, this::closePopup);
             captainPanel.setSize(CaptainMenuPanel.WIDTH, CaptainMenuPanel.HEIGHT);
             captainPanel.setTransform(true);
             captainPanel.setScale(2f / 3f);
@@ -2039,6 +2040,29 @@ public class VoyageScreen extends ScreenAdapter {
         if (game.currentUser != null && g != null) {
             game.accounts.save(game.currentUser, g.toSave());
         }
+    }
+
+    private void confirmFillAccount() {
+        if (game.currentUser == null) {
+            g.toast("没有登录账号，无法保存进度。");
+            return;
+        }
+        if (stage.getRoot().findActor("confirmFillAccount") != null) return;
+        Dialog dialog = new Dialog("满级账号", game.skin) {
+            @Override protected void result(Object result) {
+                if (!Boolean.TRUE.equals(result)) return;
+                g.fillAccount();
+                persist();
+                updateStatValues();
+                rebuildMenu();
+                g.toast("船、异兽、草药已全开，进度已保存到本机存档。");
+            }
+        };
+        dialog.setName("confirmFillAccount");
+        dialog.text("将全开当前账号的船、异兽、草药，补满船员、补给和船体。\n将覆盖本机存档，不能回到之前的进度。是否继续？");
+        dialog.button("取消", false).button("继续", true);
+        dialog.key(com.badlogic.gdx.Input.Keys.ESCAPE, false);
+        dialog.show(stage);
     }
 
     /** 存档按钮：立刻把当前进度写入本机存档。 */

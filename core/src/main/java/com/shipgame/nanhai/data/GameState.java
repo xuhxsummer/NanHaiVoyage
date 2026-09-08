@@ -274,7 +274,7 @@ public class GameState {
             g.cannonLevel = Math.max(1, s.cannonLevel);
             g.cannonDamage = s.cannonDamage <= 0 ? Catalog.START_CANNON_DMG : s.cannonDamage;
             g.crew = Math.max(0, s.crew);
-            g.crewCap = s.crewCap <= 0 ? Catalog.START_CREW_CAP : Math.max(s.crew, s.crewCap);
+            g.crewCap = s.crewCap <= 0 ? Catalog.START_CREW_CAP : s.crewCap;
             g.crewCapLevel = Math.max(1, s.crewCapLevel);
             copy(s.trade, g.trade);
             copy(s.beasts, g.beasts);
@@ -1245,6 +1245,32 @@ public class GameState {
     }
 
     // ------------------------------------------------------------ 商城 / 船
+
+    /** Fill the current voyage for local testing/showcase without discarding cargo. */
+    public void fillAccount() {
+        for (int i=0; i<Catalog.SHIPS.length; i++) shipOwned |= 1 << i;
+        ship = Catalog.SHIPS.length - 1;
+        for (int i=0; i<beasts.length; i++) {
+            beastFound[i] = true;
+            beasts[i] = Math.max(1, beasts[i]);
+        }
+        for (int i=0; i<herbs.length; i++) {
+            herbFound[i] = true;
+            herbs[i] = Math.max(1, herbs[i]);
+        }
+        // Base capacity suffices even when switching back to the starter ship.
+        cargoCap = Math.max(cargoCap, cargoUsed());
+        silver = Math.max(silver, 99999);
+        hull = hullMax;
+        supply = supplyMax;
+        crew = crewMax();
+        questBeastsFound = Math.max(questBeastsFound, beasts.length);
+        questSilverPeak = Math.max(questSilverPeak, silver);
+        failed = false;
+        failReason = "";
+        ensureLandClearance();
+        // No fish discovery flags exist; existing fish and trade cargo are preserved.
+    }
 
     /** 买一艘船：扣款、标记拥有并立刻换乘。银两不足不扣款、返回原因。 */
     public String buyShip(int i) {
