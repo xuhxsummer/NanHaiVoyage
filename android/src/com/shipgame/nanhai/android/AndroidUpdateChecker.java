@@ -1,21 +1,16 @@
 package com.shipgame.nanhai.android;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
-import android.widget.LinearLayout;
-import android.widget.ProgressBar;
-import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
 import com.shipgame.nanhai.ui.UpdateChecker;
+import com.badlogic.gdx.Gdx;
 
 import org.json.JSONObject;
 
@@ -49,6 +44,11 @@ public class AndroidUpdateChecker implements UpdateChecker {
     /** Latest release tag ("v0.24.3") and APK asset URL, from the check phase. */
     private volatile String pendingTag;
     private volatile String pendingApkUrl;
+    private volatile UpdateChecker.Listener listener;
+    private volatile File downloadedApk;
+
+    @Override public void setListener(UpdateChecker.Listener listener) { this.listener = listener; }
+    @Override public void cancelDownload() { downloadCancelled = true; }
 
     public AndroidUpdateChecker(Activity activity) {
         this.activity = activity;
@@ -83,7 +83,12 @@ public class AndroidUpdateChecker implements UpdateChecker {
                         @Override
                         public void run() {
                             try {
-                                showUpdateDialog(clean(tag));
+                                final UpdateChecker.Listener l = listener;
+                                if (l != null) Gdx.app.postRunnable(new Runnable() {
+                                    @Override public void run() { l.onUpdateAvailable(clean(tag), new Runnable() {
+                                        @Override public void run() { startDownload(pendingTag); }
+                                    }, new Runnable() { @Override public void run() { } }); }
+                                });
                             } catch (Throwable ignored) {
                             }
                         }
@@ -101,7 +106,8 @@ public class AndroidUpdateChecker implements UpdateChecker {
         if (requestCode == REQ_UNKNOWN_SOURCES && canRequestInstalls()) {
             String tag = pendingTag;
             if (tag != null) {
-                startDownload(tag);
+                if (downloadedApk != null && downloadedApk.exists()) promptInstall(downloadedApk);
+                else startDownload(tag);
             }
         }
     }
@@ -156,20 +162,6 @@ public class AndroidUpdateChecker implements UpdateChecker {
 
     // --------------------------------------------------------------- dialog
 
-    private void showUpdateDialog(String ver) {
-        new AlertDialog.Builder(activity)
-                .setTitle("发现新版本")
-                .setMessage("发现新版本 " + ver + "，下载安装？")
-                .setPositiveButton("下载安装", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface d, int which) {
-                        startDownload(pendingTag);
-                    }
-                })
-                .setNegativeButton("以后再说", null)
-                .show();
-    }
-
     // ------------------------------------------------------------- download
 
     private void startDownload(final String tag) {
@@ -186,31 +178,8 @@ public class AndroidUpdateChecker implements UpdateChecker {
         //noinspection ResultOfMethodCallIgnored
         out.delete();
 
-        // Progress dialog with a determinate bar and a cancel button.
-        LinearLayout panel = new LinearLayout(activity);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (16 * activity.getResources().getDisplayMetrics().density);
-        panel.setPadding(pad, pad, pad, pad);
-        final TextView status = new TextView(activity);
-        status.setText("正在下载…");
-        final ProgressBar bar = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(100);
-        bar.setProgress(0);
-        panel.addView(status);
-        panel.addView(bar);
-
-        final AlertDialog dlg = new AlertDialog.Builder(activity)
-                .setTitle("下载更新")
-                .setView(panel)
-                .setNegativeButton("取消", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface d, int which) {
-                        downloadCancelled = true;
-                    }
-                })
-                .setCancelable(false)
-                .create();
-        dlg.show();
+        downloadedApk = out;
+        postProgress(0);
 
         new Thread(new Runnable() {
             @Override
@@ -239,8 +208,7 @@ public class AndroidUpdateChecker implements UpdateChecker {
                                 @Override
                                 public void run() {
                                     try {
-                                        bar.setProgress(pct);
-                                        status.setText("正在下载… " + pct + "%");
+                                    postProgress(pct);
                                     } catch (Throwable ignored) {
                                     }
                                 }
@@ -255,16 +223,13 @@ public class AndroidUpdateChecker implements UpdateChecker {
                     activity.runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            try {
-                                dlg.dismiss();
-                            } catch (Throwable ignored) {
-                            }
                             if (ok) {
+                                notifyFinished(true, "");
                                 promptInstall(out);
                             } else {
                                 //noinspection ResultOfMethodCallIgnored
                                 out.delete();
-                                Toast.makeText(activity, "下载已取消", Toast.LENGTH_SHORT).show();
+                                notifyFinished(false, "下载已取消");
                             }
                         }
                     });
@@ -275,8 +240,7 @@ public class AndroidUpdateChecker implements UpdateChecker {
                         @Override
                         public void run() {
                             try {
-                                dlg.dismiss();
-                                Toast.makeText(activity, "下载失败", Toast.LENGTH_SHORT).show();
+                                notifyFinished(false, "下载失败");
                             } catch (Throwable ignored) {
                             }
                         }
@@ -286,29 +250,26 @@ public class AndroidUpdateChecker implements UpdateChecker {
         }, "update-download").start();
     }
 
+    private void postProgress(final int pct) {
+        final UpdateChecker.Listener l = listener;
+        if (l != null) Gdx.app.postRunnable(new Runnable() { @Override public void run() { l.onDownloadProgress(pct); } });
+    }
+    private void notifyFinished(final boolean ok, final String message) {
+        final UpdateChecker.Listener l = listener;
+        if (l != null) Gdx.app.postRunnable(new Runnable() { @Override public void run() { l.onDownloadFinished(ok, message); } });
+    }
+
     // -------------------------------------------------------------- install
 
     private void promptInstall(File apk) {
         try {
             if (!canRequestInstalls()) {
                 // Android 8+: guide the user to allow installs from this app.
-                new AlertDialog.Builder(activity)
-                        .setTitle("需要权限")
-                        .setMessage("安装更新需要允许本应用安装未知应用，请在接下来的页面中开启权限后重试。")
-                        .setPositiveButton("去设置", new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface d, int which) {
-                                try {
-                                    Intent i = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                            Uri.parse("package:" + activity.getPackageName()));
-                                    activity.startActivityForResult(i, REQ_UNKNOWN_SOURCES);
-                                } catch (Throwable e) {
-                                    Toast.makeText(activity, "无法打开设置", Toast.LENGTH_SHORT).show();
-                                }
-                            }
-                        })
-                        .setNegativeButton("取消", null)
-                        .show();
+                try {
+                    Intent i = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:" + activity.getPackageName()));
+                    activity.startActivityForResult(i, REQ_UNKNOWN_SOURCES);
+                } catch (Throwable ignored) { }
                 return;
             }
             Uri uri = FileProvider.getUriForFile(activity,
@@ -318,7 +279,7 @@ public class AndroidUpdateChecker implements UpdateChecker {
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             activity.startActivity(i);
         } catch (Throwable e) {
-            Toast.makeText(activity, "无法启动安装", Toast.LENGTH_SHORT).show();
+            notifyFinished(false, "无法启动安装");
         }
     }
 

@@ -7,6 +7,15 @@ package com.shipgame.nanhai.ui;
  */
 public interface UpdateChecker {
 
+    interface Listener {
+        void onUpdateAvailable(String version, Runnable accept, Runnable decline);
+        void onDownloadProgress(int percent);
+        void onDownloadFinished(boolean success, String message);
+    }
+
     /** Called once after the login UI appears. */
     void checkForUpdate();
+
+    default void setListener(Listener listener) { }
+    default void cancelDownload() { }
 }

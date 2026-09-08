@@ -18,6 +18,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
 import com.badlogic.gdx.scenes.scene2d.ui.TextField;
+import com.badlogic.gdx.scenes.scene2d.ui.ProgressBar;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
 import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
@@ -28,6 +29,7 @@ import com.shipgame.nanhai.NanHaiVoyage;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.data.SaveData;
 import com.shipgame.nanhai.ui.UiFactory;
+import com.shipgame.nanhai.ui.UpdateChecker;
 
 /** 1920 × 1080 login, eight-pixel layout grid; artwork and live controls are separate. */
 public class LoginScreen extends ScreenAdapter {
@@ -38,6 +40,9 @@ public class LoginScreen extends ScreenAdapter {
     private Skin loginSkin;
     private Label msg;
     private boolean switching;
+    private Table updatePanel;
+    private ProgressBar updateProgress;
+    private Label updateStatus;
 
     public LoginScreen(NanHaiVoyage game) { this.game = game; }
 
@@ -45,8 +50,54 @@ public class LoginScreen extends ScreenAdapter {
         switching = false;
         buildUi();
         if (game.updateChecker != null) {
+            game.updateChecker.setListener(new UpdateChecker.Listener() {
+                @Override public void onUpdateAvailable(String version, final Runnable accept, final Runnable decline) {
+                    if (stage == null) return;
+                    showUpdatePrompt(version, accept, decline);
+                }
+                @Override public void onDownloadProgress(int percent) {
+                    if (updateProgress != null) { updateProgress.setValue(percent); updateStatus.setText("正在下载… " + percent + "%"); }
+                }
+                @Override public void onDownloadFinished(boolean success, String message) {
+                    if (updatePanel != null) { updatePanel.remove(); updatePanel = null; updateProgress = null; }
+                    if (!success && msg != null) msg.setText(message == null ? "下载失败。" : message);
+                }
+            });
             try { game.updateChecker.checkForUpdate(); } catch (Throwable ignored) { }
         }
+    }
+
+    private void showUpdatePrompt(String version, final Runnable accept, final Runnable decline) {
+        if (updatePanel != null) updatePanel.remove();
+        updatePanel = new Table(loginSkin);
+        updatePanel.setBackground(loginSkin.getDrawable("panelGold"));
+        updatePanel.pad(28);
+        Label title = label("发现新版本", 32);
+        Label detail = label("版本 " + version + " 已发布，是否下载更新？", 22);
+        TextButton yes = new TextButton("更新", loginSkin, "cinnabar");
+        TextButton later = new TextButton("稍后", loginSkin, "navy");
+        yes.getLabel().setFontScale(1.15f); later.getLabel().setFontScale(1.15f);
+        yes.addListener(new ClickListener() { @Override public void clicked(InputEvent e, float x, float y) { updatePanel.remove(); updatePanel = null; accept.run(); showDownloadPanel(); } });
+        later.addListener(new ClickListener() { @Override public void clicked(InputEvent e, float x, float y) { updatePanel.remove(); updatePanel = null; decline.run(); } });
+        updatePanel.add(title).colspan(2).padBottom(16).row();
+        updatePanel.add(detail).colspan(2).padBottom(22).row();
+        updatePanel.add(yes).width(190).height(64).padRight(14);
+        updatePanel.add(later).width(190).height(64).row();
+        updatePanel.setSize(560, 260); updatePanel.setPosition(680, 410);
+        stage.addActor(updatePanel);
+    }
+
+    private void showDownloadPanel() {
+        if (stage == null) return;
+        updatePanel = new Table(loginSkin); updatePanel.setBackground(loginSkin.getDrawable("panelGold")); updatePanel.pad(28);
+        updateStatus = label("正在下载…", 28);
+        ProgressBar.ProgressBarStyle ps = new ProgressBar.ProgressBarStyle();
+        ps.background = loginSkin.getDrawable("panelGold"); ps.knobBefore = loginSkin.getDrawable("pillGold");
+        updateProgress = new ProgressBar(0, 100, 1, false, ps); updateProgress.setAnimateDuration(0.1f);
+        TextButton cancel = new TextButton("取消", loginSkin, "navy");
+        cancel.addListener(new ClickListener() { @Override public void clicked(InputEvent e, float x, float y) { game.updateChecker.cancelDownload(); updatePanel.remove(); updatePanel = null; } });
+        updatePanel.add(updateStatus).width(480).padBottom(20).row(); updatePanel.add(updateProgress).width(480).height(28).padBottom(22).row(); updatePanel.add(cancel).width(190).height(64);
+        updatePanel.setSize(560, 240); updatePanel.setPosition(680, 420); stage.addActor(updatePanel);
     }
 
     private BitmapFont font(int size) {
@@ -162,6 +213,7 @@ public class LoginScreen extends ScreenAdapter {
     }
 
     private void releaseUi() {
+        updatePanel = null; updateProgress = null;
         if (stage != null && Gdx.input.getInputProcessor() == stage) {
             Gdx.input.setInputProcessor(null);
         }

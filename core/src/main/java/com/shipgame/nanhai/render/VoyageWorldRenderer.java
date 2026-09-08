@@ -147,16 +147,20 @@ public final class VoyageWorldRenderer implements Disposable {
         if(port) {
             Material wall=material(.64f+random.nextFloat()*.23f,.53f+random.nextFloat()*.2f,.37f+random.nextFloat()*.2f);
             Material roof=color(new int[]{0x314f58,0x9b4936,0x62634c,0x3c746b,0x866442,0x414c70}[id%6]);
-            int houses=3+id%4;
+            int houses=(id==0 ? 7 : 3+id%4);
             for(int h=0;h<houses;h++) {
                 float angle=h*MathUtils.PI2/houses, x=MathUtils.cos(angle)*15, z=MathUtils.sin(angle)*15;
                 float height=6+random.nextFloat()*7;
                 box(b,"house"+h,wall,x,2+height/2,z,8,height,7);
                 box(b,"roof"+h,roof,x,3+height,z,11,2,10);
+                if (id==0) {
+                    Material lantern=material(1.0f,.56f,.12f);
+                    box(b,"lantern"+h,lantern,x,4+height*.55f,z,1.2f,2.0f,1.2f);
+                }
             }
             float pierLength=10+id%5*2;
             box(b,"pier",color(0x624126),radius-pierLength/2-2,3,0,pierLength,3,7);
-            int levels=1+id%4;
+            int levels=(id==0 ? 3 : 1+id%4);
             for(int level=0;level<levels;level++) {
                 box(b,"tower"+level,wall,-7,7+level*8,-3,9-level,8,9-level);
                 box(b,"eave"+level,roof,-7,12+level*8,-3,13-level,2,13-level);
@@ -193,7 +197,7 @@ public final class VoyageWorldRenderer implements Disposable {
 
     private Model oceanModel() {
         ModelBuilder b=new ModelBuilder(); b.begin();
-        MeshPartBuilder p=part(b,"ocean",material(.075f,.32f,.43f));
+        MeshPartBuilder p=part(b,"ocean",material(.045f,.25f,.39f));
         // Subdivision keeps vertex fog local instead of fogging the whole plane from its far corners.
         for (int x=-40;x<40;x++) for (int z=-40;z<40;z++) {
             float px=x*225f,pz=z*225f;
@@ -204,12 +208,13 @@ public final class VoyageWorldRenderer implements Disposable {
 
     private Model waterLines() {
         ModelBuilder b = new ModelBuilder(); b.begin();
-        MeshPartBuilder p = part(b,"wavelets",material(.23f,.51f,.59f));
+        MeshPartBuilder p = part(b,"wavelets",material(.28f,.60f,.68f));
         // Deterministic mesh, reused each frame; no textures or per-frame mesh uploads.
         for (int x=-40;x<=40;x++) for (int z=-40;z<=40;z++) {
             float px=x*38f+MathUtils.sin(z*7.1f+x)*12, pz=z*38f+MathUtils.cos(x*3.7f+z)*12;
             float w=9+Math.abs(MathUtils.sin(x+z))*15;
             p.rect(px,0,pz, px,0,pz+.55f, px+w,0,pz+.55f, px+w,0,pz, 0,1,0);
+            if ((x+z)%3==0) p.rect(px+13, .015f, pz+4, px+13, .015f, pz+4.35f, px+w+10, .015f, pz+4.35f, px+w+10, .015f, pz+4, 0,1,0);
         }
         return keep(b.end());
     }
