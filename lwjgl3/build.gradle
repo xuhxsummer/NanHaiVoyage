@@ -59,6 +59,13 @@ tasks.register('geometryRegression', JavaExec) {
     mainClass.set('com.shipgame.nanhai.lwjgl3.GeometryRegression')
 }
 
+tasks.register('waterSmoke', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.WaterSmokeLauncher')
+    workingDir = rootProject.file('assets').path
+}
+
 tasks.register('maxAccountSmoke', JavaExec) {
     dependsOn classes
     classpath = sourceSets.main.runtimeClasspath

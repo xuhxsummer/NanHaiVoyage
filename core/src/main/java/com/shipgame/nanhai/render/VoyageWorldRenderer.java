@@ -28,7 +28,8 @@ public final class VoyageWorldRenderer implements Disposable {
     private final Array<ModelInstance> scenery = new Array<>();
     private final ModelCache sceneryCache = new ModelCache();
     private final ModelInstance[] ships = new ModelInstance[Catalog.SHIPS.length];
-    private final ModelInstance pirate, ocean, nearOcean, ripples, foam, wake, whiteBall, blackBall;
+    private final ModelInstance pirate, ocean, ripples, foam, wake, whiteBall, blackBall;
+    private final VoyageWater water = new VoyageWater();
     private final Vector3 target = new Vector3(), desired = new Vector3(), point = new Vector3();
     private float distance = SAIL_DISTANCE, heading, time;
     private boolean initialized;
@@ -45,7 +46,6 @@ public final class VoyageWorldRenderer implements Disposable {
         for (int i=0;i<ships.length;i++) ships[i] = new ModelInstance(shipModel(i, false));
         pirate = new ModelInstance(shipModel(4, true));
         ocean = new ModelInstance(oceanModel());
-        nearOcean = new ModelInstance(nearOceanModel());
         ripples = new ModelInstance(waterLines());
         foam = new ModelInstance(foamModel());
         wake = new ModelInstance(wakeModel());
@@ -305,16 +305,6 @@ public final class VoyageWorldRenderer implements Disposable {
         return keep(b.end());
     }
 
-    private Model nearOceanModel() {
-        ModelBuilder b=new ModelBuilder(); b.begin();
-        MeshPartBuilder p=part(b,"nearWater",waterMaterial(.04f,.34f,.43f));
-        float s=1100f;
-        for(int x=-5;x<5;x++) for(int z=-5;z<5;z++) {
-            float px=x*s,pz=z*s;
-            p.rect(px,wave(px,pz),pz, px,wave(px,pz+s),pz+s, px+s,wave(px+s,pz+s),pz+s, px+s,wave(px+s,pz),pz,0,1,0);
-        }
-        return keep(b.end());
-    }
     private static float wave(float x,float z) {
         return .65f*(float)Math.sin(x*.006+z*.003)+.28f*(float)Math.cos(z*.009-x*.002);
     }
@@ -384,20 +374,20 @@ public final class VoyageWorldRenderer implements Disposable {
         Gdx.gl.glDepthMask(true);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT|GL20.GL_DEPTH_BUFFER_BIT);
         ocean.transform.setToTranslation(g.x,-.2f,-g.y);
-        nearOcean.transform.setToTranslation(g.x,-.28f,-g.y);
         ripples.transform.setToTranslation(MathUtils.floor(g.x/38)*38, .05f+MathUtils.sin(time)*.03f,
                 MathUtils.floor(-g.y/38)*38+time%38);
         foam.transform.setToTranslation(MathUtils.floor(g.x/90)*90, .72f,
                 MathUtils.floor(-g.y/90)*90+time%90);
         ship.transform.setToTranslation(g.x,MathUtils.sin(time*1.6f)*.45f,-g.y).rotate(Vector3.Y,g.headingDeg);
         pirate.transform.setToTranslation(g.pirateX,.2f,-g.pirateY).rotate(Vector3.Y,g.pirateHeading);
+        boolean customWater = water.render(camera,g,time,highWaterQuality,SKY);
         batch.begin(camera);
-        // The former near-water sheet intersected the ocean and produced striped
-        // depth-buffer artifacts. Use one continuous surface with the same fog/material.
-        batch.render(ocean,light); batch.render(ripples,light);
-        if (highWaterQuality) batch.render(foam,light);
+        if (!customWater) {
+            batch.render(ocean,light); batch.render(ripples,light);
+            if (highWaterQuality) batch.render(foam,light);
+        }
         batch.render(sceneryCache,light);
-        if (g.speed>1) {
+        if (!customWater && g.speed>1) {
             wake.transform.setToTranslation(g.x,.25f,-g.y).rotate(Vector3.Y,g.headingDeg).scale(MathUtils.clamp(g.speed/90,.2f,1.3f),1,1);
             batch.render(wake,light);
         }
@@ -433,7 +423,8 @@ public final class VoyageWorldRenderer implements Disposable {
         return Intersector.intersectRaySphere(ray,point.set(x,height,-y),radius,null);
     }
     public float chaseDistance() { return distance; }
-    /** Disable scattered whitecaps on weaker devices while retaining waves, specular water and wake. */
+    /** Low uses 1/4 the water triangles, one normal layer and a shorter whitecap distance. */
     public void setWaterQuality(boolean high) { highWaterQuality = high; }
-    @Override public void dispose() { batch.dispose(); sceneryCache.dispose(); for (Model m:models) m.dispose(); models.clear(); }
+    public boolean hasWaterShader() { return water.available(); }
+    @Override public void dispose() { water.dispose(); batch.dispose(); sceneryCache.dispose(); for (Model m:models) m.dispose(); models.clear(); }
 }
