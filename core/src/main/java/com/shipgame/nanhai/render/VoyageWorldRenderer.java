@@ -86,12 +86,44 @@ public final class VoyageWorldRenderer implements Disposable {
         part(b, name, mat).box(x, y, z, w, h, d);
     }
 
+    /** Thin rectangular spars/ropes; geometry is baked once, never rebuilt at runtime. */
+    private static void spar(ModelBuilder b, Material mat, Vector3 a, Vector3 c, float width) {
+        Vector3 direction = new Vector3(c).sub(a);
+        MeshPartBuilder p = part(b, "spar", mat);
+        p.setVertexTransform(new Matrix4().set(new Vector3(a).add(c).scl(.5f),
+                new Quaternion().setFromCross(Vector3.Y, direction.cpy().nor()), new Vector3(1,1,1)));
+        p.box(width, direction.len(), width);
+    }
+
+    /** Swept hip roof with rising eave tips and individually visible tile ribs. */
+    private static void tiledRoof(ModelBuilder b, Material tile, Material edge,
+                                  float x, float y, float z, float w, float d) {
+        for (int side : new int[]{-1,1}) {
+            for (int strip=0; strip<4; strip++) {
+                float t=strip/4f, u=(strip+1)/4f;
+                float ya=y+2.8f*(1-t)*(1-t)+.7f*t*t*t;
+                float yb=y+2.8f*(1-u)*(1-u)+.7f*u*u*u;
+                Vector3 a=new Vector3(x-w*.38f-w*.12f*t,ya,z+side*d*.5f*t);
+                Vector3 c=new Vector3(x+w*.38f+w*.12f*t,ya,z+side*d*.5f*t);
+                Vector3 e=new Vector3(x+w*.38f+w*.12f*u,yb,z+side*d*.5f*u);
+                Vector3 f=new Vector3(x-w*.38f-w*.12f*u,yb,z+side*d*.5f*u);
+                MeshPartBuilder p=part(b,"roofSurface",tile);
+                Vector3 normal=new Vector3(c).sub(a).crs(new Vector3(e).sub(a)).nor();
+                if(normal.y<0) p.rect(f,e,c,a,normal.scl(-1)); else p.rect(a,c,e,f,normal);
+                for(int rib=0;rib<=8;rib++) spar(b,tile,
+                        new Vector3(a).lerp(c,rib/8f),new Vector3(f).lerp(e,rib/8f),.10f);
+            }
+        }
+        spar(b,edge,new Vector3(x-w*.42f,y+2.9f,z),new Vector3(x+w*.42f,y+2.9f,z),.3f);
+    }
+
     /** Local bow points +X, stern -X. Tapered hull is actual closed geometry. */
     private Model shipModel(int id, boolean enemy) {
         ModelBuilder b = new ModelBuilder(); b.begin();
-        Material wood = material(.27f, .13f, .065f), trim = material(.66f, .43f, .18f);
+        Material wood = material(.23f, .115f, .065f), trim = material(.43f, .30f, .16f);
         VoyageGeometry.Ship style = VoyageGeometry.ship(id);
         Material canvas = enemy ? material(.27f, .10f, .085f) : color(style.color);
+        Material rope=material(.42f,.34f,.23f), darkWood=material(.17f,.085f,.045f);
         MeshPartBuilder hull = part(b, "hull", wood);
         float[][] outline = {{-25,-9},{-19,-12},{13,-11},{29,0},{13,11},{-19,12}};
         for (int i = 0; i < outline.length; i++) {
@@ -107,8 +139,19 @@ public final class VoyageWorldRenderer implements Disposable {
         box(b,"roof",trim,-17,20,0,20,2,22);
         box(b,"upperCabin",wood,-18,23,0,12,5,15);
         box(b,"upperRoof",trim,-18,26,0,16,2,19);
+        tiledRoof(b,color(0x273b3c),trim,-18,27,0,16,19);
         for (int i = -1; i <= 1; i++) box(b,"window"+i,material(.95f,.70f,.24f),-25.6f,15,i*5, .5f,3,3);
         for (int side : new int[]{-1,1}) {
+            for(int plank=0;plank<5;plank++) {
+                float height=2.8f+plank*1.3f;
+                float breadth=7.7f+plank*.85f;
+                spar(b,plank%2==0?trim:darkWood,new Vector3(-19,height,side*breadth),
+                        new Vector3(13,height,side*(breadth-.5f)),.23f);
+            }
+            for(int window=0;window<5;window++) {
+                box(b,"sternLattice",darkWood,-23+window*2.7f,16,side*9.6f,1.7f,2.7f,.18f);
+                box(b,"windowMullion",trim,-23+window*2.7f,16,side*9.8f,.18f,2.7f,.16f);
+            }
             box(b,"rail"+side,trim,-2,12,side*11,37,1.3f,1);
             for (int i=0;i<6;i++) box(b,"post"+side+i,trim,-21+i*7,10.5f,side*11,1,5,1);
             for (int i=0;i<3;i++) box(b,"gun"+side+i,material(.12f,.13f,.13f),-6+i*8,10,side*13,3,3,5);
@@ -117,12 +160,21 @@ public final class VoyageWorldRenderer implements Disposable {
             float x = style.sails==1 ? 7 : -5+mast*13, top = mast == 0 ? 60f : 49-mast*5;
             box(b,"mast"+mast,wood,x,(top+9)/2,0,1.6f,top-9,1.6f);
             float bottom = mast == 0 ? 21 : 18, half = mast == 0 ? 16 : 10;
+            for(int side:new int[]{-1,1}) {
+                spar(b,rope,new Vector3(x,top,0),new Vector3(-18,12,side*10),.16f);
+                spar(b,rope,new Vector3(x,top-4,0),new Vector3(19,11,side*8),.14f);
+            }
             // Thick, lightly bowed sail panels, double visible from bow and stern.
-            for (int j=0;j<5;j++) {
-                float y = bottom+(top-bottom)*j/5, h=(top-bottom)/5;
-                float width=half*(1f-.25f*j/5);
-                box(b,"sail"+mast+j,canvas,x-1.5f-(float)Math.sin(j*.65f)*2,y+h/2,0,1.2f,h-.4f,width*2);
-                box(b,"batten"+mast+j,trim,x-2,y,0,1, .55f,width*2+1);
+            for (int j=0;j<9;j++) {
+                float y = bottom+(top-bottom)*j/9, h=(top-bottom)/9;
+                float width=half*(1f-.35f*j/9);
+                float belly=x-1.5f-(float)Math.sin(j*.34f)*2;
+                box(b,"sail"+mast+j,canvas,belly,y+h/2,0,.22f,h-.10f,width*2);
+                box(b,"batten"+mast+j,rope,belly-.18f,y,0,.25f,.20f,width*2);
+                if(mast==0 && j>2 && j<7) {
+                    float markWidth=(j==3 || j==6)?2.3f:4.5f;
+                    box(b,"sailSeal",material(.48f,.12f,.09f),belly-.14f,y+h/2,0,.04f,h-.15f,markWidth);
+                }
             }
             box(b,"pennant"+mast,enemy ? material(.65f,.08f,.05f) : material(.73f,.23f,.12f),x-5,top+1,0,9,3,.7f);
         }
@@ -157,24 +209,35 @@ public final class VoyageWorldRenderer implements Disposable {
             Material wall=material(.48f+random.nextFloat()*.18f,.20f+random.nextFloat()*.10f,.11f+random.nextFloat()*.08f);
             Material roof=color(new int[]{0x172c35,0x263b38,0x3b3028,0x24413d,0x332c3b,0x1d3445}[id%6]);
             Material trim=color(0xc08b43);
-            int houses=(id==0 ? 7 : 3+id%4);
+            int houses=10+id%4;
             for(int h=0;h<houses;h++) {
-                float angle=h*MathUtils.PI2/houses, x=MathUtils.cos(angle)*15, z=MathUtils.sin(angle)*15;
-                float height=6+random.nextFloat()*7;
-                box(b,"house"+h,wall,x,2+height/2,z,8,height,7);
-                MeshPartBuilder roofMesh=part(b,"roof"+h,roof);
-                roofMesh.setVertexTransform(new Matrix4().setToTranslation(x,3+height,z));
-                roofMesh.cone(11,2.8f,10,4);
-                box(b,"beam"+h,trim,x,2.8f+height,z,8.8f,.45f,7.8f);
-                if (id==0) {
+                float angle=h*MathUtils.PI2/houses, x=MathUtils.cos(angle)*19, z=MathUtils.sin(angle)*19;
+                float height=5+random.nextFloat()*5, base=2+(h%3)*1.8f;
+                box(b,"stoneTerrace",rock,x,base*.5f,z,8,base,7);
+                box(b,"house"+h,wall,x,base+height/2,z,6,height,5);
+                tiledRoof(b,roof,trim,x,base+height,z,8.5f,7.4f);
+                if(h%3==0) tiledRoof(b,roof,trim,x,base+height*.48f,z,8,7);
+                for(int side:new int[]{-1,1}) {
+                    for(int pillar=0;pillar<3;pillar++)
+                        box(b,"redPillar",wall,x-2.8f+pillar*2.8f,base+height*.5f,z+side*2.8f,.35f,height,.35f);
+                    box(b,"gallery",trim,x,base+1,z+side*2.9f,6,.2f,.25f);
+                }
+                {
                     Material lantern=material(1.0f,.56f,.12f);
-                    box(b,"lantern"+h,lantern,x,4+height*.55f,z,1.2f,2.0f,1.2f);
+                    lantern.set(ColorAttribute.createEmissive(.45f,.15f,.025f,1));
+                    box(b,"lantern"+h,lantern,x+2.7f,base+height*.7f,z+3.1f,.65f,1.0f,.65f);
                 }
             }
             float pierLength=10+id%5*2;
             box(b,"pier",color(0x624126),radius-pierLength/2-2,3,0,pierLength,3,7);
+            for(int plank=0;plank<12;plank++) {
+                float px=radius-pierLength-2+plank* pierLength/12;
+                box(b,"dockPlank",trim,px,4.55f,0,.12f,.12f,6.5f);
+                if(plank%3==0) for(int side:new int[]{-1,1})
+                    box(b,"dockPile",wall,px,2.8f,side*2.9f,.45f,6,.45f);
+            }
             // Small moored junk silhouette beside the pier.
-            float boatX=radius-7, boatZ=8;
+            float boatX=radius-9, boatZ=8;
             box(b,"mooredHull",color(0x3b2114),boatX,4,boatZ,11,2.5f,4.5f);
             box(b,"mooredMast",color(0x6b4523),boatX,11,boatZ,0.7f,14,0.7f);
             box(b,"mooredSail",color(0xd8b779),boatX+1,10,boatZ,0.7f,8,7);
@@ -182,9 +245,7 @@ public final class VoyageWorldRenderer implements Disposable {
             for(int level=0;level<levels;level++) {
                 float width=9-level*1.1f;
                 box(b,"tower"+level,wall,-7,7+level*8,-3,width,8,width);
-                MeshPartBuilder eave=part(b,"eave"+level,roof);
-                eave.setVertexTransform(new Matrix4().setToTranslation(-7,12+level*8,-3));
-                eave.cone(13-level,2.4f,13-level,4);
+                tiledRoof(b,roof,trim,-7,12+level*8,-3,13-level,13-level);
                 box(b,"towerTrim"+level,trim,-7,12.8f+level*8,-3,width+.8f,.35f,width+.8f);
             }
             MeshPartBuilder hill=part(b,"hillside",rock);
@@ -195,6 +256,16 @@ public final class VoyageWorldRenderer implements Disposable {
             MeshPartBuilder ridge=part(b,"mountainRidge",rock);
             ridge.setVertexTransform(new Matrix4().setToTranslation(7,10,-radius*.42f));
             ridge.cone(Math.min(radius*.52f,22),22+id%3*7,18,7);
+            for(int crag=0;crag<5;crag++) {
+                float x=-14+crag*6, z=-15+Math.abs(crag-2)*1.5f;
+                float height=16+random.nextFloat()*19;
+                MeshPartBuilder cliff=part(b,"ridgeSpire",rock);
+                cliff.setVertexTransform(new Matrix4().setToTranslation(x,height*.5f+2,z));
+                cliff.cone(8,height,9,5);
+                MeshPartBuilder crown=part(b,"ridgeGreen",sand);
+                crown.setVertexTransform(new Matrix4().setToTranslation(x,height*.78f,z));
+                crown.cone(6,height*.35f,7,6);
+            }
         } else {
             // Reef arcs, cliff stacks and wooded peaks use different silhouettes.
             int kind=id%3, peaks=2+id%4;
@@ -224,7 +295,7 @@ public final class VoyageWorldRenderer implements Disposable {
 
     private Model oceanModel() {
         ModelBuilder b=new ModelBuilder(); b.begin();
-        MeshPartBuilder p=part(b,"ocean",waterMaterial(.025f,.16f,.29f));
+        MeshPartBuilder p=part(b,"ocean",waterMaterial(.035f,.25f,.32f));
         // Subdivision keeps vertex fog local instead of fogging the whole plane from its far corners.
         for (int x=-40;x<40;x++) for (int z=-40;z<40;z++) {
             float px=x*225f,pz=z*225f;
@@ -321,7 +392,9 @@ public final class VoyageWorldRenderer implements Disposable {
         ship.transform.setToTranslation(g.x,MathUtils.sin(time*1.6f)*.45f,-g.y).rotate(Vector3.Y,g.headingDeg);
         pirate.transform.setToTranslation(g.pirateX,.2f,-g.pirateY).rotate(Vector3.Y,g.pirateHeading);
         batch.begin(camera);
-        batch.render(ocean,light); batch.render(nearOcean,light); batch.render(ripples,light);
+        // The former near-water sheet intersected the ocean and produced striped
+        // depth-buffer artifacts. Use one continuous surface with the same fog/material.
+        batch.render(ocean,light); batch.render(ripples,light);
         if (highWaterQuality) batch.render(foam,light);
         batch.render(sceneryCache,light);
         if (g.speed>1) {
