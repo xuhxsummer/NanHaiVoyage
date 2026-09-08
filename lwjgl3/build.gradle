@@ -1,6 +1,8 @@
 apply plugin: 'application'
 
 sourceSets.main.resources.srcDirs += [ rootProject.file('assets').path ]
+sourceSets.main.resources.srcDirs += [ rootProject.file('build/generated/water-assets').path ]
+processResources.dependsOn rootProject.tasks.named('prepareWaterAssets')
 mainClassName = 'com.shipgame.nanhai.lwjgl3.Lwjgl3Launcher'
 eclipse.project.name = appName + '-lwjgl3'
 application.applicationDefaultJvmArgs = []
@@ -63,6 +65,13 @@ tasks.register('waterSmoke', JavaExec) {
     dependsOn classes
     classpath = sourceSets.main.runtimeClasspath
     mainClass.set('com.shipgame.nanhai.lwjgl3.WaterSmokeLauncher')
+    workingDir = rootProject.file('assets').path
+}
+
+tasks.register('shipArtworkSmoke', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.ShipArtworkSmokeLauncher')
     workingDir = rootProject.file('assets').path
 }
 

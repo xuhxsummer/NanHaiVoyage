@@ -1,81 +1,89 @@
 #ifdef GL_ES
-#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
-#else
-precision mediump float;
 #endif
-#endif
-uniform sampler2D u_detail;
+uniform sampler2D u_chop,u_swell,u_foam;
 uniform vec3 u_camera;
-uniform vec3 u_sky;
-uniform vec2 u_ship;
-uniform vec2 u_forward;
-uniform vec2 u_hull;
-uniform float u_speed;
-uniform float u_time;
-uniform float u_wind;
-varying vec3 v_surface;
-varying vec3 v_normal;
-varying vec2 v_uv;
+uniform vec2 u_ship,u_forward,u_hull;
+uniform float u_speed,u_time,u_wind;
+varying vec3 v_surface,v_normal;
+varying vec2 v_uv,v_breaking;
 varying float v_shore;
-varying float v_crest;
-
+// SKY_FUNCTIONS
+vec2 slope(vec4 normalMap) {
+    vec3 n=normalMap.rgb*2.0-1.0;
+    return n.xy/max(n.z,0.32);
+}
+float smith(float cosine,float roughness) {
+    float k=roughness*roughness*0.5;
+    return cosine/(cosine*(1.0-k)+k);
+}
 void main() {
-    vec3 view = normalize(u_camera - v_surface);
-    float distanceToEye = length(u_camera - v_surface);
-    float closeDetail = 1.0 - smoothstep(180.0, 1400.0, distanceToEye);
-    vec2 uv = v_uv + vec2(-0.027, 0.013) * u_time;
-    vec4 tex = texture2D(u_detail, uv);
-    vec2 ripple = tex.rg * 2.0 - 1.0;
+    vec3 view=normalize(u_camera-v_surface);
+    float distanceToEye=length(u_camera-v_surface);
+    float nearDetail=1.0-smoothstep(280.0,1700.0,distanceToEye);
+    vec2 drift=vec2(-0.019,0.009)*u_time;
+    vec4 swell=texture2D(u_swell,v_uv*0.73+drift*0.39);
+    vec4 chop=texture2D(u_chop,v_uv*2.31+drift);
+    vec2 slopes=slope(swell)*0.60+slope(chop)*0.38;
 #ifndef LOW_QUALITY
-    vec4 small = texture2D(u_detail, v_uv.yx * 2.73 + vec2(0.021, -0.041) * u_time);
-    ripple += (small.rg * 2.0 - 1.0) * 0.46;
+    // Incommensurate scales and opposing flow remove an obvious repeating tile.
+    vec2 rotated=vec2(v_uv.x*0.8-v_uv.y*0.6,v_uv.x*0.6+v_uv.y*0.8);
+    vec4 chop2=texture2D(u_chop,rotated*5.73-vec2(0.038,0.021)*u_time);
+    vec2 fine=slope(chop2);
+    slopes+=vec2(fine.x*.8+fine.y*.6,-fine.x*.6+fine.y*.8)*0.16;
 #endif
-    vec3 n = normalize(v_normal + vec3(ripple.x, 0.0, ripple.y) * (0.24 + u_wind * 0.13) * closeDetail);
-    float facing = clamp(dot(n, view), 0.0, 1.0);
-    float fresnel = 0.045 + 0.955 * pow(1.0 - facing, 5.0);
-    float shallow = 1.0 - smoothstep(2.0, 90.0, v_shore);
-    vec3 deep = mix(vec3(0.022, 0.115, 0.19), vec3(0.025, 0.235, 0.28), closeDetail * 0.65);
-    vec3 water = mix(deep, vec3(0.09, 0.48, 0.43), shallow * 0.8);
-    water *= 0.82 + 0.22 * n.y + v_crest * 0.06;
-    vec3 reflection = reflect(-view, n);
-    vec3 sky = mix(u_sky, vec3(0.18, 0.38, 0.60), clamp(reflection.y, 0.0, 1.0));
-    vec3 color = mix(water, sky, fresnel * 0.85);
-    vec3 sun = normalize(vec3(0.48, 0.63, 0.61));
-    vec3 halfVector = normalize(view + sun);
-    float sunDot = max(dot(n, halfVector), 0.0);
-    float glint = pow(sunDot, 110.0) * 1.5 + pow(sunDot, 18.0) * 0.13;
-    color += vec3(1.0, 0.88, 0.64) * glint * (0.35 + fresnel);
-
-    float cap = smoothstep(0.60, 1.30, v_crest) * smoothstep(0.53, 0.76, tex.b);
-    cap *= 0.25 + u_wind * 0.6;
+    vec3 n=normalize(v_normal+vec3(slopes.x,0.0,slopes.y)*(0.45+u_wind*0.55)*nearDetail);
+    float nv=max(dot(n,view),0.001);
+    float fresnel=0.0204+0.9796*pow(1.0-nv,5.0);
+    vec3 reflected=reflect(-view,n);
+    vec3 sky=environment(vec3(reflected.x,max(reflected.y,0.005),reflected.z));
+    // Approximate bathymetry from nearby shore envelopes; never changes navigation.
+    float depth=2.0+max(v_shore,0.0)*0.17;
+    vec3 transmission=exp(-vec3(0.19,0.060,0.043)*depth);
+    vec3 deep=vec3(0.005,0.033,0.055);
+    vec3 water=mix(deep,vec3(0.030,0.23,0.19),transmission);
+    water+=vec3(0.002,0.012,0.014)*nearDetail;
+    float forwardScatter=pow(max(dot(view,-u_sun),0.0),3.0);
+    water+=vec3(0.002,0.025,0.026)*max(v_breaking.x,0.0)*(0.3+forwardScatter);
+    vec3 color=water*(1.0-fresnel)+sky*fresnel;
+    // GGX sun with Fresnel and geometry terms. Mipmaps suppress distant sparkle aliasing.
+    vec3 halfway=normalize(view+u_sun);
+    float nh=max(dot(n,halfway),0.0),nl=max(dot(n,u_sun),0.0);
+    float roughness=mix(0.28,0.16,nearDetail);
+    float a2=pow(roughness,4.0);
+    float denominator=nh*nh*(a2-1.0)+1.0;
+    float distribution=a2/(3.14159*denominator*denominator+0.00001);
+    float fh=0.0204+0.9796*pow(1.0-max(dot(view,halfway),0.0),5.0);
+    float spec=distribution*smith(nv,roughness)*smith(nl,roughness)*fh/(4.0*nv+0.001);
+    color+=vec3(1.5,1.32,1.05)*spec;
+    vec3 foamTex=texture2D(u_foam,v_uv*3.4+vec2(-0.024,0.011)*u_time).rgb;
+    float breaking=(1.0-smoothstep(0.60,0.94,v_breaking.y))*smoothstep(0.1,1.2,v_breaking.x);
+    float caps=breaking*smoothstep(0.44,0.71,chop.a)*foamTex.g*(0.35+u_wind*0.5);
 #ifdef LOW_QUALITY
-    cap *= 1.0 - smoothstep(100.0, 360.0, distanceToEye);
+    caps*=1.0-smoothstep(150.0,450.0,distanceToEye);
 #else
-    cap *= 1.0 - smoothstep(500.0, 1600.0, distanceToEye);
+    caps*=1.0-smoothstep(800.0,2100.0,distanceToEye);
 #endif
-    float shoreFoam = (1.0 - smoothstep(1.0, 5.0, abs(v_shore - 2.0 + sin(u_time * 1.8) * 1.3)))
-                     * smoothstep(0.4, 0.72, tex.b) * 0.48;
-
-    // Continuous curling wake on the displaced surface, with no coplanar foam sheets.
-    vec2 relative = v_surface.xz - u_ship;
-    float aft = -dot(relative, u_forward) - u_hull.x;
-    float side = abs(dot(relative, vec2(-u_forward.y, u_forward.x)));
-    float wakeLength = 35.0 + u_speed * 2.5;
-    float progress = clamp(aft / wakeLength, 0.0, 1.0);
-    float wakeNoise = texture2D(u_detail, vec2(aft * 0.027 - u_time * 0.13, side * 0.065)).b;
-    float curl = sin(aft * 0.16 - u_time * 2.8) * (0.7 + progress * 4.0) + (wakeNoise - 0.5) * 2.2;
-    float edge = u_hull.y + max(aft, 0.0) * 0.18 + curl;
-    float width = 1.4 + progress * 4.5;
-    float vWake = 1.0 - smoothstep(width * 0.25, width, abs(side - edge));
-    float churn = (1.0 - smoothstep(u_hull.y * 0.3, u_hull.y + max(aft, 0.0) * 0.035, side)) * (1.0 - progress) * 0.6;
-    churn *= smoothstep(0.30, 0.64, wakeNoise);
-    float wake = max(vWake, churn) * smoothstep(-4.0, 7.0, aft)
-                 * (1.0 - smoothstep(0.42, 1.0, progress)) * smoothstep(1.0, 30.0, u_speed);
-    wake *= 0.25 + smoothstep(0.25, 0.65, wakeNoise) * 0.9;
-    float foam = clamp(max(max(cap, shoreFoam), wake), 0.0, 0.95);
-    color = mix(color, vec3(0.87, 0.96, 0.92), foam);
-    float fog = smoothstep(700.0, 5100.0, distanceToEye);
-    color = mix(color, u_sky, fog);
-    gl_FragColor = vec4(color, 1.0);
+    float shoreFoam=(1.0-smoothstep(0.5,5.0,abs(v_shore-2.0+sin(u_time*1.3)*1.1)))*foamTex.g*0.65;
+    // Bright V arms, eddies and bubbly central churn share the displaced surface.
+    vec2 relative=v_surface.xz-u_ship;
+    float aft=-dot(relative,u_forward)-u_hull.x;
+    float signedSide=dot(relative,vec2(-u_forward.y,u_forward.x));
+    float side=abs(signedSide),lengthOfWake=40.0+u_speed*2.8;
+    float progress=clamp(aft/lengthOfWake,0.0,1.0);
+    vec2 wakeUV=vec2(aft*0.034-u_time*0.11,signedSide*0.049+sin(aft*0.035)*0.14);
+    vec3 wakeTex=texture2D(u_foam,wakeUV).rgb;
+    float curl=sin(aft*0.17-u_time*2.5+sign(signedSide)*1.1)*(0.8+progress*4.0);
+    float edge=u_hull.y+max(aft,0.0)*0.21+curl;
+    float width=2.2+sqrt(max(aft,0.0))*0.34;
+    float arm=1.0-smoothstep(width*0.15,width,abs(side-edge));
+    float churn=(1.0-smoothstep(u_hull.y*0.25,u_hull.y+max(aft,0.0)*0.07,side))*(1.0-progress)*0.7;
+    float wake=max(arm*(0.24+wakeTex.g*1.2),churn*wakeTex.r);
+    wake*=smoothstep(-5.0,4.0,aft)*(1.0-smoothstep(0.35,1.0,progress))*smoothstep(1.0,35.0,u_speed);
+    float foam=clamp(max(max(caps,shoreFoam),wake),0.0,0.98);
+    color=mix(color,vec3(0.72,0.83,0.81),foam);
+    vec3 horizon=environment(normalize(vec3(-view.x,0.015,-view.z)));
+    float fog=1.0-exp(-pow(distanceToEye/4300.0,1.6));
+    color=mix(color,horizon,fog);
+    gl_FragColor=vec4(pow(max(color,vec3(0.0)),vec3(0.454545)),1.0);
 }

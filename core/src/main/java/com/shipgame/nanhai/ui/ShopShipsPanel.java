@@ -19,6 +19,7 @@ public final class ShopShipsPanel extends Table implements Disposable {
     private static final String[] CATEGORIES = {"船只", "战船", "货船", "特种船"};
     private final QuestUi ui;
     private final Texture atlas;
+    private final Texture[] shipArt = new Texture[Catalog.SHIPS.length];
 
     public ShopShipsPanel(Skin skin) {
         ui = new QuestUi(skin);
@@ -34,6 +35,16 @@ public final class ShopShipsPanel extends Table implements Disposable {
     }
 
     private Image artwork(int i) {
+        String path = "textures/ships/ship_" + Catalog.SHIPS[i] + ".png";
+        if (Gdx.files.internal(path).exists()) {
+            if (shipArt[i] == null) {
+                shipArt[i] = new Texture(Gdx.files.internal(path),true);
+                shipArt[i].setFilter(Texture.TextureFilter.MipMapLinearLinear,Texture.TextureFilter.Linear);
+            }
+            Image image = new Image(shipArt[i]);
+            image.setScaling(Scaling.fit);
+            return image;
+        }
         int x = (i % 3) * atlas.getWidth() / 3;
         int y = (i / 3) * atlas.getHeight() / 3;
         int right = (i % 3 + 1) * atlas.getWidth() / 3;
@@ -111,7 +122,7 @@ public final class ShopShipsPanel extends Table implements Disposable {
                 name.add(ui.label(tag, 18, g.ownsShip(i) ? QuestUi.JADE : QuestUi.PAPER)).right();
                 Table caption = new Table(); caption.top().pad(4);
                 caption.add(name).growX().height(32);
-                Image art = artwork(i); art.setScaling(Scaling.stretch);
+                Image art = artwork(i);
                 Stack picture = new Stack(); picture.add(art); picture.add(caption);
                 card.add(picture).size(232, 136).row();
                 card.add(ui.label(Catalog.SHIP_PRICE[i] + " 两", 22, QuestUi.PAPER)).height(32);
@@ -151,5 +162,8 @@ public final class ShopShipsPanel extends Table implements Disposable {
         add(copy("点船看详情；已拥有的船可以随时免费换乘。", 22)).size(1200, 48);
     }
 
-    @Override public void dispose() { atlas.dispose(); ui.dispose(); }
+    @Override public void dispose() {
+        for (Texture texture:shipArt) if (texture!=null) texture.dispose();
+        atlas.dispose(); ui.dispose();
+    }
 }

@@ -44,3 +44,13 @@ subprojects {
 }
 
 eclipse.project.name = 'NanHaiVoyage-parent'
+
+// Publish the water runtime maps and the brief's ship-icon addendum to both
+// backends. Unrelated WIP art and source water JPGs remain out of the APK.
+tasks.register('prepareWaterAssets', Sync) {
+    from('android/assets') {
+        include 'textures/water/ocean_*.png'
+        include 'textures/ships/ship_*.png'
+    }
+    into(layout.buildDirectory.dir('generated/water-assets'))
+}

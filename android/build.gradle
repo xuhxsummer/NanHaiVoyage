@@ -9,7 +9,7 @@ android {
             manifest.srcFile 'AndroidManifest.xml'
             java.srcDirs = ['src']
             res.srcDirs = ['res']
-            assets.srcDirs = ['../assets']
+            assets.srcDirs = ['../assets', '../build/generated/water-assets']
             jniLibs.srcDirs = ['libs']
         }
     }
@@ -21,8 +21,8 @@ android {
             // ui-refs are working-reference mockups, never shipped in the APK.
             ignoreAssetsPattern '!.svn:!.git:!.gitignore:!.ds_store:!*.scc:.*:!ai-draft:!ui-refs'
         }
-        versionCode 39
-        versionName '0.28.6'
+        versionCode 40
+        versionName '0.28.7'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -87,3 +87,4 @@ tasks.matching { it.name.contains('merge') && it.name.contains('JniLibFolders') 
 }
 
 preBuild.dependsOn copyAndroidNatives
+preBuild.dependsOn rootProject.tasks.named('prepareWaterAssets')

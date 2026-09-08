@@ -378,8 +378,9 @@ public final class VoyageWorldRenderer implements Disposable {
                 MathUtils.floor(-g.y/38)*38+time%38);
         foam.transform.setToTranslation(MathUtils.floor(g.x/90)*90, .72f,
                 MathUtils.floor(-g.y/90)*90+time%90);
-        ship.transform.setToTranslation(g.x,MathUtils.sin(time*1.6f)*.45f,-g.y).rotate(Vector3.Y,g.headingDeg);
-        pirate.transform.setToTranslation(g.pirateX,.2f,-g.pirateY).rotate(Vector3.Y,g.pirateHeading);
+        float shipFloat=water.available()?water.surfaceHeight(g.x,-g.y,time,g.windStr,highWaterQuality):MathUtils.sin(time*1.6f)*.45f;
+        ship.transform.setToTranslation(g.x,shipFloat,-g.y).rotate(Vector3.Y,g.headingDeg);
+        pirate.transform.setToTranslation(g.pirateX,water.surfaceHeight(g.pirateX,-g.pirateY,time,g.windStr,highWaterQuality),-g.pirateY).rotate(Vector3.Y,g.pirateHeading);
         boolean customWater = water.render(camera,g,time,highWaterQuality,SKY);
         batch.begin(camera);
         if (!customWater) {
@@ -423,7 +424,7 @@ public final class VoyageWorldRenderer implements Disposable {
         return Intersector.intersectRaySphere(ray,point.set(x,height,-y),radius,null);
     }
     public float chaseDistance() { return distance; }
-    /** Low uses 1/4 the water triangles, one normal layer and a shorter whitecap distance. */
+    /** Low uses fewer water triangles/waves/normal layers and a shorter whitecap distance. */
     public void setWaterQuality(boolean high) { highWaterQuality = high; }
     public boolean hasWaterShader() { return water.available(); }
     @Override public void dispose() { water.dispose(); batch.dispose(); sceneryCache.dispose(); for (Model m:models) m.dispose(); models.clear(); }
