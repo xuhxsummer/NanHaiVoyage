@@ -52,3 +52,9 @@ tasks.register('voyage3dSmoke', JavaExec) {
     mainClass.set('com.shipgame.nanhai.lwjgl3.Voyage3dSmokeLauncher')
     workingDir = rootProject.file('assets').path
 }
+
+tasks.register('geometryRegression', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.GeometryRegression')
+}

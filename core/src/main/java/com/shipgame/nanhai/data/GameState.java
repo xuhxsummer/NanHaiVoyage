@@ -46,10 +46,6 @@ public class GameState {
     public boolean autoSail;
     public int autoSailPort = -1;   // auto-sail target port (>=0) when sailing to a port
     public int autoSailIsle = -1;   // auto-sail target island when sailing to an island
-    // 0.27.4: player ship collision radius used against the circular port/island
-    // hitboxes. Kept a bit under the sprite half-width so sailing feels fair.
-    private static final float SHIP_COLLIDE_R = 34f;
-
     // 0.26.2: weather is always 晴 (sunny). Wind still shifts so sailing keeps
     // its variety; rain/fog no longer occur.
     public WeatherKind weather = WeatherKind.CLEAR;
@@ -585,31 +581,32 @@ public class GameState {
     }
 
     private void move(float dt) {
-        float rad = headingDeg * MathUtils.degreesToRadians;
-        x += MathUtils.cos(rad) * speed * dt;
-        y += MathUtils.sin(rad) * speed * dt;
-        x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
-        y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
-        // 0.27.4: hard land collision — ports and islands are solid circles. The
-        // ship stops against them and slides along the edge instead of passing
-        // through (no tunneling: resolution runs every frame after integration).
-        // Obstacle radii stay a few units inside DOCK_RANGE/ISLAND_RANGE so the
-        // ship can still enter range for the tap-to-open menus.
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            resolveCollision(Catalog.PORT_X[i], Catalog.PORT_Y[i],
-                    Catalog.DOCK_RANGE - SHIP_COLLIDE_R - 6f);
+        ensureLandClearance();
+        // Bounded travel steps prevent crossing an entire obstacle during a slow frame.
+        int steps = Math.max(1, (int)Math.ceil(speed * Math.max(0, dt) / 2f));
+        float step = Math.max(0, dt) / steps;
+        for (int n=0; n<steps; n++) {
+            x += MathUtils.cosDeg(headingDeg) * speed * step;
+            y += MathUtils.sinDeg(headingDeg) * speed * step;
+            x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
+            y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
+            ensureLandClearance();
         }
-        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            resolveCollision(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i],
-                    Catalog.ISLAND_RANGE - SHIP_COLLIDE_R - 6f);
-        }
+    }
+
+    /** Also called before rendering paused/loaded voyages and newly equipped ships. */
+    public void ensureLandClearance() {
+        for (int i=0; i<Catalog.PORTS.length; i++)
+            resolveCollision(Catalog.PORT_X[i], Catalog.PORT_Y[i], VoyageGeometry.landRadius(true,i));
+        for (int i=0; i<Catalog.ISLANDS.length; i++)
+            resolveCollision(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], VoyageGeometry.landRadius(false,i));
     }
 
     /** Push the ship out of an obstacle circle and kill the inward velocity so
      * it stops and slides tangentially. Boundary = obstacle radius + ship radius. */
     private void resolveCollision(float ox, float oy, float hitR) {
         float dx = x - ox, dy = y - oy;
-        float limit = hitR + SHIP_COLLIDE_R;
+        float limit = hitR + VoyageGeometry.ship(ship).radius();
         float d2 = dx * dx + dy * dy;
         if (d2 >= limit * limit) {
             return;
@@ -655,7 +652,7 @@ public class GameState {
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             if (autoSailPort >= 0 && i == autoSailPort) continue;
             float[] hit = avoidCheck(Catalog.PORT_X[i], Catalog.PORT_Y[i],
-                    Catalog.DOCK_RANGE - SHIP_COLLIDE_R - 6f, ux, uy, targetDist);
+                    VoyageGeometry.landRadius(true,i), ux, uy, targetDist);
             if (hit != null && hit[0] < nearestT) {
                 nearestT = hit[0];
                 avoidDeg = hit[1];
@@ -664,7 +661,7 @@ public class GameState {
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
             if (autoSailIsle >= 0 && i == autoSailIsle) continue;
             float[] hit = avoidCheck(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i],
-                    Catalog.ISLAND_RANGE - SHIP_COLLIDE_R - 6f, ux, uy, targetDist);
+                    VoyageGeometry.landRadius(false,i), ux, uy, targetDist);
             if (hit != null && hit[0] < nearestT) {
                 nearestT = hit[0];
                 avoidDeg = hit[1];
@@ -680,7 +677,7 @@ public class GameState {
      * else null. The course heads at the tangent point on the side away from
      * the obstacle's offset, so the ship rounds it and resumes the direct line. */
     private float[] avoidCheck(float ox, float oy, float hitR, float ux, float uy, float targetDist) {
-        float r = hitR + SHIP_COLLIDE_R + 24f; // hull clearance margin
+        float r = hitR + VoyageGeometry.ship(ship).radius() + 24f; // hull clearance margin
         float oxr = ox - x, oyr = oy - y;
         float t = oxr * ux + oyr * uy;               // distance along the lane
         if (t < 40f || t > targetDist - 20f) return null; // behind / past the target

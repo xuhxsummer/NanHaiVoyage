@@ -10,6 +10,9 @@ import com.badlogic.gdx.math.Vector3;
 import com.shipgame.nanhai.NanHaiVoyage;
 import com.shipgame.nanhai.data.Catalog;
 import com.shipgame.nanhai.data.GameState;
+import com.shipgame.nanhai.data.VoyageGeometry;
+import com.badlogic.gdx.graphics.g3d.ModelInstance;
+import com.badlogic.gdx.math.collision.BoundingBox;
 import com.shipgame.nanhai.render.VoyageWorldRenderer;
 import com.shipgame.nanhai.screen.VoyageScreen;
 import java.lang.reflect.Field;
@@ -32,7 +35,7 @@ public class Voyage3dSmokeLauncher {
                 try {
                     Field f=VoyageScreen.class.getDeclaredField("world3d"); f.setAccessible(true);
                     renderer=(VoyageWorldRenderer) f.get(screen); require(renderer!=null,"3D initialization");
-                    closeOverlay(); startX=state.x;
+                    closeOverlay(); startX=state.x; checkModelGeometry();
                 } catch(Exception e) { fail(e); }
             }
             private void closeOverlay() throws Exception {
@@ -101,9 +104,53 @@ public class Voyage3dSmokeLauncher {
                         require(state.dockedPort==0,"port tap docks through perspective");
                         screen.pause(); // currentUser null: never writes an account save.
                         screen.hide(); screen.show(); screen.resize(1600,720);
+                        Field rf=VoyageScreen.class.getDeclaredField("world3d"); rf.setAccessible(true);
+                        renderer=(VoyageWorldRenderer)rf.get(screen);
                     }
-                    if(frame==550) { snap("reentered"); result=0; System.out.println("VOYAGE3D PASS: framing, movement, combat, ray picking, docking, resize, re-entry, GL"); Gdx.app.exit(); }
+                    if(frame>=541 && frame<=549) {
+                        int id=frame-541;
+                        state.silver=100000; state.buyShip(id);
+                        require(state.ship==id,"shop selected ship "+id);
+                        Field sf=VoyageWorldRenderer.class.getDeclaredField("ships"); sf.setAccessible(true);
+                        ModelInstance[] models=(ModelInstance[])sf.get(renderer);
+                        for(ModelInstance m:models) m.transform.setToTranslation(-9999,0,0);
+                        renderer.render(state,0);
+                        require(Math.abs(models[id].transform.getTranslation(new Vector3()).x-state.x)<.01,"next render switches model "+id);
+                        snap("ship-"+id);
+                        state.equipShip(0); renderer.render(state,0);
+                        require(Math.abs(models[0].transform.getTranslation(new Vector3()).x-state.x)<.01,"equip restores starter model");
+                    }
+                    if(frame==550) { snap("reentered"); result=0; System.out.println("VOYAGE3D PASS: framing, movement, combat, ray picking, docking, resize, re-entry, all ship purchases/equips, model bounds, GL"); Gdx.app.exit(); }
                 } catch(Throwable t) { fail(t); }
+            }
+            private void checkModelGeometry() throws Exception {
+                Field sf=VoyageWorldRenderer.class.getDeclaredField("ships"); sf.setAccessible(true);
+                ModelInstance[] ships=(ModelInstance[])sf.get(renderer);
+                java.util.Set<String> sizes=new java.util.HashSet<>();
+                for(int i=0;i<ships.length;i++) {
+                    BoundingBox bounds=ships[i].calculateBoundingBox(new BoundingBox());
+                    sizes.add(bounds.toString());
+                    checkRadius(ships[i],VoyageGeometry.ship(i).radius());
+                }
+                require(sizes.size()==Catalog.SHIPS.length,"distinct ship dimensions");
+                Field lf=VoyageWorldRenderer.class.getDeclaredField("scenery"); lf.setAccessible(true);
+                com.badlogic.gdx.utils.Array<ModelInstance> land=(com.badlogic.gdx.utils.Array<ModelInstance>)lf.get(renderer);
+                java.util.Set<Object> unique=new java.util.HashSet<>();
+                for(int i=0;i<land.size;i++) {
+                    boolean port=i<Catalog.PORTS.length; int id=port?i:i-Catalog.PORTS.length;
+                    unique.add(land.get(i).model);
+                    checkRadius(land.get(i),VoyageGeometry.landRadius(port,id));
+                }
+                require(unique.size()==Catalog.PORTS.length+Catalog.ISLANDS.length,"per-entry land models");
+            }
+            private void checkRadius(ModelInstance instance,float radius) {
+                for(com.badlogic.gdx.graphics.Mesh mesh:instance.model.meshes) {
+                    int stride=mesh.getVertexSize()/4;
+                    int offset=mesh.getVertexAttribute(com.badlogic.gdx.graphics.VertexAttributes.Usage.Position).offset/4;
+                    float[] vertices=new float[mesh.getNumVertices()*stride]; mesh.getVertices(vertices);
+                    for(int v=offset;v<vertices.length;v+=stride)
+                        require(Math.hypot(vertices[v],vertices[v+2])<=radius+.01,"mesh outside collision envelope");
+                }
             }
             private float cosDeg(float angle) {return com.badlogic.gdx.math.MathUtils.cosDeg(angle);}
             private float sinDeg(float angle) {return com.badlogic.gdx.math.MathUtils.sinDeg(angle);}

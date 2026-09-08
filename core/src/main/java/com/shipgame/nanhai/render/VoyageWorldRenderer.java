@@ -14,8 +14,9 @@ import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Disposable;
 import com.shipgame.nanhai.data.Catalog;
 import com.shipgame.nanhai.data.GameState;
+import com.shipgame.nanhai.data.VoyageGeometry;
 
-/** Presentation only: map (x,y) becomes (x,height,-y). No gameplay coordinates are changed. */
+/** Map (x,y) becomes (x,height,-y); gameplay owns land-clearance correction. */
 public final class VoyageWorldRenderer implements Disposable {
     public static final float SAIL_DISTANCE = 155f;
     public static final float COMBAT_DISTANCE = 600f;
@@ -25,7 +26,8 @@ public final class VoyageWorldRenderer implements Disposable {
     private final Array<Model> models = new Array<>();
     private final Array<ModelInstance> scenery = new Array<>();
     private final ModelCache sceneryCache = new ModelCache();
-    private final ModelInstance ship, pirate, ocean, ripples, wake, whiteBall, blackBall;
+    private final ModelInstance[] ships = new ModelInstance[Catalog.SHIPS.length];
+    private final ModelInstance pirate, ocean, ripples, wake, whiteBall, blackBall;
     private final Vector3 target = new Vector3(), desired = new Vector3(), point = new Vector3();
     private float distance = SAIL_DISTANCE, heading, time;
     private boolean initialized;
@@ -38,8 +40,8 @@ public final class VoyageWorldRenderer implements Disposable {
         light.set(new ColorAttribute(ColorAttribute.AmbientLight, .66f, .70f, .74f, 1));
         light.set(new ColorAttribute(ColorAttribute.Fog, SKY));
         light.add(new DirectionalLight().set(1f, .88f, .66f, -.5f, -.85f, -.3f));
-        ship = new ModelInstance(shipModel(false));
-        pirate = new ModelInstance(shipModel(true));
+        for (int i=0;i<ships.length;i++) ships[i] = new ModelInstance(shipModel(i, false));
+        pirate = new ModelInstance(shipModel(4, true));
         ocean = new ModelInstance(oceanModel());
         ripples = new ModelInstance(waterLines());
         wake = new ModelInstance(wakeModel());
@@ -47,14 +49,13 @@ public final class VoyageWorldRenderer implements Disposable {
                 material(.98f, .92f, .70f), ATTR)));
         blackBall = new ModelInstance(keep(new ModelBuilder().createSphere(5, 5, 5, 8, 6,
                 material(.10f, .08f, .06f), ATTR)));
-        Model port = landModel(true), island = landModel(false);
         for (int i = 0; i < Catalog.PORTS.length; i++) {
-            ModelInstance instance = new ModelInstance(port);
+            ModelInstance instance = new ModelInstance(landModel(true, i));
             instance.transform.setToTranslation(Catalog.PORT_X[i], 0, -Catalog.PORT_Y[i]);
             scenery.add(instance);
         }
         for (int i = 0; i < Catalog.ISLANDS.length; i++) {
-            ModelInstance instance = new ModelInstance(island);
+            ModelInstance instance = new ModelInstance(landModel(false, i));
             instance.transform.setToTranslation(Catalog.ISLAND_X[i], 0, -Catalog.ISLAND_Y[i]);
             scenery.add(instance);
         }
@@ -77,10 +78,11 @@ public final class VoyageWorldRenderer implements Disposable {
     }
 
     /** Local bow points +X, stern -X. Tapered hull is actual closed geometry. */
-    private Model shipModel(boolean enemy) {
+    private Model shipModel(int id, boolean enemy) {
         ModelBuilder b = new ModelBuilder(); b.begin();
         Material wood = material(.27f, .13f, .065f), trim = material(.66f, .43f, .18f);
-        Material canvas = enemy ? material(.27f, .10f, .085f) : material(.90f, .79f, .53f);
+        VoyageGeometry.Ship style = VoyageGeometry.ship(id);
+        Material canvas = enemy ? material(.27f, .10f, .085f) : color(style.color);
         MeshPartBuilder hull = part(b, "hull", wood);
         float[][] outline = {{-25,-9},{-19,-12},{13,-11},{29,0},{13,11},{-19,12}};
         for (int i = 0; i < outline.length; i++) {
@@ -102,8 +104,8 @@ public final class VoyageWorldRenderer implements Disposable {
             for (int i=0;i<6;i++) box(b,"post"+side+i,trim,-21+i*7,10.5f,side*11,1,5,1);
             for (int i=0;i<3;i++) box(b,"gun"+side+i,material(.12f,.13f,.13f),-6+i*8,10,side*13,3,3,5);
         }
-        for (int mast=0;mast<2;mast++) {
-            float x = mast == 0 ? 2 : 17, top = mast == 0 ?  60f : 43;
+        for (int mast=0;mast<style.sails;mast++) {
+            float x = style.sails==1 ? 7 : -5+mast*13, top = mast == 0 ? 60f : 49-mast*5;
             box(b,"mast"+mast,wood,x,(top+9)/2,0,1.6f,top-9,1.6f);
             float bottom = mast == 0 ? 21 : 18, half = mast == 0 ? 16 : 10;
             // Thick, lightly bowed sail panels, double visible from bow and stern.
@@ -115,28 +117,75 @@ public final class VoyageWorldRenderer implements Disposable {
             }
             box(b,"pennant"+mast,enemy ? material(.65f,.08f,.05f) : material(.73f,.23f,.12f),x-5,top+1,0,9,3,.7f);
         }
-        return keep(b.end());
+        Model model = b.end();
+        // Scale baked vertices so bounds and collisions use the same dimensions.
+        for (com.badlogic.gdx.graphics.Mesh mesh : model.meshes)
+            mesh.transform(new Matrix4().setToScaling(style.length,style.height,style.beam));
+        return keep(model);
     }
 
-    private Model landModel(boolean port) {
+    private static Material color(int rgb) {
+        return material(((rgb>>16)&255)/255f, ((rgb>>8)&255)/255f, (rgb&255)/255f);
+    }
+
+    private Model landModel(boolean port, int id) {
         ModelBuilder b = new ModelBuilder(); b.begin();
-        // Footprints stay inside the existing collision circles (38 port / 30 island).
-        MeshPartBuilder sand = part(b,"shore",material(.63f,.59f,.37f));
-        sand.setVertexTransform(new Matrix4().setToTranslation(0,1,0));
-        sand.cylinder(port ? 74:58,4,port ? 74:58,12);
-        MeshPartBuilder hill = part(b,"hill",material(.22f,.40f,.29f));
-        hill.setVertexTransform(new Matrix4().setToTranslation(-5,port ? 12:21,0));
-        hill.cone(port ? 58:50,port ? 25:44,port ? 58:50,9);
-        if (port) {
-            Material wall=material(.70f,.58f,.38f), roof=material(.18f,.23f,.23f);
-            box(b,"pier",material(.35f,.23f,.13f),23,3,0,25,3,12);
-            for (int i=0;i<3;i++) {
-                box(b,"house"+i,wall,8,7,i*13-13,12,10,10);
-                box(b,"roof"+i,roof,8,13,i*13-13,15,3,13);
+        java.util.Random random = new java.util.Random((port ? 7109L:1907L)+id*104729L);
+        float radius=VoyageGeometry.landRadius(port,id);
+        Material sand=material(.53f+random.nextFloat()*.25f,.49f+random.nextFloat()*.22f,.32f+random.nextFloat()*.23f);
+        Material rock=material(.23f+random.nextFloat()*.18f,.31f+random.nextFloat()*.18f,.24f+random.nextFloat()*.15f);
+        MeshPartBuilder shore=part(b,"shore",sand);
+        int count=14+id%5;
+        for(int v=0;v<count;v++) {
+            float a=v*MathUtils.PI2/count, c=(v+1)*MathUtils.PI2/count;
+            float r=VoyageGeometry.shoreRadius(port,id,v), t=VoyageGeometry.shoreRadius(port,id,(v+1)%count);
+            Vector3 p=new Vector3(MathUtils.cos(a)*r,2,MathUtils.sin(a)*r);
+            Vector3 q=new Vector3(MathUtils.cos(c)*t,2,MathUtils.sin(c)*t);
+            shore.triangle(new Vector3(0,2,0),q,p);
+            shore.rect(p,q,new Vector3(q.x,-2,q.z),new Vector3(p.x,-2,p.z),new Vector3(p.x+q.x,0,p.z+q.z).nor());
+        }
+        if(port) {
+            Material wall=material(.64f+random.nextFloat()*.23f,.53f+random.nextFloat()*.2f,.37f+random.nextFloat()*.2f);
+            Material roof=color(new int[]{0x314f58,0x9b4936,0x62634c,0x3c746b,0x866442,0x414c70}[id%6]);
+            int houses=3+id%4;
+            for(int h=0;h<houses;h++) {
+                float angle=h*MathUtils.PI2/houses, x=MathUtils.cos(angle)*15, z=MathUtils.sin(angle)*15;
+                float height=6+random.nextFloat()*7;
+                box(b,"house"+h,wall,x,2+height/2,z,8,height,7);
+                box(b,"roof"+h,roof,x,3+height,z,11,2,10);
             }
-            for (int i=0;i<3;i++) {
-                box(b,"tower"+i,wall,-13,10+i*9,0,10-i*2,8,10-i*2);
-                box(b,"eave"+i,roof,-13,15+i*9,0,16-i*2,2,16-i*2);
+            float pierLength=10+id%5*2;
+            box(b,"pier",color(0x624126),radius-pierLength/2-2,3,0,pierLength,3,7);
+            int levels=1+id%4;
+            for(int level=0;level<levels;level++) {
+                box(b,"tower"+level,wall,-7,7+level*8,-3,9-level,8,9-level);
+                box(b,"eave"+level,roof,-7,12+level*8,-3,13-level,2,13-level);
+            }
+            MeshPartBuilder hill=part(b,"hillside",rock);
+            hill.setVertexTransform(new Matrix4().setToTranslation(-17,7+id%3*2,0));
+            hill.cone(15,14+id%3*4,16,7+id%4);
+        } else {
+            // Reef arcs, cliff stacks and wooded peaks use different silhouettes.
+            int kind=id%3, peaks=2+id%4;
+            for(int k=0;k<peaks;k++) {
+                float angle=(k/(float)peaks)*MathUtils.PI2+.17f*id;
+                float x=MathUtils.cos(angle)*radius*.48f, z=MathUtils.sin(angle)*radius*.48f;
+                float height=kind==0 ? 15+random.nextFloat()*23 : kind==1 ? 7+random.nextFloat()*12 : 3+random.nextFloat()*5;
+                MeshPartBuilder peak=part(b,"rock"+k,rock);
+                peak.setVertexTransform(new Matrix4().setToTranslation(x,2+height/2,z));
+                if(kind==1) peak.cylinder(12,height,11,5+id%4);
+                else peak.cone(15,height,14,6+id%3);
+                if(kind!=2) {
+                    box(b,"trunk"+k,color(0x684529),x,5,z,1.4f,7,1.4f);
+                    MeshPartBuilder tree=part(b,"tree"+k,material(.13f,.31f+id*.008f,.18f));
+                    tree.setVertexTransform(new Matrix4().setToTranslation(x,11,z)); tree.cone(8,10,8,5);
+                }
+            }
+            if(kind==2) {
+                // Shallow enclosed lagoon: water inset, surrounded by the solid reef platform.
+                MeshPartBuilder lagoon=part(b,"lagoon",material(.10f,.56f,.58f));
+                lagoon.setVertexTransform(new Matrix4().setToTranslation(0,2.1f,0));
+                lagoon.cylinder(17+id*.25f,.15f,12,11);
             }
         }
         return keep(b.end());
@@ -182,6 +231,8 @@ public final class VoyageWorldRenderer implements Disposable {
     }
 
     public void render(GameState g, float dt) {
+        g.ensureLandClearance();
+        ModelInstance ship=ships[VoyageGeometry.shipIndex(g.ship)];
         dt=MathUtils.clamp(dt,0,.1f); time+=dt;
         float alpha=1f-(float)Math.exp(-3f*dt);
         float wanted=g.pirateAlive && !g.failed ? COMBAT_DISTANCE:SAIL_DISTANCE;

@@ -1,0 +1,42 @@
+package com.shipgame.nanhai.lwjgl3;
+
+import com.shipgame.nanhai.data.*;
+import java.lang.reflect.Method;
+
+/** Deterministic gameplay regression checks; no account store or graphics needed. */
+public final class GeometryRegression {
+    public static void main(String[] args) throws Exception {
+        Method move=GameState.class.getDeclaredMethod("move",float.class); move.setAccessible(true);
+        int impacts=0;
+        for(int ship=0;ship<Catalog.SHIPS.length;ship++) for(boolean port:new boolean[]{true,false}) {
+            int count=port?Catalog.PORTS.length:Catalog.ISLANDS.length;
+            for(int i=0;i<count;i++) {
+                float ox=port?Catalog.PORT_X[i]:Catalog.ISLAND_X[i], oy=port?Catalog.PORT_Y[i]:Catalog.ISLAND_Y[i];
+                float limit=VoyageGeometry.landRadius(port,i)+VoyageGeometry.ship(ship).radius();
+                require(limit<(port?Catalog.DOCK_RANGE:Catalog.ISLAND_RANGE)-2,"dock clearance");
+                for(int angle=0;angle<360;angle+=30) {
+                    GameState g=GameState.newGame(); g.undockInPlace(); g.ship=ship;
+                    double a=Math.toRadians(angle);
+                    g.x=ox+(float)Math.cos(a)*(limit+5); g.y=oy+(float)Math.sin(a)*(limit+5);
+                    if(g.x<40 || g.x>Catalog.WORLD_W-40 || g.y<40 || g.y>Catalog.WORLD_H-40) continue;
+                    g.headingDeg=angle+180; g.speed=1000;
+                    move.invoke(g,1f); // End-point-only collision would tunnel all the way through.
+                    require(Catalog.dist(g.x,g.y,ox,oy)>=limit-.01,"penetration");
+                    require((g.x-ox)*Math.cos(a)+(g.y-oy)*Math.sin(a)>0,"tunneled through land ship="+ship+" port="+port+" id="+i+" angle="+angle+" x="+g.x+" y="+g.y);
+                    impacts++;
+                }
+                GameState g=GameState.newGame(); g.undockInPlace(); g.ship=ship;
+                g.x=ox; g.y=oy; g.ensureLandClearance();
+                require(Catalog.dist(g.x,g.y,ox,oy)>=limit-.01,"legacy save overlap");
+                require(port?g.nearestPortInRange()==i:g.nearestIslandInRange()==i,"interaction range");
+                g.x=ox+120; g.y=oy; g.headingDeg=180; g.pirateSpawnTimer=10000;
+                if(port) g.startAutoSail(i); else g.startAutoSailIsle(i);
+                for(int step=0;step<1200 && g.autoSail;step++) g.update(1f/60);
+                require(!g.autoSail && g.speed==0,"auto arrival");
+                require(Catalog.dist(g.x,g.y,ox,oy)>=limit-.01,"auto penetration");
+            }
+        }
+        System.out.println("GEOMETRY PASS: "+impacts+" high-speed impacts; every ship/land docking, auto arrival, legacy recovery");
+    }
+    private static void require(boolean ok,String message) { if(!ok) throw new AssertionError(message); }
+}
