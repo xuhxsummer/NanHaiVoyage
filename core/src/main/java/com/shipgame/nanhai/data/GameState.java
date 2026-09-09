@@ -8,6 +8,16 @@ public class GameState {
     public String nickname = "船长";
     public int avatarIndex;
     public int redeemedCodes;
+    public int dailyClaimDay;
+
+    public boolean canClaimDaily() { return gameDay>dailyClaimDay; }
+    public boolean claimDailyLogin() {
+        if(!canClaimDaily()) { toast("今日奖励已领取，下一游戏日再来。"); return false; }
+        if(silver>Integer.MAX_VALUE-Catalog.DAILY_LOGIN_SILVER) { toast("银两已达上限，请稍后领取。"); return false; }
+        silver+=Catalog.DAILY_LOGIN_SILVER; dailyClaimDay=gameDay;
+        questSilverPeak=Math.max(questSilverPeak,silver);
+        toast("每日登录奖励：银两 +"+Catalog.DAILY_LOGIN_SILVER); return true;
+    }
 
     /** Exact numeric codes, surrounding whitespace ignored; one use per save. */
     public boolean redeemCode(String input) {
@@ -192,7 +202,8 @@ public class GameState {
 
     public SaveData toSave() {
         SaveData s = new SaveData();
-        s.worldVersion = 2;
+        s.worldVersion = Catalog.WORLD_VERSION;
+        s.dailyClaimDay = dailyClaimDay;
         s.redeemedCodes = redeemedCodes;
         s.nickname = nickname;
         s.avatarIndex = avatarIndex;
@@ -286,6 +297,7 @@ public class GameState {
         try {
             g.setProfile(s.nickname, s.avatarIndex);
             g.redeemedCodes = s.redeemedCodes & 3;
+            g.dailyClaimDay = Math.max(0,s.dailyClaimDay);
             float oldHullMax = s.hullMax <= 0 ? Catalog.HULL_MAX : s.hullMax;
             float oldSupplyMax = s.supplyMax <= 0 ? Catalog.SUPPLY_MAX : s.supplyMax;
             g.hullMax = Math.max(Catalog.HULL_MAX, oldHullMax);
@@ -379,14 +391,14 @@ public class GameState {
             // Local save checkpoints preserve position; transient combat and
             // navigation reset. A loaded save is always a playable dock snapshot
             // (失败状态不写回读档)。
-            float coordinateScale=s.worldVersion<2?2f:1f;
+            float coordinateScale=s.worldVersion<2?4f:s.worldVersion<3?2f:1f;
             g.x = (!Float.isNaN(s.x) && !Float.isInfinite(s.x)) ? s.x*coordinateScale : Catalog.PORT_X[lp]+Catalog.DOCK_RANGE-8;
             g.y = (!Float.isNaN(s.y) && !Float.isInfinite(s.y)) ? s.y*coordinateScale : Catalog.PORT_Y[lp];
-            if(s.worldVersion<2 && g.dockedPort>=0 && (!Float.isNaN(s.x) && !Float.isInfinite(s.x)) && (!Float.isNaN(s.y) && !Float.isInfinite(s.y))) {
+            if(coordinateScale>1 && g.dockedPort>=0 && (!Float.isNaN(s.x) && !Float.isInfinite(s.x)) && (!Float.isNaN(s.y) && !Float.isInfinite(s.y))) {
                 int port=g.dockedPort;
                 // Move the harbor anchor, retaining the ship's local docking offset.
-                g.x=Catalog.PORT_X[port]+s.x-Catalog.PORT_X[port]/2;
-                g.y=Catalog.PORT_Y[port]+s.y-Catalog.PORT_Y[port]/2;
+                g.x=Catalog.PORT_X[port]+s.x-Catalog.PORT_X[port]/coordinateScale;
+                g.y=Catalog.PORT_Y[port]+s.y-Catalog.PORT_Y[port]/coordinateScale;
             }
             g.x=MathUtils.clamp(g.x,40,Catalog.WORLD_W-40);
             g.y=MathUtils.clamp(g.y,40,Catalog.WORLD_H-40);
@@ -618,6 +630,7 @@ public class GameState {
 
     private void move(float dt) {
         ensureLandClearance();
+        ensurePirateSeparation();
         // Bounded travel steps prevent crossing an entire obstacle during a slow frame.
         int steps = Math.max(1, (int)Math.ceil(speed * Math.max(0, dt) / 2f));
         float step = Math.max(0, dt) / steps;
@@ -626,7 +639,11 @@ public class GameState {
             y += MathUtils.sinDeg(headingDeg) * speed * step;
             x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
             y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
+            if(pirateAlive) resolveCollision(pirateX,pirateY,VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius()+6f);
             ensureLandClearance();
+            x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
+            y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
+            ensurePirateSeparation();
         }
     }
 
@@ -636,6 +653,32 @@ public class GameState {
             resolveCollision(Catalog.PORT_X[i], Catalog.PORT_Y[i], VoyageGeometry.landRadius(true,i));
         for (int i=0; i<Catalog.ISLANDS.length; i++)
             resolveCollision(Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i], VoyageGeometry.landRadius(false,i));
+    }
+
+    /** Recover initial overlap or a larger equipped hull, also while the world is paused. */
+    public void ensurePirateSeparation() {
+        if(!pirateAlive) return;
+        float limit=VoyageGeometry.pirateSeparation(ship);
+        if(Catalog.dist(x,y,pirateX,pirateY)>=limit-.001f) return;
+        float angle=Catalog.dist(x,y,pirateX,pirateY)<.001f ? headingDeg+180
+                : MathUtils.atan2(pirateY-y,pirateX-x)*MathUtils.radiansToDegrees;
+        // Prefer the existing side; near shores/edges choose the closest free water arc.
+        for(int ring=0;ring<4;ring++) for(int i=0;i<32;i++) {
+            float offset=((i+1)/2)*11.25f*(i%2==0?1:-1);
+            float radius=limit+.1f+ring*20;
+            float px=x+MathUtils.cosDeg(angle+offset)*radius,py=y+MathUtils.sinDeg(angle+offset)*radius;
+            if(!pirateWaterClear(px,py)) continue;
+            pirateX=px;pirateY=py;return;
+        }
+    }
+    private boolean pirateWaterClear(float px,float py) {
+        float r=VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius();
+        if(px<r || py<r || px>Catalog.WORLD_W-r || py>Catalog.WORLD_H-r) return false;
+        for(int i=0;i<Catalog.PORTS.length;i++)
+            if(Catalog.dist(px,py,Catalog.PORT_X[i],Catalog.PORT_Y[i])<r+VoyageGeometry.landRadius(true,i)) return false;
+        for(int i=0;i<Catalog.ISLANDS.length;i++)
+            if(Catalog.dist(px,py,Catalog.ISLAND_X[i],Catalog.ISLAND_Y[i])<r+VoyageGeometry.landRadius(false,i)) return false;
+        return true;
     }
 
     /** Push the ship out of an obstacle circle and kill the inward velocity so
@@ -1467,6 +1510,7 @@ public class GameState {
         pirateHpMax = Catalog.PIRATE_HP;
         pirateHp = pirateHpMax;
         pirateAlive = true;
+        ensurePirateSeparation();
         pirateChase = false;
         combatLock = false;
         playerFireCd = 0f;
@@ -1476,6 +1520,7 @@ public class GameState {
     }
 
     private void updateCombat(float dt) {
+        ensurePirateSeparation();
         float d = Catalog.dist(x, y, pirateX, pirateY);
         if (d > Catalog.PIRATE_FLEE_RANGE) {
             toast("已开出范围，海盗停火。改回手动。");
@@ -1504,9 +1549,11 @@ public class GameState {
             float rad = pirateHeading * MathUtils.degreesToRadians;
             // It mostly fights in place. Retaliating provokes pursuit, but the
             // player can still escape by sailing well and opening the gap.
-            float chase = 105f;
-            pirateX += MathUtils.cos(rad) * chase * dt;
-            pirateY += MathUtils.sin(rad) * chase * dt;
+            // Analytically cap inward travel at hull contact, even for a long frame.
+            float travel=Math.min(105f*Math.max(0,dt),Math.max(0,d-VoyageGeometry.pirateSeparation(ship)));
+            pirateX += MathUtils.cos(rad) * travel;
+            pirateY += MathUtils.sin(rad) * travel;
+            ensurePirateSeparation();
         }
         updateBalls(dt);
     }

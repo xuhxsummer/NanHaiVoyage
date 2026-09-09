@@ -27,7 +27,7 @@ public final class ShipArtworkSmokeLauncher {
             @Override public void render() {
                 try {
                     int selected=frames-2;
-                    panel.refresh(state,0,selected,"","",i->{},i->{},()->{},()->{},()->{},()->{});
+                    panel.refresh(state,0,selected,"","",i->{},i->{},()->{},()->{},()->{},()->{},()->{});
                     Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
                     preview.act(1f/60); preview.draw();
                     if(Gdx.gl.glGetError()!=GL20.GL_NO_ERROR) throw new AssertionError("shop art GL error");

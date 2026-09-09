@@ -50,7 +50,7 @@ public final class VoyageWorldRenderer implements Disposable {
         light.set(new ColorAttribute(ColorAttribute.Fog, SKY));
         light.add(new DirectionalLight().set(1f, .88f, .66f, -.5f, -.85f, -.3f));
         for (int i=0;i<ships.length;i++) ships[i] = new ModelInstance(shipModel(i, false));
-        pirate = new ModelInstance(shipModel(4, true));
+        pirate = new ModelInstance(shipModel(VoyageGeometry.PIRATE_SHIP, true));
         ocean = new ModelInstance(oceanModel());
         ripples = new ModelInstance(waterLines());
         foam = new ModelInstance(foamModel());
@@ -272,6 +272,7 @@ public final class VoyageWorldRenderer implements Disposable {
 
     public void render(GameState g, float dt) {
         g.ensureLandClearance();
+        g.ensurePirateSeparation();
         ModelInstance ship=ships[VoyageGeometry.shipIndex(g.ship)];
         dt=MathUtils.clamp(dt,0,.1f); time+=dt;
         float alpha=1f-(float)Math.exp(-3f*dt);

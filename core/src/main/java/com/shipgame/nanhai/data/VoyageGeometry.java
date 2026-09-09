@@ -7,6 +7,10 @@ package com.shipgame.nanhai.data;
 public final class VoyageGeometry {
     private VoyageGeometry() {}
     public static final float PORT_SCALE = 4.5f, ISLAND_SCALE = 4f;
+    public static final int PIRATE_SHIP = 4;
+    public static float pirateSeparation(int playerShip) {
+        return ship(playerShip).radius()+ship(PIRATE_SHIP).radius()+6f;
+    }
     public static final class Ship {
         public final float length, beam, height;
         public final int sails, color;

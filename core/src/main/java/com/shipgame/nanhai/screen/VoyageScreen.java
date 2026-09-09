@@ -103,7 +103,7 @@ public class VoyageScreen extends ScreenAdapter {
         // start/stop fishing, upgrades, catch list + sell).
         // 0.26.4: SHOP is the 商城 popup (buy / switch ships).
         // 0.26.5: MINE is the 我的 popup (current/owned ships + resources).
-        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH, SHOP, MINE, REDEEM
+        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH, SHOP, MINE, REDEEM, DAILY
     }
 
     /** 0.26.0 first-run gameplay help. Body is verbatim from howto_spec.txt:
@@ -340,12 +340,8 @@ public class VoyageScreen extends ScreenAdapter {
             if (overlay == Overlay.NONE) { overlay = Overlay.MAP; rebuildMenu(); }
         };
         Runnable[] shortcuts = {this::toggleCargo, this::toggleCodex, this::toggleShop,
-                () -> {
-                    if (g.dockedPort >= 0) {
-                        overlay = Overlay.MARKET; marketBuyPage = marketSellPage = 0; rebuildMenu();
-                    } else { contextReopen(); }
-                }, this::toggleQuestOverlay,
-                () -> g.toast("活动尚未开放，敬请期待。"),
+                this::toggleQuestOverlay,
+                () -> { overlay=Overlay.DAILY; rebuildMenu(); },
                 () -> { overlay=Overlay.REDEEM; rebuildMenu(); }};
         voyageHud = new VoyageHud(game.skin, this::toggleAvatar, this::statClicked, shortcuts,
                 world, this::toggleMine, this::openIntel, this::contextReopen,
@@ -682,7 +678,7 @@ public class VoyageScreen extends ScreenAdapter {
                     () -> { selectedShip = -1; rebuildMenu(); },
                     () -> { g.toast(g.buyShip(idx)); persist(); rebuildMenu(); },
                     () -> { g.toast(g.equipShip(idx)); persist(); rebuildMenu(); },
-                    this::closePopup);
+                    this::toggleMine, this::closePopup);
             showFullscreen(shopPanel,ShopShipsPanel.WIDTH,ShopShipsPanel.HEIGHT);
             return;
         }
@@ -729,6 +725,7 @@ public class VoyageScreen extends ScreenAdapter {
             else if (overlay == Overlay.STAT) page = statPage();
             else if (overlay == Overlay.FAIL) page = failurePage();
             else if (overlay == Overlay.REDEEM) page = redeemPage();
+            else if (overlay == Overlay.DAILY) page = dailyPage();
             else page = howtoPage();
             showFullscreen(page,1296,800);
             return;
@@ -791,6 +788,22 @@ public class VoyageScreen extends ScreenAdapter {
         Gdx.app.getPreferences("nanhai-voyage").putBoolean("howto_shown",true).flush();
         closePopup();
     }
+    private Table dailyPage() {
+        Table content=new Table(); content.top().left();
+        content.add(pageUi.label("第 "+g.gameDay+" 游戏日",36,QuestUi.PAPER)).left().padBottom(28).row();
+        content.add(pageCopy("每日登录奖励："+Catalog.DAILY_LOGIN_SILVER+" 银两。每个游戏日可领取一次，航行进入下一日后刷新。"))
+                .width(1080).left().padBottom(32).row();
+        content.add(pageCopy(g.canClaimDaily()?"今日奖励可领取。":"今日奖励已领取，下一游戏日再来。"))
+                .width(1080).left().padBottom(32).row();
+        TextButton claim=pageAction(g.canClaimDaily()?"领取每日奖励":"今日已领取",true,()->{
+            if(g.claimDailyLogin()) persist();
+            rebuildMenu();
+        });
+        claim.setName("领取每日奖励"); claim.setDisabled(!g.canClaimDaily());
+        content.add(claim).size(360,80).left();
+        return pageFrame("活动 · 每日登录",content,this::closePopup);
+    }
+
     private Table redeemPage() {
         Table content=new Table(); content.top().left();
         content.add(pageCopy("输入兑换码领取银两。每个兑换码在当前存档中仅可领取一次。")).width(1080).left().padBottom(32).row();

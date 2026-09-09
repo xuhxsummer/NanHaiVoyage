@@ -14,7 +14,7 @@ public final class VoyageMinimap extends Actor implements Disposable {
     private final Drawable rim;
     private final float[] vertices=new float[20];
     private GameState g;
-    private static final float HALF=1280;
+    private static final float HALF=2560;
     public VoyageMinimap(VoyageHudChrome ui){
         rim=ui.compass;
         Pixmap p=new Pixmap(1024,768,Pixmap.Format.RGBA8888);
@@ -22,7 +22,7 @@ public final class VoyageMinimap extends Actor implements Disposable {
         p.setColor(Color.valueOf("214D59"));for(int y=0;y<768;y+=32)p.drawLine(0,y,1023,y);for(int x=0;x<1024;x+=32)p.drawLine(x,0,x,767);
         // Coast outline follows the existing chart's geographic bands, in world coordinates.
         float[][] land={{0,2350,4800,3600},{0,700,1500,2350},{0,500,1150,800},{2150,1300,2550,2050}};
-        for(float[] r:land){for(int i=0;i<4;i++)r[i]*=2;int x=(int)(r[0]/Catalog.WORLD_W*1024),y=(int)((1-r[3]/Catalog.WORLD_H)*768),w=(int)((r[2]-r[0])/Catalog.WORLD_W*1024),h=(int)((r[3]-r[1])/Catalog.WORLD_H*768);p.setColor(Color.valueOf("817B52"));p.fillRectangle(x,y,w,h);p.setColor(Color.valueOf("ADB07B"));p.drawRectangle(x,y,w,h);}
+        for(float[] r:land){for(int i=0;i<4;i++)r[i]*=Catalog.LAYOUT_SCALE;int x=(int)(r[0]/Catalog.WORLD_W*1024),y=(int)((1-r[3]/Catalog.WORLD_H)*768),w=(int)((r[2]-r[0])/Catalog.WORLD_W*1024),h=(int)((r[3]-r[1])/Catalog.WORLD_H*768);p.setColor(Color.valueOf("817B52"));p.fillRectangle(x,y,w,h);p.setColor(Color.valueOf("ADB07B"));p.drawRectangle(x,y,w,h);}
         for(int i=0;i<Catalog.ISLANDS.length;i++){p.setColor(Color.valueOf("859567"));p.fillCircle((int)(Catalog.ISLAND_X[i]/Catalog.WORLD_W*1024),(int)((1-Catalog.ISLAND_Y[i]/Catalog.WORLD_H)*768),5);}
         // Small southern port islands keep the sailing region recognizable,
         // including 苏禄 and 吕宋, rather than presenting an empty blue disc.

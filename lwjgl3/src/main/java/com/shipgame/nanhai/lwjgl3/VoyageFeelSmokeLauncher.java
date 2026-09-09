@@ -19,13 +19,13 @@ import java.nio.file.Path;
 public final class VoyageFeelSmokeLauncher {
     private static int result=1;
     public static void main(String[] args) throws Exception {
-        Path dir=java.nio.file.Files.createTempDirectory("nanhai-feel2810-");
+        Path dir=java.nio.file.Files.createTempDirectory("nanhai-feel2811-");
         Lwjgl3ApplicationConfiguration config=new Lwjgl3ApplicationConfiguration();
         config.setWindowedMode(1280,720);config.disableAudio(true);config.setForegroundFPS(0);
         config.setPreferencesConfig(dir.resolve("prefs").toString(),Files.FileType.Absolute);
         new Lwjgl3Application(new NanHaiVoyage() {
             VoyageScreen voyage; Stage stage; VoyageWorldRenderer renderer; int frame;
-            final String[] pages={"AVATAR","QUESTS","CARGO","INTEL","CODEX","SHOP","MINE","STAT","HOWTO","FAIL","FISH","PRICE","REDEEM"};
+            final String[] pages={"AVATAR","QUESTS","CARGO","INTEL","CODEX","SHOP","MINE","STAT","HOWTO","FAIL","FISH","PRICE","REDEEM","DAILY"};
             @Override public void create() {
                 Files original=Gdx.files;
                 Gdx.files=(Files)Proxy.newProxyInstance(Files.class.getClassLoader(),new Class[]{Files.class},(p,m,a)->{
@@ -57,6 +57,7 @@ public final class VoyageFeelSmokeLauncher {
                         steerAndLook();
                         profile();
                         redeemAndHud();
+                        dailyAndShop();
                         sceneSnapshots();
                     } else if(frame<=pages.length) {
                         page(pages[frame-1]);
@@ -71,7 +72,7 @@ public final class VoyageFeelSmokeLauncher {
                         super.render();
                         require(getScreen() instanceof LoginScreen && currentUser==null && state==null,"logout session cleanup");
                         result=0;
-                        System.out.println("VOYAGE FEEL PASS: stopped/slow/all-heading helm, undock, multitouch look+return+clamps, HUD ownership, all 13 fullscreen pages at 1280/1600, pause, profile/save/load/avatars, dock/market/island, logout, GL");
+                        System.out.println("VOYAGE FEEL PASS: stopped/slow/all-heading helm, undock, multitouch look+return+clamps, HUD ownership, all 14 fullscreen pages at 1280/1600, pause, profile/save/load/avatars, dock/market/island, logout, GL");
                         Gdx.app.exit();return;
                     }
                     require(Gdx.gl.glGetError()==GL20.GL_NO_ERROR,"GL frame "+frame);
@@ -153,7 +154,7 @@ public final class VoyageFeelSmokeLauncher {
                 code.setText(" 666 ");tap("确认兑换");require(state.silver==silver+666,"redeem 666 UI");
                 tap("确认兑换");require(state.silver==silver+666,"repeat 666 UI");
                 SaveData saved=accounts.load(currentUser);
-                require(saved.silver==silver+666 && saved.redeemedCodes==1 && saved.worldVersion==2,"redeem persisted to actual account file");
+                require(saved.silver==silver+666 && saved.redeemedCodes==1 && saved.worldVersion==3,"redeem persisted to actual account file");
                 code.setText("888");tap("确认兑换");require(state.silver==silver+1554,"redeem 888 UI");
                 saved=accounts.load(currentUser);
                 GameState restored=GameState.fromSave(saved);
@@ -168,6 +169,31 @@ public final class VoyageFeelSmokeLauncher {
                 snap("hud-no-blessing");
                 state.toast("兑换检查完成");voyage.render(0);
                 require(actor("航行消息").isVisible(),"action feedback still visible");
+            }
+            private void dailyAndShop() throws Exception {
+                sea();overlay("NONE");voyage.render(0);
+                require(find(stage.getRoot(),"船坞")==null && find(stage.getRoot(),"商行")==null,"duplicate shop shortcuts removed");
+                int silver=state.silver;
+                tap("活动");voyage.render(0);require(overlayName().equals("DAILY"),"activity opens daily page");
+                snap("daily-available");tap("领取每日奖励");voyage.render(0);
+                require(state.silver==silver+200 && ((TextButton)actor("领取每日奖励")).isDisabled(),"daily claimed UI");
+                tap("领取每日奖励");require(state.silver==silver+200,"disabled daily claim cannot repeat");
+                SaveData saved=accounts.load(currentUser);
+                require(saved.dailyClaimDay==state.gameDay && saved.silver==state.silver,"daily reward persisted to disk");
+                snap("daily-claimed");tap("关闭");state.gameDay++;
+                tap("活动");voyage.render(0);require(!((TextButton)actor("领取每日奖励")).isDisabled(),"next day claim becomes available");
+                tap("领取每日奖励");require(state.silver==silver+400,"next day UI reward");tap("关闭");
+                state.silver=100000;tap("商城");voyage.render(0);require(overlayName().equals("SHOP"),"single shop shortcut");
+                snap("merged-shop");
+                for(String category:new String[]{"战船","货船","特种船","船只"}) {tap("商城分类"+category);voyage.render(0);}
+                for(int id:new int[]{1,3,7}) {
+                    tap("商城"+Catalog.SHIPS[id]);voyage.render(0);
+                    int before=state.silver;tap("购买 · "+Catalog.SHIP_PRICE[id]+" 两");voyage.render(0);
+                    require(state.ship==id && state.ownsShip(id) && state.silver==before-Catalog.SHIP_PRICE[id],"shop purchase "+id);
+                    tap("返回列表");voyage.render(0);
+                }
+                tap("商城分类我的船只");voyage.render(0);require(overlayName().equals("MINE"),"shop links to owned ships");
+                tap("关闭");
             }
             private void page(String name) throws Exception {
                 sea();state.speed=30;state.autoSail=true;state.autoSailPort=0;
@@ -225,7 +251,7 @@ public final class VoyageFeelSmokeLauncher {
             }
             private void snap(String name) {
                 Pixmap p=Pixmap.createFromFrameBuffer(0,0,Gdx.graphics.getWidth(),Gdx.graphics.getHeight());
-                PixmapIO.writePNG(Gdx.files.local("../Builds/feel2810-"+name+".png"),p,-1,true);p.dispose();
+                PixmapIO.writePNG(Gdx.files.local("../Builds/feel2811-"+name+".png"),p,-1,true);p.dispose();
             }
             private void fail(Throwable t){result=1;t.printStackTrace();Gdx.app.exit();}
         },config);

@@ -20,15 +20,29 @@ public final class GeometryRegression {
         SaveData legacy=new SaveData();legacy.nickname=null;legacy.avatarIndex=99;
         loaded=GameState.fromSave(legacy);
         require(loaded.nickname.equals("船长") && loaded.avatarIndex==3,"legacy profile defaults");
-        legacy.x=700;legacy.y=900;legacy.dockedPort=-1;
-        loaded=GameState.fromSave(legacy);
-        require(loaded.x==1400 && loaded.y==1800,"old sea coordinates double");
-        loaded=GameState.fromSave(loaded.toSave());
-        require(loaded.x==1400 && loaded.y==1800,"world migration runs once");
-        legacy.dockedPort=Catalog.YANGZHOU;
-        legacy.x=Catalog.PORT_X[legacy.dockedPort]/2+210;legacy.y=Catalog.PORT_Y[legacy.dockedPort]/2;
-        loaded=GameState.fromSave(legacy);
-        require(loaded.x==Catalog.PORT_X[legacy.dockedPort]+210 && loaded.y==Catalog.PORT_Y[legacy.dockedPort],"legacy dock local offset");
+        for(int version=1;version<=3;version++) {
+            legacy.worldVersion=version;legacy.x=700;legacy.y=900;legacy.dockedPort=-1;
+            float scale=version==1?4:version==2?2:1;
+            loaded=GameState.fromSave(legacy);
+            require(loaded.x==700*scale && loaded.y==900*scale,"sea migration version "+version);
+            loaded=GameState.fromSave(loaded.toSave());
+            require(loaded.x==700*scale && loaded.y==900*scale,"world migration runs once");
+            for(int port=0;port<Catalog.PORTS.length;port++) {
+                legacy.dockedPort=port;
+                legacy.x=Catalog.PORT_X[port]/scale+210;legacy.y=Catalog.PORT_Y[port]/scale;
+                loaded=GameState.fromSave(legacy);
+                require(loaded.x==Catalog.PORT_X[port]+210 && loaded.y==Catalog.PORT_Y[port],"dock migration version "+version+" port "+port);
+            }
+        }
+        GameState daily=GameState.newGame(); int startSilver=daily.silver;
+        require(daily.canClaimDaily() && daily.claimDailyLogin() && daily.silver==startSilver+200,"daily first claim");
+        daily=GameState.fromSave(daily.toSave());
+        require(!daily.claimDailyLogin() && daily.silver==startSilver+200,"daily saved repeat guard");
+        Method clock=GameState.class.getDeclaredMethod("advanceClock",float.class);clock.setAccessible(true);
+        daily.dayMin=1439.9f;clock.invoke(daily,1f);
+        require(daily.gameDay==2 && daily.claimDailyLogin() && daily.silver==startSilver+400,"midnight refreshes daily reward");
+        daily.silver=Integer.MAX_VALUE; daily.gameDay++;
+        require(!daily.claimDailyLogin() && daily.canClaimDaily(),"overflow does not consume daily reward");
         int silver=loaded.silver;
         require(!loaded.redeemCode(null) && !loaded.redeemCode("invalid") && loaded.silver==silver,"invalid codes leave balance unchanged");
         require(loaded.redeemCode(" 666 ") && loaded.silver==silver+666,"666 reward");

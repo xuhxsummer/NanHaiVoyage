@@ -16,7 +16,7 @@ import java.util.function.IntConsumer;
 /** Shop presentation in 1920x1080 design pixels. Economy remains in GameState. */
 public final class ShopShipsPanel extends Table implements Disposable {
     public static final float WIDTH = 1248, HEIGHT = 800;
-    private static final String[] CATEGORIES = {"船只", "战船", "货船", "特种船"};
+    private static final String[] CATEGORIES = {"船只", "战船", "货船", "特种船", "我的船只"};
     private final QuestUi ui;
     private final Texture atlas;
     private final Texture[] shipArt = new Texture[Catalog.SHIPS.length];
@@ -73,7 +73,7 @@ public final class ShopShipsPanel extends Table implements Disposable {
 
     public void refresh(GameState g, int cat, int selected, String attributes, String effects,
                         IntConsumer filter, IntConsumer detail, Runnable back,
-                        Runnable purchase, Runnable equip, Runnable close) {
+                        Runnable purchase, Runnable equip, Runnable mine, Runnable close) {
         clearChildren();
         setBackground(ui.frame); pad(24);
         Table heading = new Table();
@@ -95,7 +95,7 @@ public final class ShopShipsPanel extends Table implements Disposable {
         categories.add(ui.label("分类", 28, QuestUi.PAPER)).height(40).padBottom(8).row();
         for (int c = 0; c < CATEGORIES.length; c++) {
             final int index = c;
-            TextButton tab = button(CATEGORIES[c], false, () -> filter.accept(index));
+            TextButton tab = button(CATEGORIES[c], false, () -> { if(index==4) mine.run(); else filter.accept(index); });
             tab.setName("商城分类" + CATEGORIES[c]);
             if (c == cat) {
                 TextButton.TextButtonStyle style = new TextButton.TextButtonStyle(tab.getStyle());

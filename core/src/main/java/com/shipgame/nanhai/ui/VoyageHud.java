@@ -39,10 +39,10 @@ public final class VoyageHud extends Group implements Disposable {
         badge.setBounds(24,936,128,128);addActor(badge);
         status=ui.label("",21,VoyageHudChrome.PAPER);status.setEllipsis(true);status.setBounds(168,928,640,32);addActor(status);
         textLink("我的船只",mine,168,880,136);textLink("港口",port,312,880,80);textLink("情报",intel,400,880,80);
-        String[] rail={"货舱","图鉴","船坞","商行","任务","活动","福利"};String[] glyph={"cargo","book","anchor","helm","quest","cargo","gift"};
+        String[] rail={"货舱","图鉴","商城","任务","活动","福利"};String[] glyph={"cargo","book","anchor","quest","cargo","gift"};
         Image questDot=null;
-        for(int i=0;i<rail.length;i++){Table item=badge(rail[i],glyph[i],80,shortcuts[i]);item.setBounds(904+i*104,952,80,108);addActor(item);
-            if(i==4){questDot=new Image(ui.redCircle);questDot.setBounds(964+i*104,1032,20,20);questDot.setTouchable(Touchable.disabled);addActor(questDot);}}
+        for(int i=0;i<rail.length;i++){Table item=badge(rail[i],glyph[i],80,shortcuts[i]);item.setBounds(1008+i*104,952,80,108);addActor(item);
+            if(i==3){questDot=new Image(ui.redCircle);questDot.setBounds(1068+i*104,1032,20,20);questDot.setTouchable(Touchable.disabled);addActor(questDot);}}
         dot=questDot;
         minimap=new VoyageMinimap(ui);minimap.setName("小地图");minimap.setBounds(1632,784,264,264);minimap.addListener(click(world));addActor(minimap);
         Label north=ui.label("北",24,VoyageHudChrome.PAPER);north.setBounds(1748,1008,32,32);north.setTouchable(Touchable.disabled);addActor(north);

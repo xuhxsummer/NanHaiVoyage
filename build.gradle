@@ -48,6 +48,7 @@ eclipse.project.name = 'NanHaiVoyage-parent'
 // Share runtime art with both backends. Keep source-name duplicates, alternate
 // drawings and source water maps out of the APK; ship the canonical Catalog art.
 tasks.register('prepareWaterAssets', Sync) {
+    inputs.property('illustrationMaxEdge', 1024)
     from('android/assets') {
         include 'textures/water/ocean_*.png'
         include 'textures/ships/ship_*.png'
@@ -60,17 +61,18 @@ tasks.register('prepareWaterAssets', Sync) {
     }
     into(layout.buildDirectory.dir('generated/water-assets'))
     doLast {
-        // These are UI illustrations, displayed at <=256 px. Keep the supplied
-        // originals in android/assets, but cap packaged copies at 512 px so the
-        // repository's tracked APK remains below GitHub's 100 MiB file limit.
+        // Cap packaged copies at 1024; masters remain untouched in android/assets.
+        // APKs are Release assets and remain gitignored regardless of size.
         // ImageIO is part of the build JDK; no Python or external art tool needed.
         fileTree(destinationDir).matching {
             include 'textures/ports/*', 'textures/islands/*'
             include 'textures/beasts/*', 'textures/herbs/*'
         }.each { file ->
-            def source = javax.imageio.ImageIO.read(file)
+            // Always decode the master, including an incremental rebuild after changing the cap.
+            def relative = destinationDir.toPath().relativize(file.toPath()).toString()
+            def source = javax.imageio.ImageIO.read(rootProject.file("android/assets/$relative"))
             if (source == null) throw new GradleException("Cannot decode illustration: $file")
-            double scale = Math.min(1d, 512d / Math.max(source.width, source.height))
+            double scale = Math.min(1d, 1024d / Math.max(source.width, source.height))
             if (scale < 1d) {
                 int width = Math.max(1, (int)Math.round(source.width * scale))
                 int height = Math.max(1, (int)Math.round(source.height * scale))
