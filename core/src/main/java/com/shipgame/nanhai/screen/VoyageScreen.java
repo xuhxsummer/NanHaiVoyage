@@ -41,6 +41,7 @@ import com.shipgame.nanhai.ui.IconLib;
 import com.shipgame.nanhai.ui.FullscreenPage;
 import com.shipgame.nanhai.data.VoyageGeometry;
 import com.shipgame.nanhai.ui.QuestUi;
+import com.shipgame.nanhai.ui.QuestDialogue;
 import com.shipgame.nanhai.ui.IntelPanel;
 import com.shipgame.nanhai.ui.ShopShipsPanel;
 import com.shipgame.nanhai.ui.MyShipPanel;
@@ -103,7 +104,7 @@ public class VoyageScreen extends ScreenAdapter {
         // start/stop fishing, upgrades, catch list + sell).
         // 0.26.4: SHOP is the 商城 popup (buy / switch ships).
         // 0.26.5: MINE is the 我的 popup (current/owned ships + resources).
-        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH, SHOP, MINE, REDEEM, DAILY
+        MARKET, AVATAR, HOWTO, INTEL, QUESTS, DIALOGUE, STAT, FISH, SHOP, MINE, REDEEM, DAILY
     }
 
     /** 0.26.0 first-run gameplay help. Body is verbatim from howto_spec.txt:
@@ -146,6 +147,8 @@ public class VoyageScreen extends ScreenAdapter {
     private int hintPort = -1;
     private int hintIsland = -1;
     private int selectedQuest = -1;
+    private int dialogueQuest = -1;
+    private boolean dialoguePreview;
     private QuestUi questUi;
     private QuestUi intelUi;
     private ShopShipsPanel shopPanel;
@@ -347,10 +350,7 @@ public class VoyageScreen extends ScreenAdapter {
                 world, this::toggleMine, this::openIntel, this::contextReopen,
                 () -> { if (g.autoSail) { g.cancelAutoSail(); rebuildMenu(); } else world.run(); },
                 () -> { g.cancelAutoSail(); rebuildMenu(); }, () -> g.lockPirate(), () -> g.cancelLock(),
-                card -> {
-                    if (trackedQuests[card] >= 0) selectedQuest = trackedQuests[card];
-                    toggleQuestOverlay();
-                });
+                this::openQuestDialogue);
         stage.addActor(voyageHud);
         applyHudScale(); // 0.27.4: scale the 1920×1080 HUD grid over the full viewport
         statVals = voyageHud.stats; hudLine = voyageHud.status; hudClock = voyageHud.clock;
@@ -469,8 +469,7 @@ public class VoyageScreen extends ScreenAdapter {
         return base;
     }
 
-    /** The round rail 任务 icon and the active-quest card both open/close the
-     * quest popup. */
+    /** The rail 任务 icon opens the full log; HUD cards use the dialogue player. */
     private void toggleQuestOverlay() {
         if (overlay == Overlay.QUESTS) {
             closePopup();
@@ -482,6 +481,66 @@ public class VoyageScreen extends ScreenAdapter {
             }
             rebuildMenu();
         }
+    }
+
+    private void openQuestDialogue(int card) {
+        if (overlay != Overlay.NONE || g.failed) return;
+        int active = getActiveQuestIndex();
+        dialoguePreview = card == 1;
+        dialogueQuest = active < 0 ? -1 : (dialoguePreview ? active + 1 : active);
+        if (dialogueQuest >= QUESTS.length) dialogueQuest = -1;
+        overlay = Overlay.DIALOGUE;
+        rebuildMenu();
+        if (!dialoguePreview && dialogueQuest >= 0) {
+            g.questDialogueSeen |= 1 << QUESTS[dialogueQuest].id;
+            persist(); // Seen is per account, including dismiss/skip and process restart.
+        }
+    }
+
+    private void maybePlayQuestDialogue() {
+        if (overlay != Overlay.NONE || g.failed) return; // Defer until existing menus/tutorial close.
+        int active = getActiveQuestIndex();
+        if (active >= 0 && (g.questDialogueSeen & (1 << QUESTS[active].id)) == 0)
+            openQuestDialogue(0);
+    }
+
+    private void buildQuestDialogue() {
+        if (questUi == null) questUi = new QuestUi(game.skin);
+        if (dialogueQuest < 0) {
+            menuRoot.add(new QuestDialogue(game.skin, questUi, "南海见闻录 · 续卷",
+                    new String[][]{{"旁白", getActiveQuestIndex() < 0
+                            ? "此卷所托已尽，南海仍有新风物。带上同伴，继续寻访吧。"
+                            : "先完成眼前这一程，往后的山海便由你与同伴继续书写。"}},
+                    "可从右上角「任务」回看完整航海日志。", "知道了", this::closePopup, this::closePopup)).grow();
+            return;
+        }
+        final QuestDef q = QUESTS[dialogueQuest];
+        boolean unlocked = q.unlockAfter < 0 || isQuestClaimed(g, QUESTS[q.unlockAfter]);
+        if (dialoguePreview && !unlocked) {
+            menuRoot.add(new QuestDialogue(game.skin, questUi, "下一程 · " + q.title,
+                    new String[][]{{"旁白", "「" + q.title + "」尚未开启。请先完成「"
+                            + QUESTS[q.unlockAfter].title + "」并领取奖励。"}},
+                    "前序领奖后，这一程的故事会自动开启。", "知道了", this::closePopup, this::closePopup)).grow();
+            return;
+        }
+        boolean claim = unlocked && isQuestComplete(g, q) && !isQuestClaimed(g, q);
+        boolean navigate = !claim && !g.worldPaused() && (q.targetPort >= 0 || q.targetIsland >= 0);
+        String action = claim ? "领奖" : navigate ? "前往" : "知道了";
+        menuRoot.add(new QuestDialogue(game.skin, questUi, "主线 · " + q.title,
+                q.dialogue, q.description, action, () -> {
+                    if (overlay != Overlay.DIALOGUE || dialogueQuest != q.id) return;
+                    if (claim) {
+                        if (isQuestComplete(g, q) && !isQuestClaimed(g, q)
+                                && (q.unlockAfter < 0 || isQuestClaimed(g, QUESTS[q.unlockAfter]))) {
+                            g.toast(claimQuest(g, q));
+                            persist();
+                        }
+                    } else if (navigate && !g.worldPaused()) {
+                        if (q.targetPort >= 0) g.startAutoSail(q.targetPort);
+                        else g.startAutoSailIsle(q.targetIsland);
+                    }
+                    closePopup();
+                }, this::closePopup)).grow();
     }
 
     /** 0.26.5 我的：当前船 + 已拥有船只（随时免费换乘）+ 资源/货物汇总。 */
@@ -633,10 +692,14 @@ public class VoyageScreen extends ScreenAdapter {
         menuRoot.clear();
         stage.setKeyboardFocus(null); stage.setScrollFocus(null);
         boolean fullscreen = isFullscreenOverlay();
-        menuRoot.pad(fullscreen ? 0 : 78,0,0,0);
+        menuRoot.pad(fullscreen || overlay == Overlay.DIALOGUE ? 0 : 78,0,0,0);
         menuRoot.setTouchable(overlay == Overlay.NONE || overlay == Overlay.MAP ? Touchable.childrenOnly : Touchable.enabled);
         voyageHud.setVisible(!fullscreen);
         if (overlay == Overlay.NONE || overlay == Overlay.MAP) {
+            return;
+        }
+        if (overlay == Overlay.DIALOGUE) {
+            buildQuestDialogue();
             return;
         }
         if (overlay == Overlay.PORT) {
@@ -740,7 +803,7 @@ public class VoyageScreen extends ScreenAdapter {
 
     private boolean isFullscreenOverlay() {
         return overlay != Overlay.NONE && overlay != Overlay.MAP && overlay != Overlay.PORT
-                && overlay != Overlay.ISLAND && overlay != Overlay.MARKET;
+                && overlay != Overlay.ISLAND && overlay != Overlay.MARKET && overlay != Overlay.DIALOGUE;
     }
 
     private void showFullscreen(Table content,float width,float height) {
@@ -1388,6 +1451,7 @@ public class VoyageScreen extends ScreenAdapter {
         public final String title;
         public final String description;
         public final String story;
+        public final String[][] dialogue;
         public final int progressType;
         public final int targetAmount;
         public final int targetGood;
@@ -1398,10 +1462,10 @@ public class VoyageScreen extends ScreenAdapter {
         public final int hullReward;
         public final int unlockAfter;
         public final String claimField;
-        public QuestDef(int id, String title, String desc, String story, int progType, int target,
+        public QuestDef(int id, String title, String desc, String story, String[][] dialogue, int progType, int target,
                         int good, int port, int island, int silver, int supply, int hull,
                         int unlockAfter, String claimField) {
-            this.id = id; this.title = title; this.description = desc; this.story = story;
+            this.id = id; this.title = title; this.description = desc; this.story = story; this.dialogue = dialogue;
             this.progressType = progType; this.targetAmount = target;
             this.targetGood = good; this.targetPort = port; this.targetIsland = island;
             this.silverReward = silver; this.supplyReward = supply; this.hullReward = hull;
@@ -1411,61 +1475,118 @@ public class VoyageScreen extends ScreenAdapter {
     private static final QuestDef[] QUESTS = new QuestDef[] {
         new QuestDef(0, "武周启帆", "靠近岛屿后点岛屿图标，搜采一次，寻访异兽或草药。",
                 "武则天御极，武周的商船循旧航路驶向南海。你从扬州启程，受老掌柜所托，为一卷《南海见闻录》寻访异兽与草药。",
+                new String[][]{{"旁白", "武则天御极，武周商船循着旧航路，驶向辽阔南海。"},
+                        {"老掌柜", "带上这卷空白册子吧。岛上的异兽、草药，还有沿途的人情，都值得记下。"},
+                        {"你", "我从扬州起航，先寻一座海岛，为《南海见闻录》写下第一笔。"}},
                 8, 1, -1, -1, 0, 30, 0, 0, -1, "claimIslandVisit"),
         new QuestDef(1, "一舱清泉", "在港口补满一次补给。",
                 "初次归航，水手把空水瓮排在码头。老掌柜提醒你：见闻要记得远，清水与干粮也要备得足。",
+                new String[][]{{"水手", "船长，水瓮见底了。下一程风浪难料，清水和干粮得备足。"},
+                        {"老掌柜", "把补给添满再走。你们平安归来，我才听得到海上的新故事。"},
+                        {"你", "靠港补给，让每个人都带着底气登船。"}},
                 9, 1, -1, 0, -1, 20, 0, 0, 0, "claimRefill"),
         new QuestDef(2, "舟骨如新", "在港口修理一次船只，恢复耐久。",
                 "船匠俯身听过船板的响声，指出一道受潮的旧缝。补好这副舟骨，才能载着新抄的海图再赴风浪。",
+                new String[][]{{"船匠", "听，这块旧船板的响声不对。缝里进过潮水，得好好修补。"},
+                        {"你", "新海图还没展开，先把船修结实。"},
+                        {"船匠", "放心交给我。这副舟骨，还能载你们走很远。"}},
                 10, 1, -1, 0, -1, 20, 0, 0, 1, "claimRepair"),
         new QuestDef(3, "市桥初约", "在港口市场买入任意货物至少一件。",
                 "扬州商客送来一封引荐信，信上没有金银，只有沿海行商的姓名。你在市桥下谈成第一笔买卖，也为远行结下一位朋友。",
+                new String[][]{{"老掌柜", "这封引荐信上，是沿海几位行商的姓名。诚实做买卖，自会有人认你。"},
+                        {"商客", "远航要盘缠，货舱也不能空着。先在市场挑一件合意的货吧。"},
+                        {"你", "第一笔生意，从守信开始。"}},
                 11, 1, -1, 0, -1, 40, 0, 0, 2, "claimBuy"),
         new QuestDef(4, "两港传香", "卖出货物，完成一次有利润的交易。",
                 "同一舱货，在两处码头有不同的身价。你把所得记进账簿，留出下一程的盘缠，也将异乡的消息带回旧港。",
+                new String[][]{{"商客", "同一舱货，到了另一个码头，价钱便可能不同。"},
+                        {"你", "我会先算清买价，再寻合适的卖处。赚来的银两，就作下一程盘缠。"},
+                        {"旁白", "账簿记下盈亏，见闻录记下两港之间的人情。"}},
                 12, 1, -1, 0, -1, 80, 0, 0, 3, "claimProfitableSell"),
         new QuestDef(5, "护货归舟", "在海上主动锁定海盗，累计击败一艘海盗船。",
                 "满载药草的归舟遭到拦截。护住船员与货舱，让沿途等药的人家等到这一船平安。",
+                new String[][]{{"船医", "归舟载着药草，岸上还有人在等。前面的海盗挡住了去路。"},
+                        {"你", "护住船员和货舱。这一回，由我来锁定敌船还击。"},
+                        {"水手", "船长，我们守好自己的船，一起平安回港。"}},
                 2, 1, -1, -1, -1, 100, 50, 0, 4, "claimWinCombat"),
         new QuestDef(6, "海客闻潮", "打开一次「情报」或「行情」，查看各港价格。",
                 "茶棚里的海客谈潮汐，也谈丝价与船期。你把零散的传闻对照成表，下一次起航便多了一分把握。",
+                new String[][]{{"海客", "听见茶棚里的议论了吗？丝价、茶价，还有各港缺什么货。"},
+                        {"你", "传闻得互相印证。我打开情报，对照一下各港行情。"},
+                        {"海客", "会听潮的人，也该学会听懂市场。"}},
                 13, 1, -1, -1, -1, 30, 0, 0, 5, "claimIntelViewed"),
         new QuestDef(7, "工坊添翼", "在港口完成一次仓库、炮火或编制升级。",
                 "船匠翻过你的见闻录，在空白处画下改船的草图。多一分载力，或多一位熟手，都能让远海之行走得更稳。",
+                new String[][]{{"船匠", "你的航路越画越远，这条船也该添些本领了。"},
+                        {"你", "扩仓、添炮，或是增编人手，我会挑眼下最需要的一项。"},
+                        {"船匠", "带着草图来工坊，我们把下一程准备得更稳当。"}},
                 14, 1, -1, 0, -1, 80, 0, 0, 6, "claimUpgradeAny"),
         // Volume/trade quests (8+)
         new QuestDef(8, "五十匹春光", "累计卖出五十件丝绸，可分次完成。",
                 "南下的丝绸映着江南春色，换来异乡织工递上的花样。你将花样夹进见闻录，记下这一程货物与手艺的相逢。",
+                new String[][]{{"织工", "这些丝绸带着江南春色，远方的人会喜欢怎样的花样呢？"},
+                        {"你", "等五十件丝绸陆续售出，我就把异乡织工的花样带回来。"},
+                        {"旁白", "一匹丝绸越过海面，也牵起两处人家的手艺。"}},
                 0, 50, 0, -1, -1, 200, 0, 0, 7, "claimSellSilk"),
         new QuestDef(9, "五港灯火", "累计靠泊五个不同的港口。",
                 "港名在海图上只是小字，靠岸后却有各自的灯火与乡音。走过五处码头，你的见闻录渐渐有了人间的温度。",
+                new String[][]{{"水手", "海图上的港名这么多，每一处都和扬州不同吗？"},
+                        {"你", "去靠泊看看吧。灯火、乡音、码头的规矩，都记进册子。"},
+                        {"旁白", "走过五处港口，纸上的航线便有了人间的温度。"}},
                 1, 5, -1, -1, -1, 300, 0, 0, 8, "claimVisitPorts"),
         new QuestDef(10, "十篓茶青", "累计买入十件茶叶，可分次完成。",
                 "一位远客尝过清茶，请你捎些茶叶回乡。你细记包扎与避潮的法子，让这缕清香越过咸风。",
+                new String[][]{{"远客", "这盏清茶真好。船长，可否替我捎些茶叶回乡？"},
+                        {"你", "我会买齐十件，再仔细包扎，免得海风与潮气伤了茶香。"},
+                        {"远客", "待你来访，我便用故乡的清泉煮茶相迎。"}},
                 17, 10, 2, -1, -1, 50, 0, 0, 9, "claimBuyTea"),
         new QuestDef(11, "瓷声过海", "累计卖出三十件瓷器，可分次完成。",
                 "窑工把新瓷交到你手里，叮嘱每只碗都垫好稻草。待它们安稳抵港，异乡人家也能在饭桌上听见故土的瓷声。",
+                new String[][]{{"窑工", "新瓷经不起颠簸，每件之间都垫好稻草。一路托付给你了。"},
+                        {"你", "三十件瓷器，我会妥善运售，让它们安稳走进异乡人家。"},
+                        {"旁白", "瓷声清亮，隔着重洋，仍像故土的一顿家常饭。"}},
                 16, 30, 1, -1, -1, 250, 0, 0, 10, "claimSellPorcelain"),
         new QuestDef(12, "草木三寻", "累计进行三次岛屿搜采，不要求三个不同岛屿。",
                 "船医辨认着采回的叶片，请你再访海岛，记清草木生长的水土。每一次搜采，都可能为见闻录添上一味救急的良药。",
+                new String[][]{{"船医", "这片叶子生在背阴处，还是临海的石缝里？药性或许大不相同。"},
+                        {"你", "我再上岛寻访，把草木生长的水土也记清。"},
+                        {"船医", "三次搜采，便是三次细看山海的机会。辛苦你了。"}},
                 8, 3, -1, -1, -1, 120, 0, 0, 11, "claimIslandExplore"),
         new QuestDef(13, "商路长明", "累计击败三艘海盗船，既往战果计入进度。",
                 "沿海商客约好以灯火相认，遇险便互通消息。你几次护送归舟，把平安航过的水道重新标回海图。",
+                new String[][]{{"商客", "我们约好以灯火相认。谁在海上遇险，就把消息传给同行。"},
+                        {"你", "已有的护航战果也记在册中。累计击败三艘海盗，便能护住更多归舟。"},
+                        {"旁白", "海图上重新亮起的航路，连着等候船帆的家人。"}},
                 2, 3, -1, -1, -1, 150, 100, 0, 12, "claimDefeatedPirates"),
         new QuestDef(14, "山海有灵", "发现五种不同的《山海经》异兽，每种首次发现计数。",
                 "旧书中的异兽，竟在岛林与潮滩间留下踪迹。你请画师依照所见描摹形貌，把传说、习性与栖地一同记入卷中。",
+                new String[][]{{"画师", "你说岛林里那道身影，竟与《山海经》的记载相似？"},
+                        {"你", "我会寻访五种不同的异兽，仔细记下它们的形貌与栖地。"},
+                        {"画师", "你说所见，我来描摹。让古书里的山海，在这卷纸上有迹可循。"}},
                 15, 5, -1, -1, -1, 250, 0, 0, 13, "claimBeastsFound"),
         new QuestDef(15, "旧契归匣", "通过还款将欠款还清。",
                 "当初借来的船资，曾换来第一舱货与第一张海图。如今你带着账簿归来，老掌柜收起旧契，笑说往后的路由你自己写。",
+                new String[][]{{"老掌柜", "当初借给你的船资，换来了第一舱货，也换来了今天的航路。"},
+                        {"你", "如今生意渐稳，我来把欠款还清。"},
+                        {"老掌柜", "旧契可以收起了。往后的见闻，仍盼你亲口讲给我听。"}},
                 4, 0, -1, -1, -1, 400, 0, 0, 14, "claimDebtPaid"),
         new QuestDef(16, "千帆积资", "银两峰值达到五千两。",
                 "往来的商客愿把更远的货单交给你，船医也列出新的寻药去处。攒足五千两航资，便能为下一次远航备好从容。",
+                new String[][]{{"船医", "远处还有未访的药岛，可一趟长航，需要从容的准备。"},
+                        {"你", "待账上银两达到五千两，我们就有更充足的航资。"},
+                        {"商客", "货单我替你留着。每一笔踏实的买卖，都在为远航添帆。"}},
                 5, 5000, -1, -1, -1, 0, 200, 100, 15, "claimSilverPeak"),
         new QuestDef(17, "百珍入舱", "累计升级共用货舱仓库三次。",
                 "丝瓷要避潮，草药要通风，异兽也需安稳的歇处。你请船匠重新分隔货舱，让每一份从海上带回的珍物都有归所。",
+                new String[][]{{"船匠", "丝瓷要避潮，草药要通风，异兽也得有安稳的歇处。"},
+                        {"你", "把共用货舱逐步扩好，累计升级三次。每份珍物，都该有合适的位置。"},
+                        {"船匠", "我来分隔舱室，你安心续写那卷海上见闻。"}},
                 6, 3, -1, -1, -1, 150, 0, 0, 16, "claimWarehouseUps"),
         new QuestDef(18, "同舟续卷", "累计雇佣五名船员。",
                 "《南海见闻录》写满了第一卷，末页留下水手、船医与匠人的姓名。武周的海风仍在吹，你邀同伴登船，把未完的山海故事写向下一程。",
+                new String[][]{{"你", "第一卷《南海见闻录》写满了，末页该留下大家的姓名。"},
+                        {"水手", "船长，再邀些同伴吧。五位新船员，各有能帮上忙的手艺。"},
+                        {"旁白", "武周的海风仍在吹。同舟之人再次启帆，未完的山海故事正等着下一笔。"}},
                 7, 5, -1, -1, -1, 100, 0, 0, 17, "claimHiredCrew"),
     };
 
@@ -1990,14 +2111,14 @@ public class VoyageScreen extends ScreenAdapter {
             int index = trackedQuests[card];
             if (index < 0) {
                 voyageHud.quest(card, card == 0 ? "航海日志 · 功成" : "下一程 · 自由航行",
-                        card == 0 ? "当前任务均已完成，继续探索南海。" : "寻访各港，发现更多奇珍异兽。", "点击查看任务日志");
+                        card == 0 ? "当前任务均已完成，继续探索南海。" : "寻访各港，发现更多奇珍异兽。", "点击回顾航程");
                 continue;
             }
             QuestDef q = QUESTS[index];
             int progress = getQuestProgress(g, q.progressType);
             String count = q.targetAmount <= 0 ? "欠款 " + progress + " 两" : "进度 " + Math.min(progress, q.targetAmount) + "/" + q.targetAmount;
             voyageHud.quest(card, (card == 0 ? "主线 · " : "下一程 · ") + q.title,
-                    q.description, card == 1 ? "待前序领奖解锁" : isQuestComplete(g, q) ? "已完成 · 点击领奖" : count);
+                    q.description, card == 1 ? "待前序领奖解锁" : isQuestComplete(g, q) ? "已完成 · 对话后领奖" : count + " · 点击对话");
         }
     }
 
@@ -2094,6 +2215,7 @@ public class VoyageScreen extends ScreenAdapter {
             }
             Gdx.app.error("VoyageScreen", "non-finite ship state, reset to port");
         }
+        maybePlayQuestDialogue();
         readKeyboard();
         g.onManualSteer();
         // Every open page pauses movement, clock, weather and combat.

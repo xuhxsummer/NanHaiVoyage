@@ -1,9 +1,12 @@
 package com.shipgame.nanhai.ui;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.NinePatch;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
@@ -12,7 +15,7 @@ import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Disposable;
 
-/** Quest-only Scene2D chrome; shared fonts are borrowed, textures are owned here. */
+/** Quest chrome borrows shared fonts and owns its textures and optional plain dialogue font. */
 public final class QuestUi implements Disposable {
     public static final Color PAPER = Color.valueOf("F2DCA8");
     public static final Color INK = Color.valueOf("493A27");
@@ -20,6 +23,7 @@ public final class QuestUi implements Disposable {
     public final Drawable frame, inset, parchment, selected, red, blue;
     private final Skin skin;
     private final Array<Texture> textures = new Array<>();
+    private BitmapFont dialogueFont;
 
     public QuestUi(Skin skin) {
         this.skin = skin;
@@ -72,5 +76,23 @@ public final class QuestUi implements Disposable {
         return new TextButton(text,style);
     }
 
-    @Override public void dispose() { for(Texture t:textures)t.dispose(); textures.clear(); }
+    /** Dark ink on parchment needs unoutlined glyphs; bake once for this screen's conversations. */
+    public Label dialogueLine(String text) {
+        if (dialogueFont == null) {
+            FreeTypeFontGenerator generator = new FreeTypeFontGenerator(Gdx.files.internal("fonts/nanhai-cjk.ttf"));
+            try {
+                FreeTypeFontGenerator.FreeTypeFontParameter params = new FreeTypeFontGenerator.FreeTypeFontParameter();
+                params.size = 28;
+                params.characters = FreeTypeFontGenerator.DEFAULT_CHARS
+                        + Gdx.files.internal("fonts/ui-chars.txt").readString("UTF-8");
+                dialogueFont = generator.generateFont(params);
+            } finally { generator.dispose(); }
+        }
+        return new Label(text, new Label.LabelStyle(dialogueFont, INK));
+    }
+
+    @Override public void dispose() {
+        for(Texture t:textures)t.dispose(); textures.clear();
+        if (dialogueFont != null) { dialogueFont.dispose(); dialogueFont = null; }
+    }
 }

@@ -134,6 +134,7 @@ public class GameState {
     public int lastPort = 0;
     // 0.26.1 任务 tracking (runtime; persisted via SaveData).
     public int questSellSilk;
+    public int questDialogueSeen;
     public int questVisitPorts;
     public int questVisitPortSet = 0;   // bitmask of visited port indices
     public int questDefeatedPirates;
@@ -249,6 +250,7 @@ public class GameState {
         s.fishingOn = fishingOn;
         s.fishCaughtTotal = fishCaughtTotal;
         s.questSellSilk = questSellSilk;
+        s.questDialogueSeen = questDialogueSeen;
         s.questVisitPorts = questVisitPorts;
         s.questDefeatedPirates = questDefeatedPirates;
         s.questBeastsFound = questBeastsFound;
@@ -350,6 +352,7 @@ public class GameState {
             g.fishingOn = s.fishingOn && g.dockedPort == Catalog.YANGZHOU;
             g.fishTimer = 0f;
             g.questSellSilk = s.questSellSilk;
+            g.questDialogueSeen = s.questDialogueSeen;
             g.questVisitPorts = s.questVisitPorts;
             g.questVisitPortSet = s.questVisitPortSet;
             g.questDefeatedPirates = s.questDefeatedPirates;

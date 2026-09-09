@@ -36,6 +36,7 @@ public class SaveData {
     public int[] marketOff;
     // 0.26.1 任务 system: per-quest progress + claim state.
     // Quest IDs match QuestDef IDs.
+    public int questDialogueSeen = 0;  // Per-account automatic story playback, one bit per quest ID.
     public int questSellSilk = 0;       // 卖出丝绸数量
     public int questVisitPorts = 0;     // 访问过的不同港口数量
     public int questDefeatedPirates = 0; // 击败海盗数

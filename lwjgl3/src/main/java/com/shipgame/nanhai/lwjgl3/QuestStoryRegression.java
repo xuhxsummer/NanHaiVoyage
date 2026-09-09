@@ -29,6 +29,11 @@ public final class QuestStoryRegression {
             require(field(definition, "unlockAfter").getInt(q) == i - 1, "original unlock chain");
             String story = (String) field(definition, "story").get(q);
             require(story.length() > 25 && story.length() < 120, "phone-length story for " + i);
+            String[][] dialogue = (String[][]) field(definition, "dialogue").get(q);
+            require(dialogue.length >= 2 && dialogue.length <= 5, "two to five spoken lines");
+            for (String[] line : dialogue)
+                require(line.length == 2 && !line[0].isEmpty() && !line[1].isEmpty() && line[1].length() <= 70,
+                        "named speaker and phone-length line");
             require((int) active.invoke(voyage) == i, "next quest before completion");
             int money = g.silver;
             claim.invoke(voyage, g, q);
@@ -40,8 +45,10 @@ public final class QuestStoryRegression {
             claim.invoke(voyage, g, q);
             require(g.silver == money + silver[i], "no duplicate payout");
             // Cross the same save boundary used by an existing local account.
+            g.questDialogueSeen |= 1 << i;
             g = GameState.fromSave(g.toSave()); state.set(voyage, g);
             require((boolean) claimed.invoke(voyage, g, q), "claim survives save round-trip");
+            require((g.questDialogueSeen & (1 << i)) != 0, "playback marker survives save round-trip");
         }
         require((int) active.invoke(voyage) == -1, "chain completes");
         System.out.println("QUEST STORY PASS: all 19 IDs/unlocks, short authored stories, incomplete guards, original rewards, no duplicate claims and saved progress");

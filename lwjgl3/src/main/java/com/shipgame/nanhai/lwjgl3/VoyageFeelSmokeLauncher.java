@@ -39,6 +39,7 @@ public final class VoyageFeelSmokeLauncher {
                 try {
                     Gdx.app.getPreferences("nanhai-voyage").putBoolean("howto_shown",true).flush();
                     accounts.register("feel-test","local-password");currentUser="feel-test";state=GameState.newGame();
+                    state.questDialogueSeen=(1<<19)-1; // Dialogue has its own input/persistence smoke; this run exercises sailing.
                     sea(); accounts.save(currentUser,state.toSave());
                     voyage=new VoyageScreen(this);setScreen(voyage);
                     stage=(Stage)field("stage").get(voyage);renderer=(VoyageWorldRenderer)field("world3d").get(voyage);
