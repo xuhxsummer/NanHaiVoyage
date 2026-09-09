@@ -1398,7 +1398,7 @@ public class GameState {
     }
 
     public void startAutoSail(int port) {
-        if (worldPaused() || pirateAlive) {
+        if (worldPaused()) {
             return;
         }
         autoSail = true;
@@ -1410,7 +1410,7 @@ public class GameState {
     /** Full-map tap on an island: sail there; arriving stops the ship and the
      * player taps the island icon to open the search menu (0.27.2). */
     public void startAutoSailIsle(int idx) {
-        if (worldPaused() || pirateAlive) {
+        if (worldPaused()) {
             return;
         }
         autoSail = true;
@@ -1427,7 +1427,7 @@ public class GameState {
         toast("取消自动驶向，改回手动。");
     }
 
-    /** Clears auto-sail without a toast (docking, failure, pirate spawn, ...). */
+    /** Clears auto-sail without a toast (arrival, docking, failure or manual control). */
     private void stopAutoSail() {
         autoSail = false;
         autoSailPort = -1;
@@ -1515,17 +1515,16 @@ public class GameState {
         combatLock = false;
         playerFireCd = 0f;
         pirateFireCd = 0.4f;
-        stopAutoSail(); // pirate encounter: 自动航行遇海盗仍停战
-        toast("遭遇海盗！点船锁定开火。默认就地打；还击会追得紧。");
+        toast(autoSail ? "遭遇海盗，自动航行继续。可点船锁定还击。"
+                : "遭遇海盗！点船锁定开火。默认就地打；还击会追得紧。");
     }
 
     private void updateCombat(float dt) {
         ensurePirateSeparation();
         float d = Catalog.dist(x, y, pirateX, pirateY);
         if (d > Catalog.PIRATE_FLEE_RANGE) {
-            toast("已开出范围，海盗停火。改回手动。");
+            toast(autoSail ? "已甩开海盗，继续自动航行。" : "已开出范围，海盗停火。");
             clearPirate();
-            stopAutoSail();
             return;
         }
         // Player fires a WHITE cannonball (damage lands when it reaches the
@@ -1658,9 +1657,8 @@ public class GameState {
             extra = " 缴获一件船部件（一期当货：额外银两）。";
             silver += 40;
         }
-        toast("打赢海盗，抢得 " + loot + " 两。" + extra + " 改回手动。");
+        toast("打赢海盗，抢得 " + loot + " 两。" + extra + (autoSail ? " 自动航行继续。" : ""));
         clearPirate();
-        stopAutoSail();
     }
 
     public void clearPirate() {

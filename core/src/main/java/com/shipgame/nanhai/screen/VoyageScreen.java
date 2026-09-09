@@ -1387,6 +1387,7 @@ public class VoyageScreen extends ScreenAdapter {
         public final int id;
         public final String title;
         public final String description;
+        public final String story;
         public final int progressType;
         public final int targetAmount;
         public final int targetGood;
@@ -1397,10 +1398,10 @@ public class VoyageScreen extends ScreenAdapter {
         public final int hullReward;
         public final int unlockAfter;
         public final String claimField;
-        public QuestDef(int id, String title, String desc, int progType, int target,
+        public QuestDef(int id, String title, String desc, String story, int progType, int target,
                         int good, int port, int island, int silver, int supply, int hull,
                         int unlockAfter, String claimField) {
-            this.id = id; this.title = title; this.description = desc;
+            this.id = id; this.title = title; this.description = desc; this.story = story;
             this.progressType = progType; this.targetAmount = target;
             this.targetGood = good; this.targetPort = port; this.targetIsland = island;
             this.silverReward = silver; this.supplyReward = supply; this.hullReward = hull;
@@ -1408,44 +1409,63 @@ public class VoyageScreen extends ScreenAdapter {
         }
     }
     private static final QuestDef[] QUESTS = new QuestDef[] {
-        new QuestDef(0, "首次登岛", "靠近一个岛屿，点菜单搜采一次，找出异兽或草药。",
+        new QuestDef(0, "武周启帆", "靠近岛屿后点岛屿图标，搜采一次，寻访异兽或草药。",
+                "武则天御极，武周的商船循旧航路驶向南海。你从扬州启程，受老掌柜所托，为一卷《南海见闻录》寻访异兽与草药。",
                 8, 1, -1, -1, 0, 30, 0, 0, -1, "claimIslandVisit"),
-        new QuestDef(1, "第一次补给", "回港口点「补补给」，把补给补满。",
+        new QuestDef(1, "一舱清泉", "在港口补满一次补给。",
+                "初次归航，水手把空水瓮排在码头。老掌柜提醒你：见闻要记得远，清水与干粮也要备得足。",
                 9, 1, -1, 0, -1, 20, 0, 0, 0, "claimRefill"),
-        new QuestDef(2, "修一次船", "回港口点「修理」，把耐久修好。",
+        new QuestDef(2, "舟骨如新", "在港口修理一次船只，恢复耐久。",
+                "船匠俯身听过船板的响声，指出一道受潮的旧缝。补好这副舟骨，才能载着新抄的海图再赴风浪。",
                 10, 1, -1, 0, -1, 20, 0, 0, 1, "claimRepair"),
-        new QuestDef(3, "买点货", "回港口点「市场」买进任意一种货物至少 1 件。",
+        new QuestDef(3, "市桥初约", "在港口市场买入任意货物至少一件。",
+                "扬州商客送来一封引荐信，信上没有金银，只有沿海行商的姓名。你在市桥下谈成第一笔买卖，也为远行结下一位朋友。",
                 11, 1, -1, 0, -1, 40, 0, 0, 2, "claimBuy"),
-        new QuestDef(4, "赚个差价", "把买进的货卖出去，赚到比买时更多的银两（任意货、任意港）。",
+        new QuestDef(4, "两港传香", "卖出货物，完成一次有利润的交易。",
+                "同一舱货，在两处码头有不同的身价。你把所得记进账簿，留出下一程的盘缠，也将异乡的消息带回旧港。",
                 12, 1, -1, 0, -1, 80, 0, 0, 3, "claimProfitableSell"),
-        new QuestDef(5, "打赢海盗", "在海上遇到海盗，点船锁定自动开火，打沉它。",
+        new QuestDef(5, "护货归舟", "在海上主动锁定海盗，累计击败一艘海盗船。",
+                "满载药草的归舟遭到拦截。护住船员与货舱，让沿途等药的人家等到这一船平安。",
                 2, 1, -1, -1, -1, 100, 50, 0, 4, "claimWinCombat"),
-        new QuestDef(6, "看看行情", "打开「情报」或「行情」看看各港价格，了解差价。",
+        new QuestDef(6, "海客闻潮", "打开一次「情报」或「行情」，查看各港价格。",
+                "茶棚里的海客谈潮汐，也谈丝价与船期。你把零散的传闻对照成表，下一次起航便多了一分把握。",
                 13, 1, -1, -1, -1, 30, 0, 0, 5, "claimIntelViewed"),
-        new QuestDef(7, "升级一项", "回港口升级仓库、炮火或编制中的任意一项。",
+        new QuestDef(7, "工坊添翼", "在港口完成一次仓库、炮火或编制升级。",
+                "船匠翻过你的见闻录，在空白处画下改船的草图。多一分载力，或多一位熟手，都能让远海之行走得更稳。",
                 14, 1, -1, 0, -1, 80, 0, 0, 6, "claimUpgradeAny"),
         // Volume/trade quests (8+)
-        new QuestDef(8, "卖 50 丝绸", "把丝绸卖到港口，卖出 50 件即可（货物仍留在货舱，可继续卖）。",
+        new QuestDef(8, "五十匹春光", "累计卖出五十件丝绸，可分次完成。",
+                "南下的丝绸映着江南春色，换来异乡织工递上的花样。你将花样夹进见闻录，记下这一程货物与手艺的相逢。",
                 0, 50, 0, -1, -1, 200, 0, 0, 7, "claimSellSilk"),
-        new QuestDef(9, "去 5 个港口", "靠岸去过 5 个不同的港口。",
+        new QuestDef(9, "五港灯火", "累计靠泊五个不同的港口。",
+                "港名在海图上只是小字，靠岸后却有各自的灯火与乡音。走过五处码头，你的见闻录渐渐有了人间的温度。",
                 1, 5, -1, -1, -1, 300, 0, 0, 8, "claimVisitPorts"),
-        new QuestDef(10, "买 10 茶叶", "在港口买进茶叶 10 件（可分次买，货物留在仓内）。",
+        new QuestDef(10, "十篓茶青", "累计买入十件茶叶，可分次完成。",
+                "一位远客尝过清茶，请你捎些茶叶回乡。你细记包扎与避潮的法子，让这缕清香越过咸风。",
                 17, 10, 2, -1, -1, 50, 0, 0, 9, "claimBuyTea"),
-        new QuestDef(11, "卖 30 瓷器", "把瓷器卖出 30 件（可在不同港口分次卖）。",
+        new QuestDef(11, "瓷声过海", "累计卖出三十件瓷器，可分次完成。",
+                "窑工把新瓷交到你手里，叮嘱每只碗都垫好稻草。待它们安稳抵港，异乡人家也能在饭桌上听见故土的瓷声。",
                 16, 30, 1, -1, -1, 250, 0, 0, 10, "claimSellPorcelain"),
-        new QuestDef(12, "探 3 个岛", "上岛搜采 3 次（可找不同岛，每次算 1）。",
+        new QuestDef(12, "草木三寻", "累计进行三次岛屿搜采，不要求三个不同岛屿。",
+                "船医辨认着采回的叶片，请你再访海岛，记清草木生长的水土。每一次搜采，都可能为见闻录添上一味救急的良药。",
                 8, 3, -1, -1, -1, 120, 0, 0, 11, "claimIslandExplore"),
-        new QuestDef(13, "打 3 条海盗", "在海上把 3 艘海盗船打沉。",
+        new QuestDef(13, "商路长明", "累计击败三艘海盗船，既往战果计入进度。",
+                "沿海商客约好以灯火相认，遇险便互通消息。你几次护送归舟，把平安航过的水道重新标回海图。",
                 2, 3, -1, -1, -1, 150, 100, 0, 12, "claimDefeatedPirates"),
-        new QuestDef(14, "找 5 种异兽", "上岛找出 5 种不同的《山海经》异兽（每种第一次算）。",
+        new QuestDef(14, "山海有灵", "发现五种不同的《山海经》异兽，每种首次发现计数。",
+                "旧书中的异兽，竟在岛林与潮滩间留下踪迹。你请画师依照所见描摹形貌，把传说、习性与栖地一同记入卷中。",
                 15, 5, -1, -1, -1, 250, 0, 0, 13, "claimBeastsFound"),
-        new QuestDef(15, "还完欠钱", "把欠的钱全部还清（欠款归零）。",
+        new QuestDef(15, "旧契归匣", "通过还款将欠款还清。",
+                "当初借来的船资，曾换来第一舱货与第一张海图。如今你带着账簿归来，老掌柜收起旧契，笑说往后的路由你自己写。",
                 4, 0, -1, -1, -1, 400, 0, 0, 14, "claimDebtPaid"),
-        new QuestDef(16, "银到 5000", "帐上银两超过 5000 两（峰值算）。",
+        new QuestDef(16, "千帆积资", "银两峰值达到五千两。",
+                "往来的商客愿把更远的货单交给你，船医也列出新的寻药去处。攒足五千两航资，便能为下一次远航备好从容。",
                 5, 5000, -1, -1, -1, 0, 200, 100, 15, "claimSilverPeak"),
-        new QuestDef(17, "升仓 3 次", "把共用货舱仓库升级 3 次。",
+        new QuestDef(17, "百珍入舱", "累计升级共用货舱仓库三次。",
+                "丝瓷要避潮，草药要通风，异兽也需安稳的歇处。你请船匠重新分隔货舱，让每一份从海上带回的珍物都有归所。",
                 6, 3, -1, -1, -1, 150, 0, 0, 16, "claimWarehouseUps"),
-        new QuestDef(18, "雇 5 个人", "花钱雇了 5 个船员上船。",
+        new QuestDef(18, "同舟续卷", "累计雇佣五名船员。",
+                "《南海见闻录》写满了第一卷，末页留下水手、船医与匠人的姓名。武周的海风仍在吹，你邀同伴登船，把未完的山海故事写向下一程。",
                 7, 5, -1, -1, -1, 100, 0, 0, 17, "claimHiredCrew"),
     };
 
@@ -1618,6 +1638,10 @@ public class VoyageScreen extends ScreenAdapter {
         if (selectedQuest >= 0 && selectedQuest < QUESTS.length) {
             QuestDef q = QUESTS[selectedQuest];
             detTbl.add(questUi.label("任务详情", 26, QuestUi.PAPER)).width(568).left().padBottom(16).row();
+            Label story = questWrap(q.story);
+            story.setName("questStory");
+            detTbl.add(story).width(568).left().padBottom(24).row();
+            detTbl.add(questInfo("此程所托")).width(568).left().padBottom(8).row();
             detTbl.add(questWrap(q.description)).width(568).left().padBottom(16).row();
 
             String targetInfo;

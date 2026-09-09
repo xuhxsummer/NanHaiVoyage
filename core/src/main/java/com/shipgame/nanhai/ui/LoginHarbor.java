@@ -23,6 +23,8 @@ public final class LoginHarbor extends Group implements Disposable {
     private ShaderProgram seaShader;
     private float seaPhase;
     private boolean disposed;
+    private boolean motionEnabled = true;
+    private boolean seaEnabled = true;
 
     public LoginHarbor() {
         setName("loginHarbor");
@@ -45,7 +47,7 @@ public final class LoginHarbor extends Group implements Disposable {
                     float previousColor = batch.getPackedColor();
                     Color tint = getColor();
                     try {
-                        if (seaShader != null) {
+                        if (seaShader != null && seaEnabled) {
                             batch.flush();
                             mask.bind(1);
                             Gdx.gl.glActiveTexture(GL20.GL_TEXTURE0);
@@ -92,12 +94,14 @@ public final class LoginHarbor extends Group implements Disposable {
 
     @Override public void act(float delta) {
         // Clamp resume spikes and wrap phases to preserve precision in mobile GLSL.
-        float step = MathUtils.clamp(delta, 0, .1f);
+        float step = motionEnabled ? MathUtils.clamp(delta, 0, .1f) : 0;
         seaPhase = (seaPhase + step * .9f) % MathUtils.PI2;
         super.act(step);
     }
 
     public boolean hasSeaShader() { return seaShader != null; }
+    public void setMotionEnabled(boolean enabled) { motionEnabled = enabled; }
+    public void setSeaEnabled(boolean enabled) { seaEnabled = enabled; }
 
     @Override public void dispose() {
         if (disposed) return;

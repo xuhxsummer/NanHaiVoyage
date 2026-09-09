@@ -108,3 +108,15 @@ tasks.register('pirateCollisionRegression', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass.set('com.shipgame.nanhai.lwjgl3.PirateCollisionRegression')
 }
+
+tasks.register('autoSailPirateRegression', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.AutoSailPirateRegression')
+}
+
+tasks.register('questStoryRegression', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.QuestStoryRegression')
+}

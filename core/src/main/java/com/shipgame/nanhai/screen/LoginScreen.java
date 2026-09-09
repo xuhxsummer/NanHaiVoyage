@@ -1,6 +1,8 @@
 package com.shipgame.nanhai.screen;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Input;
+import com.badlogic.gdx.Preferences;
 import com.badlogic.gdx.ScreenAdapter;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.Pixmap;
@@ -10,9 +12,12 @@ import com.badlogic.gdx.graphics.g2d.NinePatch;
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
+import com.badlogic.gdx.scenes.scene2d.InputListener;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.Touchable;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.Dialog;
+import com.badlogic.gdx.scenes.scene2d.ui.Window;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
@@ -42,6 +47,11 @@ public class LoginScreen extends ScreenAdapter {
     private Table updatePanel;
     private ProgressBar updateProgress;
     private Label updateStatus;
+    private Dialog modal;
+    private Runnable modalDismiss;
+    private Preferences settings;
+    private Drawable modalFrame, modalRed, modalBlue, modalHover, progressTrack, progressFill;
+
 
     public LoginScreen(NanHaiVoyage game) { this.game = game; }
 
@@ -49,54 +59,178 @@ public class LoginScreen extends ScreenAdapter {
         switching = false;
         buildUi();
         if (game.updateChecker != null) {
+            final Stage listeningStage = stage;
             game.updateChecker.setListener(new UpdateChecker.Listener() {
                 @Override public void onUpdateAvailable(String version, final Runnable accept, final Runnable decline) {
-                    if (stage == null) return;
+                    if (stage != listeningStage) return;
                     showUpdatePrompt(version, accept, decline);
                 }
                 @Override public void onDownloadProgress(int percent) {
-                    if (updateProgress != null) { updateProgress.setValue(percent); updateStatus.setText("正在下载… " + percent + "%"); }
+                    if (stage != listeningStage || updateProgress == null) return;
+                    int value = Math.max(0, Math.min(100, percent));
+                    updateProgress.setValue(value);
+                    updateStatus.setText("正在下载… " + value + "%");
                 }
                 @Override public void onDownloadFinished(boolean success, String message) {
-                    if (updatePanel != null) { updatePanel.remove(); updatePanel = null; updateProgress = null; }
-                    if (!success && msg != null) msg.setText(message == null ? "下载失败。" : message);
+                    if (stage != listeningStage || updateProgress == null) return;
+                    closeModal();
+                    if (msg != null) msg.setText(success ? "下载完成，请按系统提示安装。"
+                            : (message == null ? "下载失败，请稍后重试。" : message));
                 }
             });
             try { game.updateChecker.checkForUpdate(); } catch (Throwable ignored) { }
         }
     }
 
+    private Table openModal(String title, Runnable dismiss) {
+        closeModal();
+        Window.WindowStyle style = new Window.WindowStyle(loginSkin.get(Window.WindowStyle.class));
+        style.background = modalFrame;
+        style.stageBackground = loginSkin.newDrawable("white", new Color(0.01f, 0.02f, 0.04f, .72f));
+        modal = new Dialog("", style);
+        modal.setName("loginModal");
+        modal.setMovable(false);
+        modal.pad(36);
+        modalDismiss = dismiss;
+        modal.addListener(new InputListener() {
+            @Override public boolean keyDown(InputEvent event, int keycode) {
+                if (keycode != Input.Keys.ESCAPE && keycode != Input.Keys.BACK) return false;
+                Runnable action = modalDismiss;
+                if (action != null) action.run();
+                return true;
+            }
+        });
+        Table content = modal.getContentTable();
+        content.defaults().spaceBottom(22);
+        Label heading = label(title, 46);
+        heading.setColor(Color.valueOf("FFF0BF"));
+        content.add(heading).width(760).height(64).row();
+        return content;
+    }
+
+    private void presentModal() {
+        modal.show(stage, null);
+        centerModal();
+    }
+
+    private void centerModal() {
+        if (modal != null) modal.setPosition((stage.getWidth() - modal.getWidth()) / 2,
+                (stage.getHeight() - modal.getHeight()) / 2);
+    }
+
+    private void closeModal() {
+        if (modal != null) { modal.hide(null); modal = null; }
+        modalDismiss = null;
+        updatePanel = null; updateProgress = null; updateStatus = null;
+    }
+
+    private Label modalCopy(String text) {
+        Label copy = label(text, 28);
+        copy.setAlignment(Align.left);
+        copy.setColor(Color.valueOf("F4E6CB"));
+        copy.setWrap(true);
+        return copy;
+    }
+
+    private TextButton modalButton(String text, boolean primary, Runnable action) {
+        TextButton button = button(text, primary ? modalRed : modalBlue, modalHover);
+        button.setName(text);
+        button.getLabel().setFontScale(1.15f);
+        button.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent e, float x, float y) { action.run(); }
+        });
+        return button;
+    }
+
     private void showUpdatePrompt(String version, final Runnable accept, final Runnable decline) {
-        if (updatePanel != null) updatePanel.remove();
-        updatePanel = new Table(loginSkin);
-        updatePanel.setBackground(loginSkin.getDrawable("panelGold"));
-        updatePanel.pad(28);
-        Label title = label("发现新版本", 32);
-        Label detail = label("版本 " + version + " 已发布，是否下载更新？", 22);
-        TextButton yes = new TextButton("更新", loginSkin, "cinnabar");
-        TextButton later = new TextButton("稍后", loginSkin, "navy");
-        yes.getLabel().setFontScale(1.15f); later.getLabel().setFontScale(1.15f);
-        yes.addListener(new ClickListener() { @Override public void clicked(InputEvent e, float x, float y) { updatePanel.remove(); updatePanel = null; accept.run(); showDownloadPanel(); } });
-        later.addListener(new ClickListener() { @Override public void clicked(InputEvent e, float x, float y) { updatePanel.remove(); updatePanel = null; decline.run(); } });
-        updatePanel.add(title).colspan(2).padBottom(16).row();
-        updatePanel.add(detail).colspan(2).padBottom(22).row();
-        updatePanel.add(yes).width(190).height(64).padRight(14);
-        updatePanel.add(later).width(190).height(64).row();
-        updatePanel.setSize(560, 260); updatePanel.setPosition(680, 410);
-        stage.addActor(updatePanel);
+        Runnable later = () -> { closeModal(); decline.run(); };
+        updatePanel = openModal("发现新版本", later);
+        updatePanel.add(modalCopy("南海航程 · 版本 " + version + "\n新航程已备妥，可下载完整安装包更新。"))
+                .width(760).row();
+        updatePanel.add(modalCopy("本机账号与存档将继续保留。也可稍后更新，先进入游戏。"))
+                .width(760).row();
+        Table actions = new Table();
+        actions.add(modalButton("下载更新", true, () -> {
+            // Build first: an implementation may synchronously deliver progress or failure.
+            showDownloadPanel();
+            accept.run();
+        })).size(340, 88).padRight(32);
+        actions.add(modalButton("稍后再说", false, later)).size(340, 88);
+        updatePanel.add(actions).padTop(8).row();
+        presentModal();
+    }
+
+    private void cancelUpdate() {
+        closeModal();
+        if (game.updateChecker != null) game.updateChecker.cancelDownload();
+        if (msg != null) msg.setText("下载已取消，可继续登录。");
     }
 
     private void showDownloadPanel() {
         if (stage == null) return;
-        updatePanel = new Table(loginSkin); updatePanel.setBackground(loginSkin.getDrawable("panelGold")); updatePanel.pad(28);
-        updateStatus = label("正在下载…", 28);
+        updatePanel = openModal("新航程 · 下载更新", this::cancelUpdate);
+        updateStatus = label("正在下载… 0%", 38);
+        updateStatus.setColor(Color.valueOf("FFF0BF"));
+        updateStatus.setName("updateStatus");
+        updatePanel.add(updateStatus).width(760).height(60).row();
         ProgressBar.ProgressBarStyle ps = new ProgressBar.ProgressBarStyle();
-        ps.background = loginSkin.getDrawable("panelGold"); ps.knobBefore = loginSkin.getDrawable("pillGold");
-        updateProgress = new ProgressBar(0, 100, 1, false, ps); updateProgress.setAnimateDuration(0.1f);
-        TextButton cancel = new TextButton("取消", loginSkin, "navy");
-        cancel.addListener(new ClickListener() { @Override public void clicked(InputEvent e, float x, float y) { game.updateChecker.cancelDownload(); updatePanel.remove(); updatePanel = null; } });
-        updatePanel.add(updateStatus).width(480).padBottom(20).row(); updatePanel.add(updateProgress).width(480).height(28).padBottom(22).row(); updatePanel.add(cancel).width(190).height(64);
-        updatePanel.setSize(560, 240); updatePanel.setPosition(680, 420); stage.addActor(updatePanel);
+        ps.background = progressTrack;
+        ps.knobBefore = progressFill;
+        updateProgress = new ProgressBar(0, 100, 1, false, ps);
+        updateProgress.setName("updateProgress");
+        updateProgress.setAnimateDuration(.1f);
+        updatePanel.add(updateProgress).width(720).height(48).padBottom(28).row();
+        updatePanel.add(modalCopy("完整安装包下载完成后，将打开系统安装界面。\n请保持网络连接，取消下载不影响本机存档。"))
+                .width(760).row();
+        updatePanel.add(modalButton("取消下载", false, this::cancelUpdate)).size(340, 88).row();
+        presentModal();
+    }
+
+    private void showHelper(String name) {
+        Table content = openModal(name + " · 南海航程", this::closeModal);
+        if ("公告".equals(name)) {
+            content.add(modalCopy("版本 0.28.14 · 武周海贸新篇\n\n"
+                    + "一、更新与下载弹窗换上金边新装。\n"
+                    + "二、遭遇或甩开海盗时，自动航行继续。\n"
+                    + "三、公告、客服与本机设置现已开放。\n"
+                    + "四、十九段武周主线，续写《南海见闻录》。"))
+                    .width(760).row();
+        } else if ("客服".equals(name)) {
+            content.add(modalCopy("本机游戏，反馈请发给开发者。\n"
+                    + "请附上版本号 0.28.14、问题截图和发生前的操作。\n\n"
+                    + "账号与存档保存在这台设备上；请记好用户名和密码。"
+                    + "卸载或清除应用数据会删除本机存档，更新请直接覆盖安装。\n\n"
+                    + "更新下载失败时可稍后重试，或从版本发布页下载完整安装包。"))
+                    .width(760).row();
+        } else {
+            content.add(modalCopy("设置仅影响登录画面，修改后立即生效并保存在本机。"))
+                    .width(760).row();
+            content.add(settingButton("登录动效", "loginMotion", true)).size(700, 80).row();
+            content.add(settingButton("海水波纹", "loginSea", true)).size(700, 80).row();
+            content.add(modalCopy("当前版本暂无音乐与音效。\n本机存档：账号与航程保存在当前设备，设置不会清除存档。"))
+                    .width(760).row();
+        }
+        content.add(modalButton("关闭", false, this::closeModal)).size(340, 80).row();
+        presentModal();
+    }
+
+    private TextButton settingButton(String title, String key, boolean initial) {
+        TextButton toggle = button(title + "：" + (settings.getBoolean(key, initial) ? "开启" : "关闭"), modalBlue, modalHover);
+        toggle.setName(key);
+        toggle.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent e, float x, float y) {
+                boolean enabled = !settings.getBoolean(key, initial);
+                settings.putBoolean(key, enabled).flush();
+                toggle.setText(title + "：" + (enabled ? "开启" : "关闭"));
+                applySettings();
+            }
+        });
+        return toggle;
+    }
+
+    private void applySettings() {
+        bg.setMotionEnabled(settings.getBoolean("loginMotion", true));
+        bg.setSeaEnabled(settings.getBoolean("loginSea", true));
     }
 
     private BitmapFont font(int size) {
@@ -156,6 +290,17 @@ public class LoginScreen extends ScreenAdapter {
         bg = new LoginHarbor();
         bg.fit(stage.getViewport().getWorldWidth(), stage.getViewport().getWorldHeight());
         stage.addActor(bg);
+        settings = Gdx.app.getPreferences("nanhai-settings");
+        applySettings();
+        Gdx.input.setCatchKey(Input.Keys.BACK, true);
+        modalFrame = frame("modalFrame", "081522");
+        modalRed = frame("modalRed", "B34428");
+        modalBlue = frame("modalBlue", "235873");
+        modalHover = frame("modalHover", "497891");
+        progressTrack = frame("progressTrack", "030B13");
+        progressTrack.setMinHeight(44);
+        progressFill = frame("progressFill", "C7542C");
+        progressFill.setMinHeight(32);
 
         Drawable navy = frame("loginNavy", "091824");
         Drawable hover = frame("loginHover", "204C61");
@@ -214,17 +359,23 @@ public class LoginScreen extends ScreenAdapter {
         String[] helpers = {"公告", "客服", "设置"};
         for (int i = 0; i < helpers.length; i++) {
             final String text = helpers[i];
-            TextButton helper = button(text, navy, hover);
-            helper.getLabel().setFontScale(.75f);
-            place(helper, 1512 + i * 120, 960, 104, 64);
+            TextButton helper = button(text, modalBlue, modalHover);
+            helper.setName("login" + text);
+            helper.getLabel().setFontScale(.9f);
+            place(helper, 1464 + i * 144, 960, 128, 72);
             helper.addListener(new ClickListener() {
-                @Override public void clicked(InputEvent e, float x, float y) { msg.setText(text + "暂未开放。"); }
+                @Override public void clicked(InputEvent e, float x, float y) { showHelper(text); }
             });
         }
     }
 
     private void releaseUi() {
-        updatePanel = null; updateProgress = null;
+        closeModal();
+        if (stage != null) {
+            if (game.updateChecker != null) game.updateChecker.setListener(null);
+            // enterVoyage already detaches input before hide() runs.
+            Gdx.input.setCatchKey(Input.Keys.BACK, false);
+        }
         if (stage != null && Gdx.input.getInputProcessor() == stage) {
             Gdx.input.setInputProcessor(null);
         }
@@ -341,6 +492,7 @@ public class LoginScreen extends ScreenAdapter {
         // during the transition (IME hide, immersive-mode focus change).
         if (stage != null) {
             stage.getViewport().update(width, height, true);
+            centerModal();
             if (bg != null) {
                 bg.fit(stage.getViewport().getWorldWidth(), stage.getViewport().getWorldHeight());
             }
