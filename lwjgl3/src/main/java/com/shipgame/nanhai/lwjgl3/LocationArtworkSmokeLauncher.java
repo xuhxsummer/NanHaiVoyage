@@ -119,6 +119,19 @@ public final class LocationArtworkSmokeLauncher {
                 texture.load(data); // Re-decode exactly as Android managed context restoration does.
                 require(texture.getWidth() == 256 && texture.getHeight() == 256, "texture budget " + name);
                 require(!data.isPrepared(), "retained source pixmap " + name);
+                if(name.startsWith("ports/") || name.startsWith("islands/")) {
+                    data.prepare(); Pixmap pixels=data.consumePixmap();
+                    int clear=0,solid=0;
+                    for(int y=0;y<256;y++) for(int x=0;x<256;x++) {
+                        int alpha=pixels.getPixel(x,y)&255;
+                        if(alpha==0)clear++; if(alpha>200)solid++;
+                    }
+                    require(clear>12000 && solid>1800,"transparent matte with retained silhouette "+name+" clear="+clear+" solid="+solid);
+                    require((pixels.getPixel(3,3)&255)==0 && (pixels.getPixel(252,252)&255)==0,"no opaque corners "+name);
+                    if(name.equals("ports/port_扬州") || name.equals("islands/island_东沙"))
+                        PixmapIO.writePNG(Gdx.files.local("../Builds/matte2810-"+name.substring(name.indexOf('/')+1)+".png"),pixels);
+                    pixels.dispose();
+                }
                 require(textures.add(texture), "duplicate art " + name);
             }
 

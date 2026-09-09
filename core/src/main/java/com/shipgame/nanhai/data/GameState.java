@@ -7,6 +7,19 @@ import com.badlogic.gdx.math.MathUtils;
 public class GameState {
     public String nickname = "船长";
     public int avatarIndex;
+    public int redeemedCodes;
+
+    /** Exact numeric codes, surrounding whitespace ignored; one use per save. */
+    public boolean redeemCode(String input) {
+        String code=input==null?"":input.trim();
+        int bit=code.equals("666")?1:code.equals("888")?2:0;
+        if(bit==0) { toast("兑换码无效，请检查后重试。"); return false; }
+        if((redeemedCodes&bit)!=0) { toast("此兑换码已领取。"); return false; }
+        int reward=bit==1?666:888;
+        if(silver>Integer.MAX_VALUE-reward) { toast("银两已达上限，请稍后兑换。"); return false; }
+        silver+=reward; redeemedCodes|=bit; questSilverPeak=Math.max(questSilverPeak,silver);
+        toast("兑换成功：银两 +"+reward); return true;
+    }
 
     public void setProfile(String name, int avatar) {
         String clean = name == null ? "" : name.trim().replaceAll("[\\p{Cntrl}]", "");
@@ -179,6 +192,8 @@ public class GameState {
 
     public SaveData toSave() {
         SaveData s = new SaveData();
+        s.worldVersion = 2;
+        s.redeemedCodes = redeemedCodes;
         s.nickname = nickname;
         s.avatarIndex = avatarIndex;
         s.dockedPort = dockedPort;
@@ -270,6 +285,7 @@ public class GameState {
         }
         try {
             g.setProfile(s.nickname, s.avatarIndex);
+            g.redeemedCodes = s.redeemedCodes & 3;
             float oldHullMax = s.hullMax <= 0 ? Catalog.HULL_MAX : s.hullMax;
             float oldSupplyMax = s.supplyMax <= 0 ? Catalog.SUPPLY_MAX : s.supplyMax;
             g.hullMax = Math.max(Catalog.HULL_MAX, oldHullMax);
@@ -363,8 +379,17 @@ public class GameState {
             // Local save checkpoints preserve position; transient combat and
             // navigation reset. A loaded save is always a playable dock snapshot
             // (失败状态不写回读档)。
-            g.x = (!Float.isNaN(s.x) && !Float.isInfinite(s.x)) ? s.x : Catalog.PORT_X[lp] + 90f;
-            g.y = (!Float.isNaN(s.y) && !Float.isInfinite(s.y)) ? s.y : Catalog.PORT_Y[lp];
+            float coordinateScale=s.worldVersion<2?2f:1f;
+            g.x = (!Float.isNaN(s.x) && !Float.isInfinite(s.x)) ? s.x*coordinateScale : Catalog.PORT_X[lp]+Catalog.DOCK_RANGE-8;
+            g.y = (!Float.isNaN(s.y) && !Float.isInfinite(s.y)) ? s.y*coordinateScale : Catalog.PORT_Y[lp];
+            if(s.worldVersion<2 && g.dockedPort>=0 && (!Float.isNaN(s.x) && !Float.isInfinite(s.x)) && (!Float.isNaN(s.y) && !Float.isInfinite(s.y))) {
+                int port=g.dockedPort;
+                // Move the harbor anchor, retaining the ship's local docking offset.
+                g.x=Catalog.PORT_X[port]+s.x-Catalog.PORT_X[port]/2;
+                g.y=Catalog.PORT_Y[port]+s.y-Catalog.PORT_Y[port]/2;
+            }
+            g.x=MathUtils.clamp(g.x,40,Catalog.WORLD_W-40);
+            g.y=MathUtils.clamp(g.y,40,Catalog.WORLD_H-40);
             g.headingDeg = (!Float.isNaN(s.headingDeg) && !Float.isInfinite(s.headingDeg)) ? s.headingDeg : 0f;
             g.speed = 0;
             g.clearPirate();

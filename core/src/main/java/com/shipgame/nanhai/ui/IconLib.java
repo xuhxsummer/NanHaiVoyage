@@ -190,7 +190,7 @@ public final class IconLib {
             FileHandle file = Gdx.files.internal("textures/" + key + ".png");
             if (!file.exists()) file = Gdx.files.internal("textures/" + key + ".jpg");
             if (file.exists()) {
-                Texture texture = new Texture(new IllustrationData(file));
+                Texture texture = new Texture(new IllustrationData(file, folder.equals("ports") || folder.equals("islands")));
                 texture.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear);
                 art = new TextureRegionDrawable(new TextureRegion(texture));
             }
@@ -207,8 +207,9 @@ public final class IconLib {
      * neither the decoded original nor the thumbnail is retained on the CPU. */
     private static final class IllustrationData extends FileTextureData {
         private static final int SIZE = 256;
+        private final boolean location;
 
-        IllustrationData(FileHandle file) { super(file, null, Pixmap.Format.RGBA8888, true); }
+        IllustrationData(FileHandle file, boolean location) { super(file, null, Pixmap.Format.RGBA8888, true); this.location=location; }
         @Override public int getWidth() { return SIZE; }
         @Override public int getHeight() { return SIZE; }
 
@@ -224,12 +225,42 @@ public final class IconLib {
                 int height = Math.max(1, Math.round(source.getHeight() * scale));
                 thumbnail.drawPixmap(source, 0, 0, source.getWidth(), source.getHeight(),
                         (SIZE - width) / 2, (SIZE - height) / 2, width, height);
+                if(location) stripLocationMatte(thumbnail);
                 return thumbnail;
             } catch (RuntimeException ex) {
                 if (thumbnail != null) thumbnail.dispose();
                 throw ex;
             } finally { source.dispose(); }
         }
+    }
+
+    /** Remove only edge-connected neutral checker/white matte or pale paper.
+     * Interior white sails, roofs and sand remain opaque. Runs again on managed reload. */
+    private static void stripLocationMatte(Pixmap image) {
+        int w=image.getWidth(),h=image.getHeight();
+        boolean[] seen=new boolean[w*h]; int[] queue=new int[w*h]; int tail=0;
+        for(int y=0;y<h;y++) for(int x=0;x<w;x++) if(x==0 || y==0 || x==w-1 || y==h-1) {
+            int index=y*w+x;
+            if(matte(image.getPixel(x,y))) {seen[index]=true;queue[tail++]=index;}
+        }
+        for(int head=0;head<tail;head++) {
+            int index=queue[head],x=index%w,y=index/w;
+            image.drawPixel(x,y,image.getPixel(x,y)&0xffffff00);
+            for(int direction=0;direction<4;direction++) {
+                int nx=x+(direction==0?-1:direction==1?1:0),ny=y+(direction==2?-1:direction==3?1:0);
+                if(nx<0 || ny<0 || nx>=w || ny>=h) continue;
+                int next=ny*w+nx;
+                if(seen[next]) continue;
+                seen[next]=true;
+                if(matte(image.getPixel(nx,ny)))queue[tail++]=next;
+            }
+        }
+    }
+    private static boolean matte(int rgba) {
+        int r=rgba>>>24,g=(rgba>>>16)&255,b=(rgba>>>8)&255;
+        int lo=Math.min(r,Math.min(g,b)),hi=Math.max(r,Math.max(g,b));
+        return (rgba&255)<8 || (lo>=60 && hi-lo<=22)
+                || (r>=215 && g>=195 && b>=155 && r>=g && g>=b && r-b<=70);
     }
 
     /** Owned by the application, since several screens share these drawables. */

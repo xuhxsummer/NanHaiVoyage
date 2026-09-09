@@ -138,14 +138,7 @@ public final class WorldMapOverlay implements Disposable {
                 s.rectLine(n.x,n.y,MathUtils.clamp(n.x,n.label.x,n.label.x+n.label.width),
                         MathUtils.clamp(n.y,n.label.y,n.label.y+n.label.height),1);
                 if (n.art == null) marker(s,n.x,n.y,n.port);
-                else {
-                    s.setColor(.02f,.06f,.08f,.9f);
-                    s.rect(n.icon.x+3,n.icon.y-3,ICON_SIZE,ICON_SIZE);
-                    s.setColor(n.port?GOLD:JADE);
-                    s.rect(n.icon.x,n.icon.y,ICON_SIZE,ICON_SIZE);
-                    s.setColor(NAVY);
-                    s.rect(n.icon.x+2,n.icon.y+2,ICON_SIZE-4,ICON_SIZE-4);
-                }
+
             }
             s.end();
             batch.setColor(Color.WHITE);

@@ -20,6 +20,21 @@ public final class GeometryRegression {
         SaveData legacy=new SaveData();legacy.nickname=null;legacy.avatarIndex=99;
         loaded=GameState.fromSave(legacy);
         require(loaded.nickname.equals("船长") && loaded.avatarIndex==3,"legacy profile defaults");
+        legacy.x=700;legacy.y=900;legacy.dockedPort=-1;
+        loaded=GameState.fromSave(legacy);
+        require(loaded.x==1400 && loaded.y==1800,"old sea coordinates double");
+        loaded=GameState.fromSave(loaded.toSave());
+        require(loaded.x==1400 && loaded.y==1800,"world migration runs once");
+        legacy.dockedPort=Catalog.YANGZHOU;
+        legacy.x=Catalog.PORT_X[legacy.dockedPort]/2+210;legacy.y=Catalog.PORT_Y[legacy.dockedPort]/2;
+        loaded=GameState.fromSave(legacy);
+        require(loaded.x==Catalog.PORT_X[legacy.dockedPort]+210 && loaded.y==Catalog.PORT_Y[legacy.dockedPort],"legacy dock local offset");
+        int silver=loaded.silver;
+        require(!loaded.redeemCode(null) && !loaded.redeemCode("invalid") && loaded.silver==silver,"invalid codes leave balance unchanged");
+        require(loaded.redeemCode(" 666 ") && loaded.silver==silver+666,"666 reward");
+        loaded=GameState.fromSave(loaded.toSave());
+        require(!loaded.redeemCode("666") && loaded.silver==silver+666,"redeem persisted once");
+        require(loaded.redeemCode("888") && loaded.silver==silver+1554 && !loaded.redeemCode("888"),"888 reward once");
         int impacts=0;
         for(int ship=0;ship<Catalog.SHIPS.length;ship++) for(boolean port:new boolean[]{true,false}) {
             int count=port?Catalog.PORTS.length:Catalog.ISLANDS.length;

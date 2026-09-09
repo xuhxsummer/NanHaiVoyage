@@ -19,13 +19,13 @@ import java.nio.file.Path;
 public final class VoyageFeelSmokeLauncher {
     private static int result=1;
     public static void main(String[] args) throws Exception {
-        Path dir=java.nio.file.Files.createTempDirectory("nanhai-feel289-");
+        Path dir=java.nio.file.Files.createTempDirectory("nanhai-feel2810-");
         Lwjgl3ApplicationConfiguration config=new Lwjgl3ApplicationConfiguration();
         config.setWindowedMode(1280,720);config.disableAudio(true);config.setForegroundFPS(0);
         config.setPreferencesConfig(dir.resolve("prefs").toString(),Files.FileType.Absolute);
         new Lwjgl3Application(new NanHaiVoyage() {
             VoyageScreen voyage; Stage stage; VoyageWorldRenderer renderer; int frame;
-            final String[] pages={"AVATAR","QUESTS","CARGO","INTEL","CODEX","SHOP","MINE","STAT","HOWTO","FAIL","FISH","PRICE"};
+            final String[] pages={"AVATAR","QUESTS","CARGO","INTEL","CODEX","SHOP","MINE","STAT","HOWTO","FAIL","FISH","PRICE","REDEEM"};
             @Override public void create() {
                 Files original=Gdx.files;
                 Gdx.files=(Files)Proxy.newProxyInstance(Files.class.getClassLoader(),new Class[]{Files.class},(p,m,a)->{
@@ -56,6 +56,7 @@ public final class VoyageFeelSmokeLauncher {
                         voyage.render(1f/60);
                         steerAndLook();
                         profile();
+                        redeemAndHud();
                         sceneSnapshots();
                     } else if(frame<=pages.length) {
                         page(pages[frame-1]);
@@ -70,7 +71,7 @@ public final class VoyageFeelSmokeLauncher {
                         super.render();
                         require(getScreen() instanceof LoginScreen && currentUser==null && state==null,"logout session cleanup");
                         result=0;
-                        System.out.println("VOYAGE FEEL PASS: stopped/slow/all-heading helm, undock, multitouch look+return+clamps, HUD ownership, all 12 fullscreen pages at 1280/1600, pause, profile/save/load/avatars, dock/market/island, logout, GL");
+                        System.out.println("VOYAGE FEEL PASS: stopped/slow/all-heading helm, undock, multitouch look+return+clamps, HUD ownership, all 13 fullscreen pages at 1280/1600, pause, profile/save/load/avatars, dock/market/island, logout, GL");
                         Gdx.app.exit();return;
                     }
                     require(Gdx.gl.glGetError()==GL20.GL_NO_ERROR,"GL frame "+frame);
@@ -143,6 +144,31 @@ public final class VoyageFeelSmokeLauncher {
                 state.silver=4321;tap("保存进度");state.silver=0;tap("读取存档");voyage.render(0);
                 require(state.silver==4321 && state.avatarIndex==3 && state.nickname.equals("晴岚船长"),"local reload preserves profile");
             }
+            private void redeemAndHud() throws Exception {
+                sea();overlay("NONE");voyage.render(0);
+                tap("福利");voyage.render(0);require(overlayName().equals("REDEEM"),"welfare opens redeem page");
+                TextField code=(TextField)actor("兑换码");
+                int silver=state.silver;
+                code.setText("bad");tap("确认兑换");require(state.silver==silver,"invalid redeem UI");
+                code.setText(" 666 ");tap("确认兑换");require(state.silver==silver+666,"redeem 666 UI");
+                tap("确认兑换");require(state.silver==silver+666,"repeat 666 UI");
+                SaveData saved=accounts.load(currentUser);
+                require(saved.silver==silver+666 && saved.redeemedCodes==1 && saved.worldVersion==2,"redeem persisted to actual account file");
+                code.setText("888");tap("确认兑换");require(state.silver==silver+1554,"redeem 888 UI");
+                saved=accounts.load(currentUser);
+                GameState restored=GameState.fromSave(saved);
+                require(!restored.redeemCode("888") && !restored.redeemCode("666"),"codes cannot repeat after disk reload");
+                voyage.render(0);snap("redeem-success");tap("关闭");
+                state.toastT=0;voyage.render(0);
+                require(!actor("航行消息").isVisible(),"no idle blessing or empty footer frame");
+                for(int i=0;i<2;i++) {
+                    Actor title=actor("任务标题"+i);
+                    require(title.getX()>=28,"quest title clears left corner decoration");
+                }
+                snap("hud-no-blessing");
+                state.toast("兑换检查完成");voyage.render(0);
+                require(actor("航行消息").isVisible(),"action feedback still visible");
+            }
             private void page(String name) throws Exception {
                 sea();state.speed=30;state.autoSail=true;state.autoSailPort=0;
                 if(name.equals("FISH"))state.dockedPort=Catalog.YANGZHOU;
@@ -199,7 +225,7 @@ public final class VoyageFeelSmokeLauncher {
             }
             private void snap(String name) {
                 Pixmap p=Pixmap.createFromFrameBuffer(0,0,Gdx.graphics.getWidth(),Gdx.graphics.getHeight());
-                PixmapIO.writePNG(Gdx.files.local("../Builds/feel289-"+name+".png"),p,-1,true);p.dispose();
+                PixmapIO.writePNG(Gdx.files.local("../Builds/feel2810-"+name+".png"),p,-1,true);p.dispose();
             }
             private void fail(Throwable t){result=1;t.printStackTrace();Gdx.app.exit();}
         },config);

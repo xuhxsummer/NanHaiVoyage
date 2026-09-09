@@ -1,6 +1,8 @@
 package com.shipgame.nanhai.data;
 
 public class SaveData {
+    public int worldVersion = 1; // Missing on pre-0.28.10 saves.
+    public int redeemedCodes; // bit 0: 666; bit 1: 888.
     public String nickname = "船长";
     public int avatarIndex;
     public float x, y, headingDeg;

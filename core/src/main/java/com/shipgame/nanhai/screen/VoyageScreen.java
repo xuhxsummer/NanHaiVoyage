@@ -22,6 +22,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.ui.TextField;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
@@ -102,7 +103,7 @@ public class VoyageScreen extends ScreenAdapter {
         // start/stop fishing, upgrades, catch list + sell).
         // 0.26.4: SHOP is the 商城 popup (buy / switch ships).
         // 0.26.5: MINE is the 我的 popup (current/owned ships + resources).
-        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH, SHOP, MINE
+        MARKET, AVATAR, HOWTO, INTEL, QUESTS, STAT, FISH, SHOP, MINE, REDEEM
     }
 
     /** 0.26.0 first-run gameplay help. Body is verbatim from howto_spec.txt:
@@ -345,7 +346,7 @@ public class VoyageScreen extends ScreenAdapter {
                     } else { contextReopen(); }
                 }, this::toggleQuestOverlay,
                 () -> g.toast("活动尚未开放，敬请期待。"),
-                () -> g.toast("福利尚未开放，敬请期待。")};
+                () -> { overlay=Overlay.REDEEM; rebuildMenu(); }};
         voyageHud = new VoyageHud(game.skin, this::toggleAvatar, this::statClicked, shortcuts,
                 world, this::toggleMine, this::openIntel, this::contextReopen,
                 () -> { if (g.autoSail) { g.cancelAutoSail(); rebuildMenu(); } else world.run(); },
@@ -606,6 +607,7 @@ public class VoyageScreen extends ScreenAdapter {
      * / leaves the island IN PLACE — the ship is never teleported or snapped, and
      * the world resumes simulating from exactly where it was. */
     private void closePopup() {
+        if (overlay == Overlay.REDEEM) Gdx.input.setOnscreenKeyboardVisible(false);
         if (overlay == Overlay.AVATAR && captainPanel != null) captainPanel.commitNickname();
         if (overlay == Overlay.PORT && g.dockedPort >= 0) {
             g.undockInPlace();
@@ -726,6 +728,7 @@ public class VoyageScreen extends ScreenAdapter {
             else if (overlay == Overlay.PRICE) page = pricePage();
             else if (overlay == Overlay.STAT) page = statPage();
             else if (overlay == Overlay.FAIL) page = failurePage();
+            else if (overlay == Overlay.REDEEM) page = redeemPage();
             else page = howtoPage();
             showFullscreen(page,1296,800);
             return;
@@ -788,6 +791,23 @@ public class VoyageScreen extends ScreenAdapter {
         Gdx.app.getPreferences("nanhai-voyage").putBoolean("howto_shown",true).flush();
         closePopup();
     }
+    private Table redeemPage() {
+        Table content=new Table(); content.top().left();
+        content.add(pageCopy("输入兑换码领取银两。每个兑换码在当前存档中仅可领取一次。")).width(1080).left().padBottom(32).row();
+        TextField.TextFieldStyle style=new TextField.TextFieldStyle(game.skin.get(TextField.TextFieldStyle.class));
+        style.background=pageUi.blue; style.fontColor=QuestUi.PAPER;
+        TextField code=new TextField("",style); code.setName("兑换码"); code.setMessageText("请输入兑换码"); code.setMaxLength(32);
+        content.add(code).size(720,80).left().padBottom(28).row();
+        Label result=pageCopy("兑换奖励将自动保存。"); result.setName("兑换结果");
+        content.add(pageAction("确认兑换",true,()->{
+            if(g.redeemCode(code.getText())) persist();
+            result.setText(g.toast);
+            stage.setKeyboardFocus(null); Gdx.input.setOnscreenKeyboardVisible(false);
+        })).size(320,72).left().padBottom(28).row();
+        content.add(result).width(1080).left();
+        return pageFrame("福利 · 兑换码",content,this::closePopup);
+    }
+
     private Table howtoPage() {
         Table content=new Table(); content.top().left();
         for(String paragraph:HOWTO_BODY.split("\\n")) {

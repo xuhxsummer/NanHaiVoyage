@@ -51,7 +51,7 @@ public final class VoyageHud extends Group implements Disposable {
         Table weather=panel(ui.panel,1664,712,232,48);weather.pad(4);weather.add(icon("sun")).size(36);weather.add(ui.label("今日：晴",24,VoyageHudChrome.PAPER));
         questGroup=new Table();questGroup.setTouchable(Touchable.childrenOnly);questGroup.setBounds(1576,388,320,288);addActor(questGroup);
         for(int i=0;i<2;i++){final int n=i;Table card=new Table();card.setName(i==0?"任务卡":"下一程任务卡");card.setBackground(i==0?ui.parchment:ui.panel);card.pad(8);
-            Table head=new Table();head.setBackground(i==0?ui.red:ui.blue);head.pad(4,8,4,8);questTitles[i]=ui.label("",22,VoyageHudChrome.PAPER);questTitles[i].setEllipsis(true);head.add(questTitles[i]).growX();
+            Table head=new Table();head.setBackground(i==0?ui.red:ui.blue);head.pad(4,28,4,24);questTitles[i]=ui.label("",22,VoyageHudChrome.PAPER);questTitles[i].setName("任务标题"+i);questTitles[i].setEllipsis(true);head.add(questTitles[i]).growX();
             card.add(head).size(304,36).row();questBodies[i]=ui.label("",21,i==0?Color.valueOf("3F3326"):VoyageHudChrome.PAPER);questBodies[i].setWrap(true);card.add(questBodies[i]).width(288).height(56).left().row();
             questProgress[i]=ui.label("",20,i==0?Color.valueOf("4D3D28"):VoyageHudChrome.GOLD);card.add(questProgress[i]).width(288).height(28).left();card.addListener(click(()->quest.accept(n)));questCards[i]=card;questGroup.add(card).size(320,136).padBottom(i==0?16:0).row();
             // Preserve FreeBuff's clockwise gold sweep without consuming card taps.
@@ -68,7 +68,7 @@ public final class VoyageHud extends Group implements Disposable {
         Image shipKnob=icon("ship");shipKnob.setName("摇杆船徽");shipKnob.setTouchable(Touchable.disabled);shipKnob.setBounds(236,196,72,72);addActor(shipKnob);
         auto=ui.button("自动航行",ui.panel,22);auto.setName("自动航行");auto.setBounds(472,96,168,64);Label autoLabel=auto.getLabel();auto.clearChildren();auto.add(icon("helm")).size(40).padRight(8);auto.add(autoLabel);auto.addListener(click(autoAction));addActor(auto);
         Table time=panel(ui.panel,24,24,360,48);time.pad(4,12,4,12);time.add(icon("sun")).size(32).padRight(8);clock=ui.label("",22,VoyageHudChrome.PAPER);time.add(clock).growX();
-        toastBar=panel(ui.panel,600,24,896,56);toastBar.pad(8,24,8,24);toastBar.add(icon("anchor")).size(32).padRight(12);toast=ui.label("",22,VoyageHudChrome.PAPER);toast.setWrap(true);toastBar.add(toast).growX();toastBar.setTouchable(Touchable.disabled);
+        toastBar=panel(ui.panel,600,24,896,56);toastBar.setName("航行消息");toastBar.pad(8,24,8,24);toastBar.add(icon("anchor")).size(32).padRight(12);toast=ui.label("",22,VoyageHudChrome.PAPER);toast.setWrap(true);toastBar.add(toast).growX();toastBar.setTouchable(Touchable.disabled);
         location=panel(ui.panel,600,696,264,80);location.setTouchable(Touchable.enabled);location.pad(8);place=ui.label("",28,VoyageHudChrome.PAPER);placeSub=ui.label("",20,VoyageHudChrome.GOLD);location.add(place).row();location.add(placeSub);location.addListener(click(port));location.setName("所在地");
         cancelAuto=utility("取消自动",cancel,648);lock=utility("锁定海盗",lockAction,824);cancelLock=utility("取消锁定",unlock,1000);
         for(Actor actor:getChildren()) anchors.add(new float[]{actor.getX(),actor.getY()});
@@ -97,7 +97,7 @@ public final class VoyageHud extends Group implements Disposable {
         if(shownAvatar!=g.avatarIndex){shownAvatar=g.avatarIndex;captainPortrait.setDrawable(IconLib.avatar(shownAvatar));}
         speedNeedle.setY(120+com.badlogic.gdx.math.MathUtils.clamp(g.speed/Catalog.MAX_SPEED,0,1)*216);
         minimap.update(g);coords.setText("X:"+(int)g.x+"  Y:"+(int)g.y);questGroup.setVisible(neutral);dot.setVisible(ready);
-        toast.setText(g.toastT>0?g.toast:"祝您一路顺风，贸易通达！" );toastBar.setHeight(g.toast.length()>38&&g.toastT>0?80:56);
+        toastBar.setVisible(neutral && g.toastT>0 && !g.toast.isEmpty());toast.setText(g.toastT>0?g.toast:"");toastBar.setHeight(g.toast.length()>38&&g.toastT>0?80:56);
         knob.setPosition(212+kx*88,172+ky*88);Actor ship=findActor("摇杆船徽");ship.setPosition(236+kx*88,196+ky*88);
         int p=g.dockedPort>=0?g.dockedPort:g.nearestPortInRange();int isle=g.islandMenu>=0?g.islandMenu:g.nearestIslandInRange();
         location.setVisible(neutral&&(p>=0||isle>=0));
