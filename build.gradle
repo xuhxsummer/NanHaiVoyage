@@ -57,6 +57,7 @@ tasks.register('prepareWaterAssets', Sync) {
         include 'textures/avatars/avatar_*.png'
         include 'textures/beasts/beast_*.png', 'textures/beasts/beast_*.jpg'
         include 'textures/herbs/herb_*.png'
+        include 'textures/login/*.png', 'textures/login/layers.json'
         exclude 'textures/beasts/*_alt.*'
     }
     into(layout.buildDirectory.dir('generated/water-assets'))

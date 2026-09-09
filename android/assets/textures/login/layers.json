@@ -1,0 +1,84 @@
+{
+  "width": 1672,
+  "height": 941,
+  "layers": [
+    {
+      "name": "sail-rear",
+      "x": 1271,
+      "y": 241,
+      "width": 78,
+      "height": 279,
+      "pivotX": 53,
+      "pivotY": 7,
+      "rotation": 0.38,
+      "pulse": 0.008,
+      "rate": 0.95,
+      "phase": 0.8
+    },
+    {
+      "name": "sail-main",
+      "x": 1336,
+      "y": 100,
+      "width": 188,
+      "height": 369,
+      "pivotX": 18,
+      "pivotY": 2,
+      "rotation": 0.48,
+      "pulse": 0.009,
+      "rate": 0.8,
+      "phase": 0
+    },
+    {
+      "name": "sail-front",
+      "x": 1230,
+      "y": 350,
+      "width": 73,
+      "height": 176,
+      "pivotX": 18,
+      "pivotY": 4,
+      "rotation": 0.65,
+      "pulse": 0.012,
+      "rate": 1.08,
+      "phase": 1.6
+    },
+    {
+      "name": "flag-main",
+      "x": 1380,
+      "y": 54,
+      "width": 168,
+      "height": 127,
+      "pivotX": 2,
+      "pivotY": 111,
+      "rotation": 2.0,
+      "pulse": 0.045,
+      "rate": 1.7,
+      "phase": 0.2
+    },
+    {
+      "name": "flag-front",
+      "x": 1250,
+      "y": 314,
+      "width": 61,
+      "height": 52,
+      "pivotX": 1,
+      "pivotY": 45,
+      "rotation": 2.5,
+      "pulse": 0.04,
+      "rate": 1.9,
+      "phase": 0.9
+    },
+    {
+      "name": "flag-stern",
+      "x": 1560,
+      "y": 295,
+      "width": 88,
+      "height": 107,
+      "pivotX": -3,
+      "pivotY": 95,
+      "rotation": 2.2,
+      "pulse": 0.04,
+      "rate": 1.6,
+      "phase": 1.3
+    }
+  ]
+}

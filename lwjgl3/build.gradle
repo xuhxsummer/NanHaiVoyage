@@ -68,6 +68,13 @@ tasks.register('waterSmoke', JavaExec) {
     workingDir = rootProject.file('assets').path
 }
 
+tasks.register('loginDynamicSmoke', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.LoginDynamicSmokeLauncher')
+    workingDir = rootProject.file('assets').path
+}
+
 tasks.register('shipArtworkSmoke', JavaExec) {
     dependsOn classes
     classpath = sourceSets.main.runtimeClasspath

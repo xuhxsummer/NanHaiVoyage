@@ -11,8 +11,6 @@ import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Stage;
-import com.badlogic.gdx.scenes.scene2d.Touchable;
-import com.badlogic.gdx.scenes.scene2d.ui.Image;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
@@ -29,14 +27,14 @@ import com.shipgame.nanhai.NanHaiVoyage;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.data.SaveData;
 import com.shipgame.nanhai.ui.UiFactory;
+import com.shipgame.nanhai.ui.LoginHarbor;
 import com.shipgame.nanhai.ui.UpdateChecker;
 
 /** 1920 × 1080 login, eight-pixel layout grid; artwork and live controls are separate. */
 public class LoginScreen extends ScreenAdapter {
     private final NanHaiVoyage game;
     private Stage stage;
-    private Texture bgTex;
-    private Image bg;              // 0.27.4: covers the full extended viewport
+    private LoginHarbor bg;
     private Skin loginSkin;
     private Label msg;
     private boolean switching;
@@ -153,11 +151,9 @@ public class LoginScreen extends ScreenAdapter {
         stage.getViewport().update(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), true);
         Gdx.input.setInputProcessor(stage);
         loginSkin = UiFactory.create(font(32), font(24));
-        bgTex = new Texture(Gdx.files.internal("textures/login/harbor-hd.png"));
-        bgTex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
-        bg = new Image(bgTex); bg.setTouchable(Touchable.disabled);
-        place(bg, 0, 0, (int) stage.getViewport().getWorldWidth(),
-                (int) stage.getViewport().getWorldHeight());
+        bg = new LoginHarbor();
+        bg.fit(stage.getViewport().getWorldWidth(), stage.getViewport().getWorldHeight());
+        stage.addActor(bg);
 
         Drawable navy = frame("loginNavy", "102735F5");
         Drawable hover = frame("loginHover", "244655");
@@ -218,8 +214,7 @@ public class LoginScreen extends ScreenAdapter {
             Gdx.input.setInputProcessor(null);
         }
         if (stage != null) { stage.dispose(); stage = null; }
-        bg = null;
-        if (bgTex != null) { bgTex.dispose(); bgTex = null; }
+        if (bg != null) { bg.dispose(); bg = null; }
         if (loginSkin != null) { loginSkin.dispose(); loginSkin = null; }
     }
 
@@ -332,7 +327,7 @@ public class LoginScreen extends ScreenAdapter {
         if (stage != null) {
             stage.getViewport().update(width, height, true);
             if (bg != null) {
-                bg.setSize(stage.getViewport().getWorldWidth(), stage.getViewport().getWorldHeight());
+                bg.fit(stage.getViewport().getWorldWidth(), stage.getViewport().getWorldHeight());
             }
         }
     }
