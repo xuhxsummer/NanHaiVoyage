@@ -11,6 +11,7 @@ import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.Touchable;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
@@ -110,18 +111,19 @@ public class LoginScreen extends ScreenAdapter {
         } finally { generator.dispose(); }
     }
 
-    /** Small reusable nine-patches: stepped corners, untinted brass edges and inset shadow. */
+    /** Thick gold rims remain readable after the 1920-wide UI is scaled down on phones. */
     private Drawable frame(String name, String fill) {
-        Pixmap p = new Pixmap(32, 32, Pixmap.Format.RGBA8888);
-        p.setColor(Color.valueOf("A88A51")); p.fillRectangle(4, 0, 24, 32); p.fillRectangle(0, 4, 32, 24);
-        p.setColor(Color.valueOf("263744")); p.fillRectangle(4, 2, 24, 28); p.fillRectangle(2, 4, 28, 24);
-        p.setColor(Color.valueOf(fill)); p.fillRectangle(4, 4, 24, 24);
-        p.setColor(Color.valueOf("D8B974")); p.drawLine(8, 4, 23, 4);
-        p.setColor(0, 0, 0, .3f); p.fillRectangle(8, 26, 16, 2);
+        Pixmap p = new Pixmap(48, 48, Pixmap.Format.RGBA8888);
+        p.setColor(Color.valueOf("D8AE60")); p.fillRectangle(8, 0, 32, 48); p.fillRectangle(0, 8, 48, 32);
+        p.setColor(Color.valueOf("FFF0B5")); p.fillRectangle(10, 0, 28, 2);
+        p.setColor(Color.valueOf("70502C")); p.fillRectangle(8, 44, 32, 4);
+        // Replace pixels so the panel's translucent center isn't composited over opaque gold.
+        p.setBlending(Pixmap.Blending.None);
+        p.setColor(Color.valueOf(fill)); p.fillRectangle(6, 8, 36, 32); p.fillRectangle(8, 6, 32, 36);
         Texture texture = new Texture(p); p.dispose();
         texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
         loginSkin.add(name, texture);
-        NinePatch patch = new NinePatch(texture, 8, 8, 8, 8);
+        NinePatch patch = new NinePatch(texture, 12, 12, 12, 12);
         patch.setPadding(24, 24, 8, 8);
         return new NinePatchDrawable(patch);
     }
@@ -129,7 +131,7 @@ public class LoginScreen extends ScreenAdapter {
     private TextButton button(String text, Drawable up, Drawable down) {
         TextButton.TextButtonStyle style = new TextButton.TextButtonStyle(loginSkin.get(TextButton.TextButtonStyle.class));
         style.up = up; style.down = down; style.over = down;
-        style.fontColor = Color.valueOf("F4E3B8");
+        style.fontColor = Color.valueOf("FFF4D3");
         return new TextButton(text, style);
     }
 
@@ -155,20 +157,30 @@ public class LoginScreen extends ScreenAdapter {
         bg.fit(stage.getViewport().getWorldWidth(), stage.getViewport().getWorldHeight());
         stage.addActor(bg);
 
-        Drawable navy = frame("loginNavy", "102735F5");
-        Drawable hover = frame("loginHover", "244655");
-        Drawable red = frame("loginRed", "842D24");
-        Drawable redDown = frame("loginRedDown", "A6402D");
+        Drawable navy = frame("loginNavy", "091824");
+        Drawable hover = frame("loginHover", "204C61");
+        Drawable red = frame("loginRed", "B34428");
+        Drawable redDown = frame("loginRedDown", "DB6238");
+        Drawable registerBlue = frame("loginRegister", "235873");
+        Table formPanel = new Table();
+        formPanel.setName("loginFormPanel");
+        formPanel.setBackground(frame("loginPanel", "06111CEB"));
+        formPanel.setTouchable(Touchable.disabled);
+        place(formPanel, 504, 352, 912, 304);
         place(label("扬帆南海 · 通商万国", 32), 576, 672, 768, 56);
-        Label local = label("本机登录 · 本机存档（关掉不丢）", 24);
-        local.setColor(Color.valueOf("D3C5A7"));
+        Label local = label("本机登录 · 本机存档（关掉不丢）", 28);
+        local.setColor(Color.valueOf("FFF0CC"));
         place(local, 544, 600, 832, 40);
 
         TextField.TextFieldStyle fieldStyle = new TextField.TextFieldStyle(loginSkin.get("goldField", TextField.TextFieldStyle.class));
         fieldStyle.background = navy;
         fieldStyle.focusedBackground = hover;
-        fieldStyle.messageFont = loginSkin.getFont("font");
-        fieldStyle.messageFontColor = Color.valueOf("A5B0AF");
+        BitmapFont inputFont = font(38);
+        loginSkin.add("loginInput", inputFont);
+        fieldStyle.font = inputFont;
+        fieldStyle.fontColor = Color.valueOf("FFF7E4");
+        fieldStyle.messageFont = inputFont;
+        fieldStyle.messageFontColor = Color.valueOf("D4DCE1");
         final TextField user = new TextField("summer", fieldStyle);
         user.setName("loginUsername"); user.setMessageText("请输入用户名");
         final TextField pass = new TextField("summer", fieldStyle);
@@ -177,14 +189,16 @@ public class LoginScreen extends ScreenAdapter {
         for (int i = 0; i < 2; i++) {
             int y = 496 - i * 112;
             Table caption = new Table(); caption.setBackground(navy);
-            caption.add(label(i == 0 ? "用户名" : "密码", 32)).expand().fill();
+            Label captionLabel = label(i == 0 ? "用户名" : "密码", 40);
+            captionLabel.setColor(Color.valueOf("FFF4D3"));
+            caption.add(captionLabel).expand().fill();
             place(caption, 544, y, 192, 80);
         }
         place(user, 752, 496, 624, 80);
         place(pass, 752, 384, 624, 80);
         TextButton login = button("登录", red, redDown);
-        TextButton register = button("注册", navy, hover);
-        login.getLabel().setFontScale(1.5f); register.getLabel().setFontScale(1.5f);
+        TextButton register = button("注册", registerBlue, hover);
+        login.getLabel().setFontScale(1.75f); register.getLabel().setFontScale(1.75f);
         place(login, 552, 240, 352, 96);
         place(register, 1016, 240, 352, 96);
         login.addListener(new ClickListener() {
@@ -193,7 +207,8 @@ public class LoginScreen extends ScreenAdapter {
         register.addListener(new ClickListener() {
             @Override public void clicked(InputEvent e, float x, float y) { doRegister(user.getText(), pass.getText()); }
         });
-        msg = label("注册一个本机账号，或登录已有账号。", 24);
+        msg = label("注册一个本机账号，或登录已有账号。", 28);
+        msg.setColor(Color.valueOf("FFF0CC"));
         msg.setWrap(true);
         place(msg, 520, 144, 880, 72);
         String[] helpers = {"公告", "客服", "设置"};

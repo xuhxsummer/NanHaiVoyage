@@ -34,7 +34,7 @@ public final class LoginDynamicSmokeLauncher {
 
     public static void main(String[] args) throws Exception {
         Path temp = java.nio.file.Files.createTempDirectory("nanhai-login-dynamic-");
-        Path output = Path.of("../Builds/login2812").toAbsolutePath();
+        Path output = Path.of("../Builds/login2813").toAbsolutePath();
         Lwjgl3ApplicationConfiguration config = new Lwjgl3ApplicationConfiguration();
         config.setWindowedMode(1280, 720);
         config.disableAudio(true);
@@ -114,7 +114,30 @@ public final class LoginDynamicSmokeLauncher {
                 stage.setKeyboardFocus(null);
                 login.render(0);
                 Pixmap before = capture("still");
-                for (int i = 0; i < 24; i++) login.render(.1f);
+                // Observe a few seconds, including both extremes: subpixel shimmer passed
+                // the old changed-pixel check but was too subtle on the user's phone.
+                float[] min = new float[6], max = new float[6];
+                java.util.Arrays.fill(min, Float.POSITIVE_INFINITY);
+                java.util.Arrays.fill(max, Float.NEGATIVE_INFINITY);
+                for (int i = 0; i < 72; i++) {
+                    login.render(1f / 15);
+                    capture(String.format("motion-%03d", i)).dispose();
+                    for (int c = 0; c < 6; c++) {
+                        Actor cloth = harbor.getChildren().get(c + 1);
+                        boolean sail = cloth.getName().startsWith("sail");
+                        Vector2 tip = cloth.localToStageCoordinates(new Vector2(
+                                sail ? cloth.getWidth() / 2 : cloth.getWidth(),
+                                sail ? cloth.getHeight() : cloth.getHeight() / 2));
+                        stage.stageToScreenCoordinates(tip);
+                        float position = sail ? tip.x : tip.y;
+                        min[c] = Math.min(min[c], position); max[c] = Math.max(max[c], position);
+                    }
+                }
+                for (int c = 0; c < 6; c++) {
+                    String name = harbor.getChildren().get(c + 1).getName();
+                    System.out.println("LOGIN cloth travel: " + name + "=" + (max[c] - min[c]) + "px");
+                    require(max[c] - min[c] > 8, "readable wind travel for " + name);
+                }
                 Pixmap after = capture("wind-water");
                 try {
                     int sea = different(before, after, 930, 145, 1160, 200);

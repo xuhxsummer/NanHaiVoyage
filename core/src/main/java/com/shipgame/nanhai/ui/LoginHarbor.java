@@ -93,7 +93,7 @@ public final class LoginHarbor extends Group implements Disposable {
     @Override public void act(float delta) {
         // Clamp resume spikes and wrap phases to preserve precision in mobile GLSL.
         float step = MathUtils.clamp(delta, 0, .1f);
-        seaPhase = (seaPhase + step * .35f) % MathUtils.PI2;
+        seaPhase = (seaPhase + step * .9f) % MathUtils.PI2;
         super.act(step);
     }
 

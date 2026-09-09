@@ -10,9 +10,9 @@
       "height": 279,
       "pivotX": 53,
       "pivotY": 7,
-      "rotation": 0.38,
-      "pulse": 0.008,
-      "rate": 0.95,
+      "rotation": 1.7,
+      "pulse": 0.026,
+      "rate": 1.55,
       "phase": 0.8
     },
     {
@@ -23,9 +23,9 @@
       "height": 369,
       "pivotX": 18,
       "pivotY": 2,
-      "rotation": 0.48,
-      "pulse": 0.009,
-      "rate": 0.8,
+      "rotation": 2.0,
+      "pulse": 0.03,
+      "rate": 1.4,
       "phase": 0
     },
     {
@@ -36,9 +36,9 @@
       "height": 176,
       "pivotX": 18,
       "pivotY": 4,
-      "rotation": 0.65,
-      "pulse": 0.012,
-      "rate": 1.08,
+      "rotation": 2.4,
+      "pulse": 0.035,
+      "rate": 1.75,
       "phase": 1.6
     },
     {
@@ -49,9 +49,9 @@
       "height": 127,
       "pivotX": 2,
       "pivotY": 111,
-      "rotation": 2.0,
-      "pulse": 0.045,
-      "rate": 1.7,
+      "rotation": 7.0,
+      "pulse": 0.11,
+      "rate": 3.0,
       "phase": 0.2
     },
     {
@@ -62,9 +62,9 @@
       "height": 52,
       "pivotX": 1,
       "pivotY": 45,
-      "rotation": 2.5,
-      "pulse": 0.04,
-      "rate": 1.9,
+      "rotation": 8.5,
+      "pulse": 0.1,
+      "rate": 3.4,
       "phase": 0.9
     },
     {
@@ -75,9 +75,9 @@
       "height": 107,
       "pivotX": -3,
       "pivotY": 95,
-      "rotation": 2.2,
-      "pulse": 0.04,
-      "rate": 1.6,
+      "rotation": 7.5,
+      "pulse": 0.1,
+      "rate": 2.85,
       "phase": 1.3
     }
   ]

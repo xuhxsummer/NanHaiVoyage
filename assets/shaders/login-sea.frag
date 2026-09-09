@@ -14,12 +14,12 @@ void main() {
     float depth = smoothstep(0.63, 0.89, uv.y);
     float swell = sin(uv.y * 155.0 + uv.x * 19.0 - u_phase * 2.0);
     float ripple = sin(uv.y * 290.0 - uv.x * 37.0 + u_phase * 3.0);
-    vec2 drift = vec2(swell * 0.0025 + ripple * 0.001,
-                      ripple * 0.0009) * (0.35 + depth * 0.65) * water;
+    vec2 drift = vec2(swell * 0.008 + ripple * 0.0035,
+                      ripple * 0.0028) * (0.45 + depth * 0.55) * water;
     // A second mask sample keeps hull, shoreline and foreground props out of the distortion.
     float interior = water * texture2D(u_mask, uv + drift).a;
     vec4 still = texture2D(u_texture, uv);
     vec4 moving = texture2D(u_texture, uv + drift);
-    moving.rgb *= 1.0 + 0.055 * swell + 0.025 * ripple;
+    moving.rgb *= 1.0 + 0.12 * swell + 0.055 * ripple;
     gl_FragColor = v_color * mix(still, moving, interior);
 }
