@@ -17,3 +17,13 @@
 - `python3 tools/check_ui_font.py`：检查所有对白用字。
 
 截图保存在 gitignored 的 `Builds/dialogue2815/`。没有新增立绘、配音、分支或外部资源包。
+
+## 支线扩展（0.28.16）
+
+追加 ID 19–30 的十二个独立任务，各有三句原创对白：盐风入灶、米香到埠、棉布裁春、胡椒小札、琉璃映潮、一篓乡味、十港邮灯、五屿拾青、清波护渡、三味茶话、万两归帆、异兽旁笺。采用 Catalog 的货物、港口和岛屿名，延续武周商旅与《南海见闻录》的叙述。支线均可独立完成；没有插入主线 unlockAfter 链。
+
+任务列表标明主线/支线，顶部按钮可跳至对应列表。点支线行打开相同的逐句对话，末页「详情 / 领奖」回到对应任务详情；关闭/跳过也返回详情。详情保留进度、奖励、前往和领取按钮，未完成不可领取，重复点击不重复发奖。主线 HUD 与下一程预告都限制在 0–18，支线不会替代当前主线，也不会触发主线自动播放。
+
+`sideQuestClaims` 使用从 ID 19 开始的独立 long 位集；新增 `questGoodsBought` / `questGoodsSold` 按商品保存累计成功交易数量。其余支线复用现有捕鱼、访港、搜采、亲手击败海盗、银两峰值与异兽发现计数。旧档新增字段为零；原主线领取标记及 `questDialogueSeen` 不变。
+
+新增验证：`sideQuestRegression` 检查全部十二条、领奖幂等性、真实交易计数与 JSON 新旧存档；`xvfb-run -a ./gradlew :lwjgl3:sideTrafficSmoke` 检查真实点行、对话推进、详情领取、重播、存档和宽屏。主线 `questStoryRegression` 与 `questDialogueSmoke` 保留原十九条的完整校验。

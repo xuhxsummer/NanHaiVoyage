@@ -84,6 +84,12 @@ public class GameState {
     public float windStr = 0.35f;
     public float weatherTimer = 18f;
 
+    public MerchantData merchant;
+    public float merchantSpawnTimer = 45f;
+    public boolean merchantLock;
+    public int pirateDamage = 1;
+    private int pirateGeneration, merchantGeneration;
+    private static final int PLAYER = 0, PIRATE = 1, MERCHANT = 2;
     public boolean pirateAlive;
     public float pirateX, pirateY, pirateHeading, pirateHp, pirateHpMax;
     public boolean pirateChase;
@@ -91,8 +97,8 @@ public class GameState {
     public float playerFireCd, pirateFireCd;
     public float pirateSpawnTimer = 12f;
     // 0.26.2: discrete flying cannonballs instead of an instant laser line.
-    // Runtime-only (never persisted). Player balls are white, pirate balls black.
-    public static final int MAX_BALLS = 16;
+    // Runtime-only projectiles. Player balls are white; NPC balls are black.
+    public static final int MAX_BALLS = 48;
     public int ballCount;
     public final float[] ballX = new float[MAX_BALLS];
     public final float[] ballY = new float[MAX_BALLS];
@@ -104,6 +110,8 @@ public class GameState {
     public final float[] ballT = new float[MAX_BALLS];     // seconds remaining
     public final float[] ballDur = new float[MAX_BALLS];
     public final boolean[] ballFromPlayer = new boolean[MAX_BALLS];
+    private final int[] ballTarget = new int[MAX_BALLS], ballGeneration = new int[MAX_BALLS];
+    private final int[] ballDamage = new int[MAX_BALLS];
 
     public boolean holdAccel, holdDecel;
     public float steerInput; // Screen-left is -1; subtract it: +heading yaws left in (x, height, -y).
@@ -133,6 +141,10 @@ public class GameState {
 
     public int lastPort = 0;
     // 0.26.1 任务 tracking (runtime; persisted via SaveData).
+    // IDs 19+ have an independent claim bitset; main dialogue bits stay 0–18.
+    public long sideQuestClaims;
+    public int[] questGoodsBought = new int[Catalog.GOODS.length];
+    public int[] questGoodsSold = new int[Catalog.GOODS.length];
     public int questSellSilk;
     public int questDialogueSeen;
     public int questVisitPorts;
@@ -251,6 +263,9 @@ public class GameState {
         s.fishCaughtTotal = fishCaughtTotal;
         s.questSellSilk = questSellSilk;
         s.questDialogueSeen = questDialogueSeen;
+        s.sideQuestClaims = sideQuestClaims;
+        s.questGoodsBought = questGoodsBought.clone();
+        s.questGoodsSold = questGoodsSold.clone();
         s.questVisitPorts = questVisitPorts;
         s.questDefeatedPirates = questDefeatedPirates;
         s.questBeastsFound = questBeastsFound;
@@ -288,7 +303,16 @@ public class GameState {
         s.questClaimSellPorcelain = questClaimSellPorcelain;
         s.questClaimIslandExplore = questClaimIslandExplore;
         s.costPaid = costPaid.clone();
+        s.pirateAlive = pirateAlive;
+        s.pirateX = pirateX; s.pirateY = pirateY; s.pirateHeading = pirateHeading;
+        s.pirateHp = pirateHp; s.pirateDamage = pirateDamage; s.pirateSpawnTimer = pirateSpawnTimer;
+        s.merchant = merchant == null ? null : merchant.copy();
+        s.merchantSpawnTimer = merchantSpawnTimer;
         return s;
+    }
+
+    private static boolean finite(float value) {
+        return !Float.isNaN(value) && !Float.isInfinite(value); // Also supported on Android API 21.
     }
 
     public static GameState fromSave(SaveData s) {
@@ -353,6 +377,9 @@ public class GameState {
             g.fishTimer = 0f;
             g.questSellSilk = s.questSellSilk;
             g.questDialogueSeen = s.questDialogueSeen;
+            g.sideQuestClaims = s.sideQuestClaims;
+            if (s.questGoodsBought != null) System.arraycopy(s.questGoodsBought, 0, g.questGoodsBought, 0, Math.min(s.questGoodsBought.length, g.questGoodsBought.length));
+            if (s.questGoodsSold != null) System.arraycopy(s.questGoodsSold, 0, g.questGoodsSold, 0, Math.min(s.questGoodsSold.length, g.questGoodsSold.length));
             g.questVisitPorts = s.questVisitPorts;
             g.questVisitPortSet = s.questVisitPortSet;
             g.questDefeatedPirates = s.questDefeatedPirates;
@@ -407,7 +434,30 @@ public class GameState {
             g.y=MathUtils.clamp(g.y,40,Catalog.WORLD_H-40);
             g.headingDeg = (!Float.isNaN(s.headingDeg) && !Float.isInfinite(s.headingDeg)) ? s.headingDeg : 0f;
             g.speed = 0;
-            g.clearPirate();
+            if (s.pirateAlive && finite(s.pirateX) && finite(s.pirateY)
+                    && finite(s.pirateHp) && s.pirateHp > 0) {
+                g.pirateAlive = true;
+                g.pirateX = s.pirateX; g.pirateY = s.pirateY;
+                g.pirateHeading = finite(s.pirateHeading) ? s.pirateHeading : 0;
+                g.pirateHpMax = Catalog.PIRATE_HP; g.pirateHp = Math.min(s.pirateHp, g.pirateHpMax);
+                g.pirateDamage = MathUtils.clamp(s.pirateDamage, 1, 10);
+                g.pirateFireCd = .4f;
+            }
+            g.pirateSpawnTimer = finite(s.pirateSpawnTimer) ? Math.max(1, s.pirateSpawnTimer) : 12;
+            if (s.merchant != null && s.merchant.ship >= 0 && s.merchant.ship < Catalog.SHIPS.length
+                    && finite(s.merchant.x) && finite(s.merchant.y)
+                    && finite(s.merchant.hp) && s.merchant.hp > 0) {
+                g.merchant = s.merchant.copy();
+                g.merchant.x = MathUtils.clamp(g.merchant.x, 80, Catalog.WORLD_W-80);
+                g.merchant.y = MathUtils.clamp(g.merchant.y, 80, Catalog.WORLD_H-80);
+                g.merchant.silver = MathUtils.clamp(g.merchant.silver, 0, 90);
+                g.merchant.cargo = MathUtils.clamp(g.merchant.cargo, 0, 3);
+                g.merchant.cargoGood = MathUtils.clamp(g.merchant.cargoGood, 0, Catalog.GOODS.length-1);
+                g.merchant.damage = merchantDamage(g.merchant.ship);
+                g.merchant.hpMax = merchantHull(g.merchant.ship);
+                g.merchant.hp = Math.min(g.merchant.hp, g.merchant.hpMax);
+            }
+            g.merchantSpawnTimer = finite(s.merchantSpawnTimer) ? Math.max(1, s.merchantSpawnTimer) : 45;
             g.autoSail = false;
             g.autoSailPort = -1;
             g.autoSailIsle = -1;
@@ -577,6 +627,10 @@ public class GameState {
                 spawnPirate();
             }
         }
+        updateMerchant(dt);
+        updatePlayerFire(dt);
+        updateBalls(dt);
+        if (failed) return;
         // 0.27.2: 靠近港口/岛屿不再自动靠泊/登岛（tryApproach 已移除）——
         // 玩家必须在范围内点击港口/岛屿图标才会打开对应菜单。自动航行
         // 抵达目标时停船等待，由界面提示点击。
@@ -643,6 +697,7 @@ public class GameState {
             x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
             y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
             if(pirateAlive) resolveCollision(pirateX,pirateY,VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius()+6f);
+            if (merchant != null) resolveCollision(merchant.x, merchant.y, VoyageGeometry.ship(merchant.ship).radius()+6f);
             ensureLandClearance();
             x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
             y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
@@ -852,7 +907,7 @@ public class GameState {
         islandMenu = -1;
         speed = 0f;
         stopAutoSail();
-        clearPirate();
+        cancelLock(); // Docking pauses traffic; it does not erase nearby ships.
         // 任务追踪：访问新港口
         if ((questVisitPortSet & (1 << port)) == 0) {
             questVisitPortSet |= (1 << port);
@@ -941,6 +996,7 @@ public class GameState {
         costPaid[good] += cost;
         // 任务追踪：买点货 / 买 10 茶叶
         questBuyCount++;
+        questGoodsBought[good] += qty;
         if (good == 2) { // 茶叶 = GOODS[2]
             questBuyTea += qty;
         }
@@ -964,6 +1020,7 @@ public class GameState {
             }
         }
         trade[good] -= qty;
+        questGoodsSold[good] += qty;
         silver += gain;
         // 任务追踪：卖出丝绸 / 卖 30 瓷器
         if (good == 0) {
@@ -1453,11 +1510,7 @@ public class GameState {
         manualHeadingActive = false;
     }
 
-    /** Seconds between two player cannon shots. 0.25.9 balance: every hit —
-     * from either side — costs exactly 1 point (耐久 / pirate HP), so the
-     * 升炮火 upgrade and a bigger crew no longer hit harder; they reload
-     * faster instead (each cannon level and crew member shortens the interval
-     * a bit), which keeps upgrades meaningful under the flat-1 combat rule. */
+    /** Player hits retain one damage; cannon upgrades and roster fire bonuses improve reload. */
     public float fireInterval() {
         float rate = 1f + 0.15f * Math.max(0, cannonLevel - 1) + 0.04f * Math.max(0, crew - 1);
         float shipFire = 1f + Catalog.SHIP_FIRE[ship] / 100f;
@@ -1480,84 +1533,189 @@ public class GameState {
         return false;
     }
 
-    /** Locks the only enemy in the current encounter (used by the visible HUD
-     * button as well as direct taps on the pirate sprite). */
+    /** Focus the pirate; merchants can independently remain hostile. */
     public void lockPirate() {
         if (!pirateAlive) {
             return;
         }
         combatLock = true;
+        merchantLock = false;
         playerFireCd = Math.min(playerFireCd, 0.08f);
         toast("已锁定海盗，自动连续开火。");
     }
 
     public void cancelLock() {
         combatLock = false;
+        merchantLock = false;
         toast("取消锁定。");
     }
 
     private void spawnPirate() {
-        pirateSpawnTimer = 22f + MathUtils.random(28f);
-        // Ports are safe waters. Postpone the roll instead of spawning an enemy
-        // on top of a docking popup where it cannot be selected or fought.
-        for (int i = 0; i < Catalog.PORTS.length; i++) {
-            if (Catalog.dist(x, y, Catalog.PORT_X[i], Catalog.PORT_Y[i]) < 240f) {
-                pirateSpawnTimer = 8f;
-                return;
+        pirateSpawnTimer = 55f + MathUtils.random(40f);
+        if (pirateAlive) return;
+        for (int i=0;i<Catalog.PORTS.length;i++) {
+            if (Catalog.dist(x,y,Catalog.PORT_X[i],Catalog.PORT_Y[i]) < 240f) {
+                pirateSpawnTimer = 8f; return;
             }
         }
-        float ang = MathUtils.random(360f) * MathUtils.degreesToRadians;
-        pirateX = MathUtils.clamp(x + MathUtils.cos(ang) * 300f, 50f, Catalog.WORLD_W - 50f);
-        pirateY = MathUtils.clamp(y + MathUtils.sin(ang) * 300f, 50f, Catalog.WORLD_H - 50f);
-        pirateHeading = MathUtils.atan2(y - pirateY, x - pirateX) * MathUtils.radiansToDegrees;
-        pirateHpMax = Catalog.PIRATE_HP;
-        pirateHp = pirateHpMax;
-        pirateAlive = true;
-        ensurePirateSeparation();
-        pirateChase = false;
-        combatLock = false;
-        playerFireCd = 0f;
-        pirateFireCd = 0.4f;
-        toast(autoSail ? "遭遇海盗，自动航行继续。可点船锁定还击。"
-                : "遭遇海盗！点船锁定开火。默认就地打；还击会追得紧。");
+        float[] point = trafficSpawn(VoyageGeometry.PIRATE_SHIP);
+        if (point == null) { pirateSpawnTimer = 8f; return; }
+        pirateX = point[0]; pirateY = point[1];
+        pirateHeading = MathUtils.atan2(y-pirateY,x-pirateX)*MathUtils.radiansToDegrees;
+        pirateHp = pirateHpMax = Catalog.PIRATE_HP;
+        pirateDamage = MathUtils.random(1,10); // Roll ONCE for this ship's entire life.
+        pirateGeneration++;
+        pirateAlive = true; pirateChase = false;
+        pirateFireCd = .4f;
+        toast("外海发现海盗，可绕航避开。进入680范围会遭炮击。" + (autoSail ? "自动航行继续。" : ""));
+    }
+
+    private float[] trafficSpawn(int hullType) {
+        for (int n=0;n<64;n++) {
+            float angle=MathUtils.random(360f), radius=MathUtils.random(Catalog.NPC_SPAWN_MIN,Catalog.NPC_SPAWN_MAX);
+            float px=x+MathUtils.cosDeg(angle)*radius, py=y+MathUtils.sinDeg(angle)*radius;
+            if (trafficWaterClear(px,py,hullType)
+                    && (!pirateAlive || Catalog.dist(px,py,pirateX,pirateY)>180)
+                    && (merchant==null || Catalog.dist(px,py,merchant.x,merchant.y)>180)) return new float[]{px,py};
+        }
+        return null; // Never clamp a spawn into fire range or onto land.
+    }
+
+    private boolean trafficWaterClear(float px,float py,int type) {
+        float r=VoyageGeometry.ship(type).radius()+12;
+        if(px<r || py<r || px>Catalog.WORLD_W-r || py>Catalog.WORLD_H-r) return false;
+        for(int i=0;i<Catalog.PORTS.length;i++)
+            if(Catalog.dist(px,py,Catalog.PORT_X[i],Catalog.PORT_Y[i])<r+VoyageGeometry.landRadius(true,i)) return false;
+        for(int i=0;i<Catalog.ISLANDS.length;i++)
+            if(Catalog.dist(px,py,Catalog.ISLAND_X[i],Catalog.ISLAND_Y[i])<r+VoyageGeometry.landRadius(false,i)) return false;
+        return true;
     }
 
     private void updateCombat(float dt) {
-        ensurePirateSeparation();
-        float d = Catalog.dist(x, y, pirateX, pirateY);
-        if (d > Catalog.PIRATE_FLEE_RANGE) {
-            toast(autoSail ? "已甩开海盗，继续自动航行。" : "已开出范围，海盗停火。");
+        float d=Catalog.dist(x,y,pirateX,pirateY);
+        if (d>Catalog.NPC_HORIZON) {
             clearPirate();
+            toast(autoSail ? "已驶出海盗海域，自动航行继续。" : "已驶出海盗海域。");
             return;
         }
-        // Player fires a WHITE cannonball (damage lands when it reaches the
-        // pirate, not instantly). Pirate fires BLACK balls back, 1 point each.
-        if (combatLock && d <= Catalog.PIRATE_RANGE) {
-            playerFireCd -= dt;
-            if (playerFireCd <= 0f) {
-                playerFireCd = fireInterval();
-                spawnBall(true, x, y, pirateX, pirateY);
+        // Stationary, no retaliation chase. Either nearby ship can draw its fire.
+        float md=merchant==null ? Float.MAX_VALUE : Catalog.dist(pirateX,pirateY,merchant.x,merchant.y);
+        if (Math.min(d,md)<=Catalog.PIRATE_RANGE) {
+            boolean player=d<=md;
+            float tx=player?x:merchant.x, ty=player?y:merchant.y;
+            pirateHeading=MathUtils.atan2(ty-pirateY,tx-pirateX)*MathUtils.radiansToDegrees;
+            pirateFireCd-=dt;
+            if(pirateFireCd<=0) {
+                pirateFireCd=Catalog.PIRATE_FIRE_INTERVAL;
+                fireAt(false,player?PLAYER:MERCHANT,pirateDamage,pirateX,pirateY,tx,ty);
             }
         }
-        if (d <= Catalog.PIRATE_RANGE) {
-            pirateFireCd -= dt;
-            if (pirateFireCd <= 0f) {
-                pirateFireCd = Catalog.PIRATE_FIRE_INTERVAL;
-                spawnBall(false, pirateX, pirateY, x, y);
+    }
+
+    public boolean merchantVisible() {
+        return merchant!=null && Catalog.dist(x,y,merchant.x,merchant.y)<=Catalog.NPC_HORIZON;
+    }
+
+    public void lockMerchant() {
+        if(!merchantVisible() || worldPaused() || failed) return;
+        merchantLock=true; combatLock=false; merchant.hostile=true;
+        playerFireCd=Math.min(playerFireCd,.08f);
+        toast("已锁定商船掠夺，对方会还击。亲手击沉才可获得财货。");
+    }
+
+    public static int merchantDamage(int ship) { return 1+Catalog.SHIP_FIRE[ship]/10; }
+    public static float merchantHull(int ship) { return 28+Catalog.SHIP_FIRE[ship]+Catalog.SHIP_HOLD[ship]/2f; }
+
+    private void spawnMerchant() {
+        if(merchant!=null) return; // Global cap one, even when outside the horizon.
+        int type=MathUtils.random(Catalog.SHIPS.length-1);
+        float[] point=trafficSpawn(type);
+        if(point==null) { merchantSpawnTimer=15; return; }
+        MerchantData m=new MerchantData(); m.ship=type; m.x=point[0]; m.y=point[1];
+        m.hp=m.hpMax=merchantHull(type); m.damage=merchantDamage(type);
+        m.silver=25+MathUtils.random(20); m.cargoGood=MathUtils.random(Catalog.GOODS.length-1); m.cargo=1;
+        merchant=m; merchantGeneration++;
+        m.targetPort=0;
+        for(int i=1;i<Catalog.PORTS.length;i++)
+            if(Catalog.dist(m.x,m.y,Catalog.PORT_X[i],Catalog.PORT_Y[i])<Catalog.dist(m.x,m.y,Catalog.PORT_X[m.targetPort],Catalog.PORT_Y[m.targetPort])) m.targetPort=i;
+        toast("远处驶来一艘"+Catalog.SHIPS[type]+"，正循商路航行。点船可锁定掠夺。");
+    }
+
+    private void updateMerchant(float dt) {
+        if(merchant==null) {
+            merchantSpawnTimer-=dt;
+            if(merchantSpawnTimer<=0) spawnMerchant();
+            return;
+        }
+        MerchantData m=merchant;
+        if(!merchantVisible()) merchantLock=false; // Entity/hostility persist, only focus leaves range.
+        float pd=Catalog.dist(x,y,m.x,m.y);
+        float enemy=pirateAlive?Catalog.dist(m.x,m.y,pirateX,pirateY):Float.MAX_VALUE;
+        boolean firePlayer=m.hostile && pd<=Catalog.PIRATE_RANGE && pd<=enemy;
+        if(firePlayer || enemy<=Catalog.PIRATE_RANGE) {
+            m.fireCd-=dt;
+            if(m.fireCd<=0) {
+                m.fireCd=1.1f/(1+Catalog.SHIP_FIRE[m.ship]/100f);
+                fireAt(false,firePlayer?PLAYER:PIRATE,m.damage,m.x,m.y,firePlayer?x:pirateX,firePlayer?y:pirateY);
             }
         }
-        if (pirateChase) {
-            pirateHeading = MathUtils.atan2(y - pirateY, x - pirateX) * MathUtils.radiansToDegrees;
-            float rad = pirateHeading * MathUtils.degreesToRadians;
-            // It mostly fights in place. Retaliating provokes pursuit, but the
-            // player can still escape by sailing well and opening the gap.
-            // Analytically cap inward travel at hull contact, even for a long frame.
-            float travel=Math.min(105f*Math.max(0,dt),Math.max(0,d-VoyageGeometry.pirateSeparation(ship)));
-            pirateX += MathUtils.cos(rad) * travel;
-            pirateY += MathUtils.sin(rad) * travel;
-            ensurePirateSeparation();
+        // AI and trade continue off-screen; no spawning a replacement for a distant trader.
+        if(m.rest>0) { m.rest=Math.max(0,m.rest-dt); return; }
+        if(m.targetPort<0 && m.targetIsland<0 || m.targetPort>=Catalog.PORTS.length || m.targetIsland>=Catalog.ISLANDS.length) chooseMerchantRoute(m);
+        boolean port=m.targetPort>=0;
+        int index=port?m.targetPort:m.targetIsland;
+        float tx=port?Catalog.PORT_X[index]:Catalog.ISLAND_X[index];
+        float ty=port?Catalog.PORT_Y[index]:Catalog.ISLAND_Y[index];
+        if(Catalog.dist(m.x,m.y,tx,ty)<VoyageGeometry.landRadius(port,index)+110) {
+            m.silver=Math.min(90,m.silver+(port?4:2));
+            m.cargo=Math.min(3,m.cargo+1);
+            if(port) m.cargoGood=(m.cargoGood+1)%Catalog.GOODS.length;
+            m.rest=port?9:15;
+            chooseMerchantRoute(m); return;
         }
-        updateBalls(dt);
+        float speed=58*(1+Catalog.SHIP_SPEED[m.ship]/100f);
+        int steps=Math.max(1,(int)Math.ceil(dt*speed/10));
+        for(int step=0;step<steps;step++) {
+            float angle=MathUtils.atan2(ty-m.y,tx-m.x)*MathUtils.radiansToDegrees;
+            for(int n=0;n<12;n++) {
+                float offset=((n+1)/2)*30*(n%2==0?1:-1);
+                float heading=angle+offset;
+                float nx=m.x+MathUtils.cosDeg(heading)*speed*dt/steps, ny=m.y+MathUtils.sinDeg(heading)*speed*dt/steps;
+                if(!trafficWaterClear(nx,ny,m.ship)) continue;
+                if(pirateAlive && Catalog.dist(nx,ny,pirateX,pirateY)<VoyageGeometry.ship(m.ship).radius()+VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius()+8) continue;
+                if(Catalog.dist(nx,ny,x,y)<VoyageGeometry.ship(m.ship).radius()+VoyageGeometry.ship(ship).radius()+8) continue;
+                m.x=nx;m.y=ny;m.heading=heading;break;
+            }
+        }
+    }
+
+    private void chooseMerchantRoute(MerchantData m) {
+        int previous=m.targetPort;
+        m.targetPort=-1; m.targetIsland=-1;
+        if(MathUtils.random(7)==0) m.targetIsland=MathUtils.random(Catalog.ISLANDS.length-1);
+        else {
+            int next=MathUtils.random(Catalog.PORTS.length-2);
+            m.targetPort=next>=previous && previous>=0 ? next+1 : next;
+        }
+    }
+
+    private void updatePlayerFire(float dt) {
+        int target=combatLock && pirateAlive?PIRATE:merchantLock && merchant!=null?MERCHANT:-1;
+        if(target<0) return;
+        float tx=target==PIRATE?pirateX:merchant.x, ty=target==PIRATE?pirateY:merchant.y;
+        if(Catalog.dist(x,y,tx,ty)>Catalog.PIRATE_RANGE) return;
+        playerFireCd-=dt;
+        if(playerFireCd<=0) {
+            playerFireCd=fireInterval(); fireAt(true,target,1,x,y,tx,ty);
+        }
+    }
+
+    private void fireAt(boolean player,int target,int damage,float sx,float sy,float tx,float ty) {
+        int i=ballCount;
+        spawnBall(player,sx,sy,tx,ty);
+        if(ballCount==i) return;
+        ballTarget[i]=target; ballDamage[i]=damage;
+        ballGeneration[i]=target==PIRATE?pirateGeneration:target==MERCHANT?merchantGeneration:0;
     }
 
     /** Fires one cannonball along a straight line toward the target. Travel time
@@ -1584,6 +1742,9 @@ public class GameState {
         ballT[i] = dur;
         ballDur[i] = dur;
         ballFromPlayer[i] = fromPlayer;
+        ballTarget[i] = fromPlayer ? PIRATE : PLAYER;
+        ballGeneration[i] = fromPlayer ? pirateGeneration : 0;
+        ballDamage[i] = fromPlayer ? 1 : pirateDamage;
         ballCount++;
     }
 
@@ -1600,32 +1761,19 @@ public class GameState {
                 i++;
                 continue;
             }
-            boolean hit = false;
-            if (ballFromPlayer[i] && pirateAlive
-                    && Catalog.dist(ballX[i], ballY[i], pirateX, pirateY) <= 100f) {
-                // 0.25.9: every player hit deals a flat 1 point.
-                pirateHp -= 1f;
-                pirateChase = true;
-                hit = true;
-                if (pirateHp <= 0f) {
-                    removeBall(i);
-                    winCombat();
-                    return;
-                }
-            } else if (!ballFromPlayer[i]
-                    && Catalog.dist(ballX[i], ballY[i], x, y) <= 90f) {
-                hull -= Catalog.PIRATE_SHOT; // 1 点耐久 / 海盗弹
-                hit = true;
-                if (hull <= 0f) {
-                    removeBall(i);
-                    hull = 0f;
-                    fail("船沉");
-                    return;
-                }
-            }
-            removeBall(i);
-            if (!hit) {
-                // miss: ball splashes into the sea, nothing else happens
+            int target=ballTarget[i], damage=ballDamage[i], generation=ballGeneration[i];
+            boolean player=ballFromPlayer[i];
+            float bx=ballX[i], by=ballY[i];
+            removeBall(i); // Removing a target never changes attribution of other in-flight shots.
+            if(target==PIRATE && pirateAlive && generation==pirateGeneration && Catalog.dist(bx,by,pirateX,pirateY)<=100) {
+                pirateHp-=damage;
+                if(pirateHp<=0) { if(player) winCombat(); else clearPirate(); }
+            } else if(target==MERCHANT && merchant!=null && generation==merchantGeneration && Catalog.dist(bx,by,merchant.x,merchant.y)<=100) {
+                merchant.hp-=damage;
+                if(merchant.hp<=0) sinkMerchant(player);
+            } else if(target==PLAYER && Catalog.dist(bx,by,x,y)<=90) {
+                hull=Math.max(0,hull-damage);
+                if(hull<=0) { fail("船沉"); return; }
             }
         }
     }
@@ -1643,11 +1791,13 @@ public class GameState {
             ballT[i] = ballT[last];
             ballDur[i] = ballDur[last];
             ballFromPlayer[i] = ballFromPlayer[last];
+            ballTarget[i] = ballTarget[last]; ballGeneration[i] = ballGeneration[last]; ballDamage[i] = ballDamage[last];
         }
         ballCount--;
     }
 
     private void winCombat() {
+        if (!pirateAlive) return;
         questDefeatedPirates++;
         int loot = 25 + MathUtils.random(55);
         silver += loot;
@@ -1668,12 +1818,25 @@ public class GameState {
         pirateAlive = false;
         combatLock = false;
         pirateChase = false;
-        ballCount = 0; // in-flight balls vanish with the encounter
+        pirateSpawnTimer = Math.max(pirateSpawnTimer, 55f);
+        // Shots already fired retain their target and rolled damage until impact.
+    }
+
+    private void sinkMerchant(boolean playerKill) {
+        if(merchant==null) return;
+        if(playerKill) {
+            int cargo=Math.min(cargoFree(),merchant.cargo);
+            silver+=merchant.silver; trade[merchant.cargoGood]+=cargo;
+            toast("击沉商船，自动收取银两"+merchant.silver+"、"+Catalog.GOODS[merchant.cargoGood]+"×"+cargo+"。"+(cargo<merchant.cargo?"货舱不足，余货沉没。":""));
+        }
+        merchant=null; merchantLock=false;
+        merchantSpawnTimer=120f+MathUtils.random(80f);
     }
 
     public void fail(String reason) {
         failed = true;
         failReason = reason;
+        merchantLock = false; ballCount = 0;
         stopAutoSail();
         clearPirate();
         speed = 0f;

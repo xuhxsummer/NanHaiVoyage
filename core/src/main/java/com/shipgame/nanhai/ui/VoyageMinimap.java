@@ -64,8 +64,15 @@ public final class VoyageMinimap extends Actor implements Disposable {
                 if(art!=null) art.draw(batch,cx+dx-14,cy+dy-14,28,28);
             }
         }
+        if(g.pirateAlive) dot(batch,cx,cy,r,wx,wy,scale,g.pirateX,g.pirateY,Color.SCARLET);
+        if(g.merchantVisible()) dot(batch,cx,cy,r,wx,wy,scale,g.merchant.x,g.merchant.y,Color.GOLD);
+        batch.setColor(Color.WHITE);
         float sx=cx+(g.x-wx)*scale,sy=cy+(g.y-wy)*scale,a=g.headingDeg*MathUtils.degreesToRadians;
         quad(batch,pixel,sx+MathUtils.cos(a)*13,sy+MathUtils.sin(a)*13,sx+MathUtils.cos(a+2.5f)*10,sy+MathUtils.sin(a+2.5f)*10,sx+MathUtils.cos(a-2.5f)*10,sy+MathUtils.sin(a-2.5f)*10,0,0,0,0,0,0,Color.valueOf("A5D69A").toFloatBits());
+    }
+    private void dot(Batch batch,float cx,float cy,float r,float wx,float wy,float scale,float x,float y,Color color) {
+        float dx=(x-wx)*scale,dy=(y-wy)*scale;
+        if(dx*dx+dy*dy<(r-6)*(r-6)) { batch.setColor(color); batch.draw(pixel,cx+dx-4,cy+dy-4,8,8); }
     }
     @Override public void dispose(){chart.dispose();pixel.dispose();}
 }

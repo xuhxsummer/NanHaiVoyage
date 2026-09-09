@@ -127,3 +127,18 @@ tasks.register('questDialogueSmoke', JavaExec) {
     mainClass.set('com.shipgame.nanhai.lwjgl3.QuestDialogueSmokeLauncher')
     workingDir = rootProject.file('assets').path
 }
+
+['seaTrafficRegression': 'SeaTrafficRegression', 'sideQuestRegression': 'SideQuestRegression'].each { taskName, launcher ->
+    tasks.register(taskName, JavaExec) {
+        dependsOn classes
+        classpath = sourceSets.main.runtimeClasspath
+        mainClass.set('com.shipgame.nanhai.lwjgl3.' + launcher)
+    }
+}
+
+tasks.register('sideTrafficSmoke', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.SideTrafficSmokeLauncher')
+    workingDir = rootProject.file('assets').path
+}

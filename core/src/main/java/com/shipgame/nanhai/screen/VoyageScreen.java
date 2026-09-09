@@ -115,7 +115,7 @@ public class VoyageScreen extends ScreenAdapter {
             + "1. 航行：左侧摇杆控制船头方向，右侧按钮控制加速和减速。补给耗尽或耐久降到 0，航程就会失败。\n"
             + "2. 港口贸易：不同港口的货价不同。低价买入、高价卖出可以赚取银两；点击「行情」可查看各港价格。\n"
             + "3. 岛屿探索：靠近岛屿后可以搜索草药和《山海经》异兽。发现后会收入货舱并加入图鉴，也可以带到港口出售。\n"
-            + "4. 海盗战斗：点击海盗船即可锁定并自动开炮。再次点击取消锁定，也可以驶出战斗范围逃跑。\n"
+            + "4. 海上船只：海盗在680范围主动开火，可绕航避开；点船锁定还击。商船锁定后会反击，仅亲手击沉获得财货。\n"
             + "5. 船只成长：耐久代表船的生命；仓库升级可增加货舱容量；编制升级后可以雇佣更多船员；炮火和船员会提高开炮速度。\n"
             + "6. 补给与存档：回港可补给、修船、升级和保存进度。没钱补给时可以借债，但每次靠港会增加 2% 利息。\n"
             + "7. 地图：点击右上角小地图打开全图，再点港口或岛屿，船会自动驶向目标。";
@@ -147,6 +147,7 @@ public class VoyageScreen extends ScreenAdapter {
     private int hintPort = -1;
     private int hintIsland = -1;
     private int selectedQuest = -1;
+    private static final int MAIN_QUEST_COUNT = 19;
     private int dialogueQuest = -1;
     private boolean dialoguePreview;
     private QuestUi questUi;
@@ -488,7 +489,7 @@ public class VoyageScreen extends ScreenAdapter {
         int active = getActiveQuestIndex();
         dialoguePreview = card == 1;
         dialogueQuest = active < 0 ? -1 : (dialoguePreview ? active + 1 : active);
-        if (dialogueQuest >= QUESTS.length) dialogueQuest = -1;
+        if (dialogueQuest >= MAIN_QUEST_COUNT) dialogueQuest = -1;
         overlay = Overlay.DIALOGUE;
         rebuildMenu();
         if (!dialoguePreview && dialogueQuest >= 0) {
@@ -504,6 +505,14 @@ public class VoyageScreen extends ScreenAdapter {
             openQuestDialogue(0);
     }
 
+    private void openSideDialogue(int index) {
+        if (overlay != Overlay.QUESTS || index < MAIN_QUEST_COUNT || index >= QUESTS.length) return;
+        selectedQuest = dialogueQuest = index;
+        dialoguePreview = false;
+        overlay = Overlay.DIALOGUE;
+        rebuildMenu();
+    }
+
     private void buildQuestDialogue() {
         if (questUi == null) questUi = new QuestUi(game.skin);
         if (dialogueQuest < 0) {
@@ -515,6 +524,17 @@ public class VoyageScreen extends ScreenAdapter {
             return;
         }
         final QuestDef q = QUESTS[dialogueQuest];
+        if (q.id >= MAIN_QUEST_COUNT) {
+            Runnable detail = () -> {
+                if (overlay != Overlay.DIALOGUE || dialogueQuest != q.id) return;
+                selectedQuest = q.id;
+                overlay = Overlay.QUESTS;
+                rebuildMenu();
+            };
+            menuRoot.add(new QuestDialogue(game.skin, questUi, "支线 · " + q.title,
+                    q.dialogue, q.description, "详情 / 领奖", detail, detail)).grow();
+            return;
+        }
         boolean unlocked = q.unlockAfter < 0 || isQuestClaimed(g, QUESTS[q.unlockAfter]);
         if (dialoguePreview && !unlocked) {
             menuRoot.add(new QuestDialogue(game.skin, questUi, "下一程 · " + q.title,
@@ -662,6 +682,9 @@ public class VoyageScreen extends ScreenAdapter {
      * / leaves the island IN PLACE — the ship is never teleported or snapped, and
      * the world resumes simulating from exactly where it was. */
     private void closePopup() {
+        if (overlay == Overlay.DIALOGUE && dialogueQuest >= MAIN_QUEST_COUNT) {
+            selectedQuest = dialogueQuest; overlay = Overlay.QUESTS; rebuildMenu(); return;
+        }
         if (overlay == Overlay.REDEEM) Gdx.input.setOnscreenKeyboardVisible(false);
         if (overlay == Overlay.AVATAR && captainPanel != null) captainPanel.commitNickname();
         if (overlay == Overlay.PORT && g.dockedPort >= 0) {
@@ -1588,9 +1611,59 @@ public class VoyageScreen extends ScreenAdapter {
                         {"水手", "船长，再邀些同伴吧。五位新船员，各有能帮上忙的手艺。"},
                         {"旁白", "武周的海风仍在吹。同舟之人再次启帆，未完的山海故事正等着下一笔。"}},
                 7, 5, -1, -1, -1, 100, 0, 0, 17, "claimHiredCrew"),
+        new QuestDef(19, "盐风入灶", "累计买入盐十二件。",
+                "武周年间，盐船来往如常，岸边人家最盼的是灶火不断。我带十二件盐上船，记下盐工与海风相伴的日子。",
+                new String[][]{{"雷州盐商", "武周年间，盐船来往如常，岸边人家最盼的是灶火不断。"}, {"你", "我带十二件盐上船，记下盐工与海风相伴的日子。"}, {"盐商", "《南海见闻录》若写盐，别忘了晒场上那双粗糙的手。"}},
+                103, 12, 3, 2, -1, 60, 0, 0, -1, "side19"),
+        new QuestDef(20, "米香到埠", "累计卖出米粮二十件。",
+                "海客带来奇珍，我却先问船上有没有米。客人总得吃饱。二十件米粮，分批送到市集。热饭也是海路上的大事。",
+                new String[][]{{"广州厨娘", "海客带来奇珍，我却先问船上有没有米。客人总得吃饱。"}, {"你", "二十件米粮，分批送到市集。热饭也是海路上的大事。"}, {"厨娘", "等你归航，来吃一碗新饭，听听码头又添了什么故事。"}},
+                205, 20, 5, 0, -1, 90, 0, 0, -1, "side20"),
+        new QuestDef(21, "棉布裁春", "累计卖出棉布十五件。",
+                "孩子的旧衣短了一截。海船运来的棉布，能裁多少个春天？我会卖出十五件棉布，让这趟航程也捎上寻常人家的心愿。",
+                new String[][]{{"潮州裁缝", "孩子的旧衣短了一截。海船运来的棉布，能裁多少个春天？"}, {"你", "我会卖出十五件棉布，让这趟航程也捎上寻常人家的心愿。"}, {"裁缝", "见闻录不必尽写珍宝，一针一线，也有值得记下的情分。"}},
+                214, 15, 14, 1, -1, 75, 0, 0, -1, "side21"),
+        new QuestDef(22, "胡椒小札", "累计买入胡椒八件。",
+                "这一粒胡椒辛得很，远航的人拿它说故乡的滋味。买八件带回去。你说的吃法，我也记在货单旁边。",
+                new String[][]{{"海客", "这一粒胡椒辛得很，远航的人拿它说故乡的滋味。"}, {"你", "买八件带回去。你说的吃法，我也记在货单旁边。"}, {"海客", "港口的口音各不相同，围着一锅热汤，话总能说到一起。"}},
+                109, 8, 9, -1, -1, 65, 0, 0, -1, "side22"),
+        new QuestDef(23, "琉璃映潮", "累计卖出琉璃六件。",
+                "夕照穿过琉璃，像把海上的光留在案头。可要包得仔细。六件琉璃平安交货，连同沿途见过的潮色，一并记下。",
+                new String[][]{{"泉州铺主", "夕照穿过琉璃，像把海上的光留在案头。可要包得仔细。"}, {"你", "六件琉璃平安交货，连同沿途见过的潮色，一并记下。"}, {"铺主", "武周的市桥每日都热闹。你的书里，也替这些小铺留一页。"}},
+                217, 6, 17, 10, -1, 80, 0, 0, -1, "side23"),
+        new QuestDef(24, "一篓乡味", "累计捕获二十条鱼。到扬州雇渔夫并开启捕鱼。",
+                "你看过远海的奇兽，还记不记得家乡清晨收网的声响？当然记得。请你随船捕鱼，二十条渔获，够大家尝个鲜。",
+                new String[][]{{"扬州渔夫", "你看过远海的奇兽，还记不记得家乡清晨收网的声响？"}, {"你", "当然记得。请你随船捕鱼，二十条渔获，够大家尝个鲜。"}, {"渔夫", "水色、风向、鱼群，我慢慢教你；你替我把这些记进书里。"}},
+                18, 20, -1, 20, -1, 80, 40, 0, -1, "side24"),
+        new QuestDef(25, "十港邮灯", "访问过的不同港口达到十座。",
+                "一座港是一盏灯，认得灯火多了，归途便少些慌张。走过十座不同港口，把落脚处与问路的人都记清楚。",
+                new String[][]{{"老水手", "一座港是一盏灯，认得灯火多了，归途便少些慌张。"}, {"你", "走过十座不同港口，把落脚处与问路的人都记清楚。"}, {"老水手", "也记下谁肯借一碗水。海上的人情，比灯火还长久。"}},
+                1, 10, -1, -1, -1, 180, 40, 0, -1, "side25"),
+        new QuestDef(26, "五屿拾青", "累计上岛搜采五次。",
+                "药箱渐空，下一程靠岛时，替我留心岩缝与背风处。累计搜采五次，每次都记下草木生长的地方。",
+                new String[][]{{"船医", "药箱渐空，下一程靠岛时，替我留心岩缝与背风处。"}, {"你", "累计搜采五次，每次都记下草木生长的地方。"}, {"船医", "《南海见闻录》添了这些，后来的人便多一分照应。"}},
+                8, 5, -1, -1, 6, 120, 40, 0, -1, "side26"),
+        new QuestDef(27, "清波护渡", "累计亲手击沉六艘海盗船。商船击沉不计入。",
+                "那片水道有海盗停船拦路。不必追得太远，平安更要紧。若避不开，我便还击。六次护住航路，也要六次带同伴回来。",
+                new String[][]{{"渡海商人", "那片水道有海盗停船拦路。不必追得太远，平安更要紧。"}, {"你", "若避不开，我便还击。六次护住航路，也要六次带同伴回来。"}, {"商人", "我们会记得是谁解围。你船上那卷书，该写下同舟人的胆气。"}},
+                2, 6, -1, -1, -1, 200, 60, 30, -1, "side27"),
+        new QuestDef(28, "三味茶话", "累计买入茶叶三十件。",
+                "茶从山里来，话从海上来。你的一盏茶，总要喝上半日。再带三十件茶叶远行，遇到异乡海客，就与他们换些故事。",
+                new String[][]{{"茶肆主人", "茶从山里来，话从海上来。你的一盏茶，总要喝上半日。"}, {"你", "再带三十件茶叶远行，遇到异乡海客，就与他们换些故事。"}, {"主人", "等你回扬州，我留一张静桌，听你讲完这一卷南海。"}},
+                17, 30, 2, -1, -1, 100, 0, 0, -1, "side28"),
+        new QuestDef(29, "万两归帆", "银两峰值达到一万两。",
+                "一万两能置不少货，却买不回失信之后散去的伙伴。我会把生意做稳，也记得给水手留足工钱与归程的补给。",
+                new String[][]{{"老掌柜", "一万两能置不少货，却买不回失信之后散去的伙伴。"}, {"你", "我会把生意做稳，也记得给水手留足工钱与归程的补给。"}, {"老掌柜", "好。武周海市潮来潮去，账本有数，做人也须有自己的分寸。"}},
+                5, 10000, -1, -1, -1, 180, 100, 50, -1, "side29"),
+        new QuestDef(30, "异兽旁笺", "发现八种不同异兽，每种首次发现计数。",
+                "你画的异兽，有的像古书所载，有的又全然不同。待见过八种，便把亲眼所见与船客传闻分开写，免得后人混淆。",
+                new String[][]{{"抄书人", "你画的异兽，有的像古书所载，有的又全然不同。"}, {"你", "待见过八种，便把亲眼所见与船客传闻分开写，免得后人混淆。"}, {"抄书人", "如此才配得上见闻二字。留几页空白，南海总还有未知之物。"}},
+                15, 8, -1, -1, -1, 160, 60, 0, -1, "side30"),
     };
 
     private int getQuestProgress(GameState g, int type) {
+        if (type >= 100 && type < 100 + Catalog.GOODS.length) return g.questGoodsBought[type - 100];
+        if (type >= 200 && type < 200 + Catalog.GOODS.length) return g.questGoodsSold[type - 200];
         switch (type) {
             case 0: return g.questSellSilk;
             case 1: return g.questVisitPorts;
@@ -1610,6 +1683,7 @@ public class VoyageScreen extends ScreenAdapter {
             case 15: return g.questBeastsFound;
             case 16: return g.questSellPorcelain;
             case 17: return g.questBuyTea;
+            case 18: return g.fishCaughtTotal;
             default: return 0;
         }
     }
@@ -1623,6 +1697,7 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private boolean isQuestClaimed(GameState g, QuestDef q) {
+        if (q.id >= MAIN_QUEST_COUNT) return (g.sideQuestClaims & (1L << (q.id - MAIN_QUEST_COUNT))) != 0;
         switch (q.id) {
             case 0: return g.questClaimIslandVisit;
             case 1: return g.questClaimRefill;
@@ -1650,6 +1725,7 @@ public class VoyageScreen extends ScreenAdapter {
     private String claimQuest(GameState g, QuestDef q) {
         if (isQuestClaimed(g, q)) return "这奖励拿过了。";
         if (!isQuestComplete(g, q)) return "还没做完。";
+        if (q.unlockAfter >= 0 && !isQuestClaimed(g, QUESTS[q.unlockAfter])) return "请先完成前序任务并领奖。";
         g.silver += q.silverReward;
         g.supply += q.supplyReward;
         if (g.supply > g.supplyMax) g.supply = g.supplyMax;
@@ -1665,6 +1741,7 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void setQuestClaimed(GameState g, QuestDef q) {
+        if (q.id >= MAIN_QUEST_COUNT) { g.sideQuestClaims |= 1L << (q.id - MAIN_QUEST_COUNT); return; }
         switch (q.id) {
             case 0: g.questClaimIslandVisit = true; break;
             case 1: g.questClaimRefill = true; break;
@@ -1701,7 +1778,7 @@ public class VoyageScreen extends ScreenAdapter {
         heading.add(title).expandX();
         heading.add(close).size(112, 64);
         box.add(heading).width(1088).height(72).row();
-        box.add(questUi.label("（" + QUESTS.length + "条，顺序解锁，先做手头的）", 22, QuestUi.PAPER))
+        box.add(questUi.label("（主线19条 · 支线12条，支线点开对话后查看详情）", 22, QuestUi.PAPER))
                 .height(48).padBottom(16).row();
         Table panes = new Table();
 
@@ -1709,7 +1786,19 @@ public class VoyageScreen extends ScreenAdapter {
         Table leftPane = new Table();
         leftPane.background(questUi.inset);
         leftPane.pad(8);
-        leftPane.add(questUi.label("任务列表", 24, QuestUi.PAPER)).width(400).height(32).left().padBottom(8).row();
+        Table trackLinks = new Table();
+        trackLinks.add(questUi.label("任务列表", 24, QuestUi.PAPER)).expandX().left();
+        for (int track=0;track<2;track++) {
+            final int first = track == 0 ? 0 : MAIN_QUEST_COUNT;
+            TextButton jump = questUi.button(track == 0 ? "主线" : "支线", false);
+            jump.addListener(click(() -> {
+                if (questListPane == null) return;
+                questListPane.setScrollY(first * 80f);
+                questListPane.updateVisualScroll();
+            }));
+            trackLinks.add(jump).size(86, 36).padLeft(8);
+        }
+        leftPane.add(trackLinks).width(400).height(36).left().padBottom(4).row();
 
         Table listTbl = new Table();
         for (int i = 0; i < QUESTS.length; i++) {
@@ -1735,13 +1824,17 @@ public class VoyageScreen extends ScreenAdapter {
             row.setBackground(selected ? questUi.selected : questUi.parchment);
             Color ink = selected ? QuestUi.PAPER : QuestUi.INK;
             Table copy = new Table();
-            copy.add(questUi.label(q.title, 24, ink)).left().growX().row();
+            copy.add(questUi.label((q.id < MAIN_QUEST_COUNT ? "主线 · " : "支线 · ") + q.title, 24, ink)).left().growX().row();
             Label status = questUi.label(sub, 20, selected && done ? QuestUi.JADE : ink);
             copy.add(status).left().growX();
             row.add(copy).expandX().fillX().padLeft(24);
             TextureRegionDrawable icon = IconLib.hud("quest");
             if (icon != null) row.add(new Image(icon)).size(32).padRight(16);
-            row.addListener(click(() -> { selectedQuest = qi; rebuildMenu(); }));
+            row.setName("questRow" + q.id);
+            row.addListener(click(() -> {
+                selectedQuest = qi;
+                if (qi >= MAIN_QUEST_COUNT) openSideDialogue(qi); else rebuildMenu();
+            }));
             listTbl.add(row).width(400).height(80).row();
         }
         ScrollPane listSp = new ScrollPane(listTbl, game.skin);
@@ -1813,7 +1906,7 @@ public class VoyageScreen extends ScreenAdapter {
             // complete and unclaimed, 前往 until the ship is at sea.
             Table actions = new Table();
             TextButton claim = questUi.button("领取", true);
-            claim.setDisabled(!(done && !claimed));
+            claim.setDisabled(!(done && !claimed && (q.unlockAfter < 0 || isQuestClaimed(g, QUESTS[q.unlockAfter]))));
             claim.addListener(click(() -> {
                 // The world keeps sailing while this popup is open at sea, so
                 // re-check on tap: the quest may have changed underneath us.
@@ -1829,7 +1922,7 @@ public class VoyageScreen extends ScreenAdapter {
                 } catch (Throwable t) {
                     Gdx.app.error("VoyageScreen", "persist after quest claim failed", t);
                 }
-                selectedQuest = getActiveQuestIndex();
+                selectedQuest = q.id >= MAIN_QUEST_COUNT ? q.id : getActiveQuestIndex();
                 rebuildMenu();
             }));
             actions.add(claim).width(270).height(64);
@@ -1860,7 +1953,7 @@ public class VoyageScreen extends ScreenAdapter {
                 detTbl.add(questInfo("（先离港再前往）")).width(568).left().padBottom(8).row();
             }
         } else if (getActiveQuestIndex() < 0) {
-            detTbl.add(questWrap("全部任务已完成、奖励已领。祝你在南海航程一路顺风！"))
+            detTbl.add(questWrap("主线已完成。还可从左侧寻访支线，续写南海见闻。"))
                     .width(568).left().padBottom(16).row();
         } else {
             detTbl.add(questInfo("点左边列表选一个任务，右侧看详情。")).width(568).left().padBottom(16).row();
@@ -1906,7 +1999,7 @@ public class VoyageScreen extends ScreenAdapter {
      * count too, so the HUD keeps prompting the player to claim rewards, which
      * is what unlocks the next tutorial step. */
     private int getActiveQuestIndex() {
-        for (int i = 0; i < QUESTS.length; i++) {
+        for (int i = 0; i < MAIN_QUEST_COUNT; i++) {
             QuestDef q = QUESTS[i];
             if (isQuestClaimed(g, q)) continue;
             if (q.unlockAfter >= 0 && !isQuestClaimed(g, QUESTS[q.unlockAfter])) continue;
@@ -2101,12 +2194,12 @@ public class VoyageScreen extends ScreenAdapter {
         return b;
     }
 
-    /** Existing sequential quests are shown as current + next, never invented side quests. */
+    /** HUD tracks only current + next mainline; optional errands stay in the rail log. */
     private void updateQuestButtonLabel() {
         if (g == null || voyageHud == null) return;
         int active = getActiveQuestIndex();
         trackedQuests[0] = active;
-        trackedQuests[1] = active >= 0 && active + 1 < QUESTS.length ? active + 1 : -1;
+        trackedQuests[1] = active >= 0 && active + 1 < MAIN_QUEST_COUNT ? active + 1 : -1;
         for (int card = 0; card < 2; card++) {
             int index = trackedQuests[card];
             if (index < 0) {
@@ -2271,7 +2364,7 @@ public class VoyageScreen extends ScreenAdapter {
 
         btnCancelAuto.setVisible(g.autoSail && overlay != Overlay.MAP);
         btnLockPirate.setVisible(g.pirateAlive && !g.combatLock && overlay == Overlay.NONE);
-        btnCancelLock.setVisible(g.combatLock && overlay != Overlay.MAP);
+        btnCancelLock.setVisible((g.combatLock || g.merchantLock) && overlay == Overlay.NONE);
         Label pageNotice = menuRoot.findActor("pageNotice");
         if (pageNotice != null) pageNotice.setText(g.toastT>0 ? g.toast : "世界暂停 · 关闭后继续航行");
         hudLine.setText(statusText());
@@ -2323,7 +2416,7 @@ public class VoyageScreen extends ScreenAdapter {
         if (g.pirateAlive) {
             int distance = (int) Catalog.dist(g.x, g.y, g.pirateX, g.pirateY);
             s += " 【海盗】敌" + Math.max(0, (int) g.pirateHp) + "/" + (int) g.pirateHpMax
-                    + " 距" + distance + (g.combatLock ? " ·已锁定自动开火" : " ·点船锁定");
+                    + " 炮伤" + g.pirateDamage + " 距" + distance + (g.combatLock ? " ·已锁定自动开火" : " ·点船锁定");
         }
         return s;
     }
@@ -2376,9 +2469,13 @@ public class VoyageScreen extends ScreenAdapter {
         if (g.pirateAlive && worldAnchor(g.pirateX,g.pirateY,74)) {
             game.fontSmall.draw(game.batch, g.combatLock ? "海盗 已锁定" : "海盗 点船锁定",tmp.x-45,tmp.y+20);
         }
+        if (g.merchantVisible() && worldAnchor(g.merchant.x,g.merchant.y,74)) {
+            game.fontSmall.draw(game.batch,"商船·"+Catalog.SHIPS[g.merchant.ship]+(g.merchantLock?" 已锁定":g.merchant.hostile?" 警戒":" 点船掠夺"),tmp.x-60,tmp.y+20);
+        }
         game.batch.end();
+        if (g.merchantVisible()) drawHealth(g.merchant.x,g.merchant.y,74,g.merchant.hp,g.merchant.hpMax,g.merchantLock);
+        if (g.pirateAlive || g.merchantLock) drawHealth(g.x,g.y,68,g.hull,g.hullMax,false);
         if (g.pirateAlive) {
-            drawHealth(g.x,g.y,68,g.hull,g.hullMax,false);
             drawHealth(g.pirateX,g.pirateY,74,g.pirateHp,g.pirateHpMax,g.combatLock);
         }
     }
@@ -2438,6 +2535,11 @@ public class VoyageScreen extends ScreenAdapter {
                     if (g.combatLock) g.cancelLock(); else g.lockPirate();
                     return true;
                 }
+            }
+            if (g.merchantVisible() && overlay == Overlay.NONE && world3d != null
+                    && world3d.hit(screenX,screenY,g.merchant.x,g.merchant.y,27,36)) {
+                if(g.merchantLock) g.cancelLock(); else g.lockMerchant();
+                return true;
             }
             // 0.27.2: world-space tap on a port/island icon opens its menu ONLY
             // when the ship is within the existing dock/search range. Proximity

@@ -12,7 +12,7 @@ public final class QuestStoryRegression {
         GameState g = GameState.newGame();
         Field state = field(VoyageScreen.class, "g"); state.set(voyage, g);
         Object[] quests = (Object[]) field(VoyageScreen.class, "QUESTS").get(null);
-        require(quests.length == 19, "nineteen existing quests");
+        require(quests.length >= 27, "nineteen existing quests");
         Class<?> definition = quests[0].getClass();
         Method claim = method("claimQuest", GameState.class, definition);
         Method claimed = method("isQuestClaimed", GameState.class, definition);
@@ -23,7 +23,7 @@ public final class QuestStoryRegression {
                 "questDefeatedPirates", "questBeastsFound", "questDebtPaid", "questSilverPeak", "questWarehouseUps", "questHiredCrew"};
         int[] targets = {1,1,1,1,1,1,1,1,50,5,10,30,3,3,5,1,5000,3,5};
         int[] silver = {30,20,20,40,80,100,30,80,200,300,50,250,120,150,250,400,0,150,100};
-        for (int i = 0; i < quests.length; i++) {
+        for (int i = 0; i < 19; i++) {
             Object q = quests[i];
             require(field(definition, "id").getInt(q) == i, "saved quest id");
             require(field(definition, "unlockAfter").getInt(q) == i - 1, "original unlock chain");

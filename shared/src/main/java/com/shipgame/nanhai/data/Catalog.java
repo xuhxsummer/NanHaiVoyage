@@ -156,8 +156,10 @@ public final class Catalog {
     // Enclose the enlarged land mesh plus the largest ship, leaving water to stop in.
     public static final float DOCK_RANGE = 218f;
     public static final float ISLAND_RANGE = 164f;
-    public static final float PIRATE_RANGE = 430f;
-    public static final float PIRATE_FLEE_RANGE = 540f;
+    public static final float PIRATE_RANGE = 680f;
+    public static final float NPC_SPAWN_MIN = 800f, NPC_SPAWN_MAX = 1000f;
+    /** Sea-plane distance from the player; camera orbit never changes this horizon. */
+    public static final float NPC_HORIZON = 1150f;
     public static final float MAX_SPEED = 150f;
     public static final float TURN_RATE = 110f;
     public static final float ACCEL = 70f;
@@ -179,11 +181,6 @@ public final class Catalog {
     public static final float FIRE_INTERVAL = 0.42f;
     public static final float PIRATE_FIRE_INTERVAL = 0.85f;
     public static final int PIRATE_HP = 48;
-    /** 0.25.9 combat balance: pirate cannonballs cost the player exactly 1 耐久
-     * each (and the player's shots cost the pirate exactly 1 HP each), so a
-     * fight wears the ship down little by little instead of sinking it in a
-     * few broadsides. */
-    public static final int PIRATE_SHOT = 1;
 
     public static int goodPrice(int port, int good) {
         int p = Math.round(GOOD_BASE[good] * GOOD_MULT_TENTHS[port][good] / 10f);

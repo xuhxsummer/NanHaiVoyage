@@ -25,9 +25,9 @@ public final class AutoSailPirateRegression {
             require(g.autoSail, "autopilot starts with a live pirate");
             g.lockPirate(); require(g.combatLock, "manual combat lock still works");
             g.pirateX = g.x + 300; g.pirateY = g.y; g.playerFireCd = 0;
-            combat.invoke(g, .01f);
+            g.update(.01f);
             require(g.ballCount > 0, "manual lock still fires");
-            g.pirateX = g.x + Catalog.PIRATE_FLEE_RANGE + 200;
+            g.pirateX = g.x + Catalog.NPC_HORIZON + 200;
             combat.invoke(g, 0f);
             require(!g.pirateAlive && g.autoSail, "flee preserves route"); destination(g, island);
             spawn.invoke(g); win.invoke(g);

@@ -29,6 +29,7 @@ public final class VoyageWorldRenderer implements Disposable {
     private final Array<ModelInstance> scenery = new Array<>();
     private final ModelCache sceneryCache = new ModelCache();
     private final ModelInstance[] ships = new ModelInstance[Catalog.SHIPS.length];
+    private final ModelInstance[] merchantShips = new ModelInstance[Catalog.SHIPS.length];
     private final ModelInstance pirate, ocean, ripples, foam, wake, whiteBall, blackBall;
     private final ModelInstance[] idleRings = new ModelInstance[3];
     private final VoyageWater water = new VoyageWater();
@@ -50,6 +51,7 @@ public final class VoyageWorldRenderer implements Disposable {
         light.set(new ColorAttribute(ColorAttribute.Fog, SKY));
         light.add(new DirectionalLight().set(1f, .88f, .66f, -.5f, -.85f, -.3f));
         for (int i=0;i<ships.length;i++) ships[i] = new ModelInstance(shipModel(i, false));
+        for(int i=0;i<ships.length;i++) merchantShips[i]=new ModelInstance(ships[i].model);
         pirate = new ModelInstance(shipModel(VoyageGeometry.PIRATE_SHIP, true));
         ocean = new ModelInstance(oceanModel());
         ripples = new ModelInstance(waterLines());
@@ -276,7 +278,7 @@ public final class VoyageWorldRenderer implements Disposable {
         ModelInstance ship=ships[VoyageGeometry.shipIndex(g.ship)];
         dt=MathUtils.clamp(dt,0,.1f); time+=dt;
         float alpha=1f-(float)Math.exp(-3f*dt);
-        float wanted=g.pirateAlive && !g.failed ? COMBAT_DISTANCE:SAIL_DISTANCE;
+        float wanted=(g.pirateAlive || g.merchantLock) && !g.failed ? COMBAT_DISTANCE:SAIL_DISTANCE;
         if (!initialized) { heading=g.headingDeg; distance=wanted; }
         distance=MathUtils.lerp(distance,wanted,alpha);
         heading=MathUtils.lerpAngleDeg(heading,g.headingDeg,1f-(float)Math.exp(-5f*dt));
@@ -341,6 +343,11 @@ public final class VoyageWorldRenderer implements Disposable {
         }
         batch.render(ship,light);
         if (g.pirateAlive) batch.render(pirate,light);
+        if (g.merchantVisible()) {
+            ModelInstance trader=merchantShips[g.merchant.ship];
+            trader.transform.setToTranslation(g.merchant.x,water.surfaceHeight(g.merchant.x,-g.merchant.y,time,g.windStr,highWaterQuality),-g.merchant.y).rotate(Vector3.Y,g.merchant.heading);
+            batch.render(trader,light);
+        }
         for (int i=0;i<g.ballCount;i++) {
             ModelInstance ball=g.ballFromPlayer[i]?whiteBall:blackBall;
             ball.transform.setToTranslation(g.ballX[i],12,-g.ballY[i]);

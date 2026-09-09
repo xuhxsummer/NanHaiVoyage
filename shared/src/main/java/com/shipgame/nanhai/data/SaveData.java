@@ -1,6 +1,12 @@
 package com.shipgame.nanhai.data;
 
 public class SaveData {
+    public boolean pirateAlive;
+    public float pirateX, pirateY, pirateHeading, pirateHp;
+    public int pirateDamage = 1;
+    public float pirateSpawnTimer = 12f;
+    public MerchantData merchant;
+    public float merchantSpawnTimer = 45f;
     public int worldVersion = 1; // Missing on pre-0.28.10 saves.
     public int dailyClaimDay;
     public int redeemedCodes; // bit 0: 666; bit 1: 888.
@@ -37,6 +43,10 @@ public class SaveData {
     // 0.26.1 任务 system: per-quest progress + claim state.
     // Quest IDs match QuestDef IDs.
     public int questDialogueSeen = 0;  // Per-account automatic story playback, one bit per quest ID.
+    // IDs 19+ have an independent claim bitset; main dialogue bits stay 0–18.
+    public long sideQuestClaims;
+    public int[] questGoodsBought = new int[Catalog.GOODS.length];
+    public int[] questGoodsSold = new int[Catalog.GOODS.length];
     public int questSellSilk = 0;       // 卖出丝绸数量
     public int questVisitPorts = 0;     // 访问过的不同港口数量
     public int questDefeatedPirates = 0; // 击败海盗数
