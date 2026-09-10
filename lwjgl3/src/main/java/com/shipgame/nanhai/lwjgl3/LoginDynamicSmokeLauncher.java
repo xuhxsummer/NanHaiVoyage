@@ -68,6 +68,8 @@ public final class LoginDynamicSmokeLauncher {
                     fields("login-smoke", "bad"); tap("登录");
                     require(message().contains("用户名或密码不对"), "missing account validation");
                     fields("login-smoke", "local-password"); tap("注册");
+                    // 0.28.20: success popup confirms, then the deferred switch runs.
+                    tap("好的");
                     require(getScreen() == login, "registration switch must be deferred");
                 } catch (Throwable t) { fail(t); }
             }
@@ -102,6 +104,8 @@ public final class LoginDynamicSmokeLauncher {
                         require(message().contains("用户名或密码不对"), "wrong password validation");
                         accounts = new AccountStore(); // Reload persisted credentials and save.
                         fields("login-smoke", "local-password"); tap("登录");
+                        // 0.28.20: login success popup confirms, then the deferred switch runs.
+                        tap("好的");
                         require(getScreen() == login, "login switch must be deferred");
                         step++;
                         transitionFrames = 0;
