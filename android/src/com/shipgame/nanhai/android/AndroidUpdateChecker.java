@@ -19,7 +19,6 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * In-app update check against GitHub Releases (public repo, no token).
@@ -38,7 +37,6 @@ public class AndroidUpdateChecker implements UpdateChecker {
     private static final int REQ_UNKNOWN_SOURCES = 7001;
 
     private final Activity activity;
-    private final AtomicBoolean checked = new AtomicBoolean(false);
     private volatile boolean downloadCancelled;
 
     /** Latest release tag ("v0.24.3") and APK asset URL, from the check phase. */
@@ -56,25 +54,28 @@ public class AndroidUpdateChecker implements UpdateChecker {
 
     @Override
     public void checkForUpdate() {
-        if (!checked.compareAndSet(false, true)) {
-            return; // only one check per app run
-        }
+        // 0.28.19: re-check on EVERY login — the old once-per-process latch
+        // (AtomicBoolean checked) is intentionally gone so returning to the
+        // login screen always re-validates the version gate.
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
                     String json = httpGet(LATEST_URL);
                     if (json == null) {
-                        return; // offline / rate-limited / any failure: silent
+                        notifyCheckFinished(false); // offline/failed: allow login
+                        return;
                     }
                     JSONObject obj = new JSONObject(json);
                     String tag = obj.optString("tag_name", "");
                     String url = findApkAsset(obj);
                     if (tag == null || tag.isEmpty() || url == null) {
+                        notifyCheckFinished(false);
                         return;
                     }
                     String local = currentVersionName();
                     if (local == null || !isNewer(tag, local)) {
+                        notifyCheckFinished(false); // already latest: allow login
                         return;
                     }
                     pendingTag = tag;
@@ -94,10 +95,26 @@ public class AndroidUpdateChecker implements UpdateChecker {
                         }
                     });
                 } catch (Throwable ignored) {
-                    // never block login, never crash
+                    notifyCheckFinished(false); // never block login, never crash
                 }
             }
         }, "update-check").start();
+    }
+
+    /** 0.28.19: the login gate needs a terminal signal even when nothing is found. */
+    private void notifyCheckFinished(final boolean updateAvailable) {
+        try {
+            activity.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    final UpdateChecker.Listener l = listener;
+                    if (l != null) Gdx.app.postRunnable(new Runnable() {
+                        @Override public void run() { l.onCheckFinished(updateAvailable); }
+                    });
+                }
+            });
+        } catch (Throwable ignored) {
+        }
     }
 
     /** Called from AndroidLauncher.onActivityResult when returning from the

@@ -206,8 +206,9 @@ public final class LoginDynamicSmokeLauncher {
                 Pixmap still = capture("motion-off");
                 for (int i = 0; i < 8; i++) login.render(.1f);
                 Pixmap later = capture("motion-off-later");
-                // Exclude the helper row: Scene2D briefly retains button pressed feedback.
-                try { require(different(still, later, 0, 0, 1280, 620) == 0, "motion setting actually pauses rendering"); }
+                // Exclude the helper row (pressed feedback) and the bottom version-gate
+                // strip (0.28.19: gate bar keeps finishing its 90→100 fill by design).
+                try { require(different(still, later, 0, 0, 1280, 580) == 0, "motion setting actually pauses rendering"); }
                 finally { still.dispose(); later.dispose(); }
                 tap("设置"); tap("海水波纹：开启"); tap("关闭");
                 login.hide(); login.show(); refreshLogin();
@@ -289,9 +290,10 @@ public final class LoginDynamicSmokeLauncher {
 
     private static final class FakeUpdates implements UpdateChecker {
         Listener listener;
-        int declined, cancelled;
+        int declined, cancelled, checks;
         @Override public void setListener(Listener listener) { this.listener = listener; }
-        @Override public void checkForUpdate() { }
+        // 0.28.19 contract: every check terminates with onCheckFinished(updateAvailable).
+        @Override public void checkForUpdate() { checks++; if (listener != null) listener.onCheckFinished(false); }
         @Override public void cancelDownload() { cancelled++; }
         void offer() {
             listener.onUpdateAvailable("0.28.14", () -> listener.onDownloadProgress(4), () -> declined++);

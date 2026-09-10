@@ -11,9 +11,18 @@ public interface UpdateChecker {
         void onUpdateAvailable(String version, Runnable accept, Runnable decline);
         void onDownloadProgress(int percent);
         void onDownloadFinished(boolean success, String message);
+
+        /**
+         * 0.28.19: exactly one of the check-phase callbacks fires per
+         * {@link #checkForUpdate()}; called on the GL thread.
+         * {@code onUpdateAvailable} fires when a newer release exists;
+         * {@code onCheckFinished(false)} fires when already latest, and also
+         * on any network/parse failure (offline is treated as allow-login).
+         */
+        default void onCheckFinished(boolean updateAvailable) { }
     }
 
-    /** Called once after the login UI appears. */
+    /** Re-checks on every call (0.28.19: the old once-per-process latch is gone). */
     void checkForUpdate();
 
     default void setListener(Listener listener) { }

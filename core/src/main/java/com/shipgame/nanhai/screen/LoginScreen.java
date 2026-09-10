@@ -15,7 +15,9 @@ import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.InputListener;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.Touchable;
+import com.badlogic.gdx.scenes.scene2d.ui.Image;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.ProgressBar;
 import com.badlogic.gdx.scenes.scene2d.ui.Dialog;
 import com.badlogic.gdx.scenes.scene2d.ui.Window;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
@@ -26,7 +28,12 @@ import com.badlogic.gdx.scenes.scene2d.ui.ProgressBar;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
 import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Align;
+import com.badlogic.gdx.utils.Array;
+import com.badlogic.gdx.utils.Scaling;
 import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.shipgame.nanhai.NanHaiVoyage;
@@ -53,6 +60,19 @@ public class LoginScreen extends ScreenAdapter {
     private Preferences settings;
     private Drawable modalFrame, modalRed, modalBlue, modalHover, progressTrack, progressFill;
 
+    // 0.28.19 version gate: on every login show() the account form stays hidden
+    // behind a check; the bottom bar (ship on the fill) animates meanwhile.
+    private ProgressBar gateBar;
+    private Image gateShip;
+    private Table gatePanel;
+    private Label gateStatus;
+    private float gateProgress;
+    private boolean gateOpen, gateFailed;
+    private float gateTimer;
+    private Array<Actor> gatedActors = new Array<>();
+    private static final float GATE_TIMEOUT_SECONDS = 6.5f;
+    private static final float GATE_TARGET = 90f; // wait phase cap; finish snaps to 100
+
 
     public LoginScreen(NanHaiVoyage game) { this.game = game; }
 
@@ -62,28 +82,6 @@ public class LoginScreen extends ScreenAdapter {
         // 0.28.18: app-wide audio singleton; login scene BGM (idempotent).
         VoyageAudio audio = VoyageAudio.initialize();
         audio.setScene(VoyageAudio.Scene.LOGIN);
-        if (game.updateChecker != null) {
-            final Stage listeningStage = stage;
-            game.updateChecker.setListener(new UpdateChecker.Listener() {
-                @Override public void onUpdateAvailable(String version, final Runnable accept, final Runnable decline) {
-                    if (stage != listeningStage) return;
-                    showUpdatePrompt(version, accept, decline);
-                }
-                @Override public void onDownloadProgress(int percent) {
-                    if (stage != listeningStage || updateProgress == null) return;
-                    int value = Math.max(0, Math.min(100, percent));
-                    updateProgress.setValue(value);
-                    updateStatus.setText("正在下载… " + value + "%");
-                }
-                @Override public void onDownloadFinished(boolean success, String message) {
-                    if (stage != listeningStage || updateProgress == null) return;
-                    closeModal();
-                    if (msg != null) msg.setText(success ? "下载完成，请按系统提示安装。"
-                            : (message == null ? "下载失败，请稍后重试。" : message));
-                }
-            });
-            try { game.updateChecker.checkForUpdate(); } catch (Throwable ignored) { }
-        }
     }
 
     private Table openModal(String title, Runnable dismiss) {
@@ -397,6 +395,178 @@ public class LoginScreen extends ScreenAdapter {
                 @Override public void clicked(InputEvent e, float x, float y) { showHelper(text); }
             });
         }
+
+        beginVersionGate();
+    }
+
+    /** 0.28.19 bottom progress: a small ship rides on/above the fill. */
+    private void buildGateBar() {
+        gatePanel = new Table();
+        gatePanel.setName("versionGatePanel");
+        gatePanel.setBackground(frame("gatePanel", "06111CEB"));
+        gatePanel.setTouchable(Touchable.disabled);
+        gatePanel.setPosition(460, 40);
+        gatePanel.setSize(1000, 92);
+        stage.addActor(gatePanel);
+
+        gateStatus = label("正在检查版本…", 26);
+        gateStatus.setColor(Color.valueOf("FFF0CC"));
+        gateStatus.setName("gateStatus");
+        gatePanel.add(gateStatus).height(34).padTop(6).row();
+
+        ProgressBar.ProgressBarStyle ps = new ProgressBar.ProgressBarStyle();
+        ps.background = progressTrack;
+        ps.knobBefore = progressFill;
+        gateBar = new ProgressBar(0, 100, 1, false, ps);
+        gateBar.setName("versionGateBar");
+        gateBar.setAnimateDuration(0);
+        gateBar.setValue(0);
+        gatePanel.add(gateBar).width(936).height(34).padBottom(8).row();
+
+        Texture shipTex = null;
+        try {
+            shipTex = new Texture(Gdx.files.internal("textures/ships/xiao-shangchuan.png"));
+        } catch (Throwable t) {
+            shipTex = null;
+        }
+        if (shipTex != null) {
+            gateShip = new Image(new TextureRegionDrawable(new TextureRegion(shipTex)));
+            gateShip.setScaling(Scaling.fit);
+            gateShip.setName("versionGateShip");
+            gatePanel.addActor(gateShip);
+        }
+        layoutGateShip();
+    }
+
+    /** Ship sits on the fill edge: x = left + fillFraction * (barWidth - shipWidth). */
+    private void layoutGateShip() {
+        if (gateShip == null || gateBar == null) return;
+        Actor bar = gateBar;
+        float frac = Math.max(0f, Math.min(1f, gateProgress / 100f));
+        float shipW = 64, shipH = 64;
+        gateShip.setSize(shipW, shipH);
+        gateShip.setPosition(bar.getX() + frac * (bar.getWidth() - shipW) - 32,
+                bar.getY() + bar.getHeight() - 30);
+    }
+
+    /** Runs on EVERY show(): hide the account form, animate, re-check version. */
+    private void beginVersionGate() {
+        buildGateBar();
+        gateProgress = 0f;
+        gateTimer = 0f;
+        gateOpen = false;
+        gateFailed = false;
+        setGateUi(false);
+        if (game.updateChecker != null) {
+            final Stage listeningStage = stage;
+            game.updateChecker.setListener(new UpdateChecker.Listener() {
+                @Override public void onUpdateAvailable(String version, final Runnable accept, final Runnable decline) {
+                    if (stage != listeningStage) return;
+                    // 0.28.19: the update dialog keeps the gate closed; declining
+                    // (稍后再说) reveals the login form.
+                    gateProgress = 100f;
+                    updateGateBar();
+                    showUpdatePrompt(version, accept, () -> {
+                        decline.run();
+                        openGate(false);
+                    });
+                }
+                @Override public void onDownloadProgress(int percent) {
+                    if (stage != listeningStage || updateProgress == null) return;
+                    int value = Math.max(0, Math.min(100, percent));
+                    updateProgress.setValue(value);
+                    updateStatus.setText("正在下载… " + value + "%");
+                }
+                @Override public void onDownloadFinished(boolean success, String message) {
+                    if (stage != listeningStage || updateProgress == null) return;
+                    closeModal();
+                    if (msg != null) msg.setText(success ? "下载完成，请按系统提示安装。"
+                            : (message == null ? "下载失败，请稍后重试。" : message));
+                }
+                @Override public void onCheckFinished(boolean updateAvailable) {
+                    if (stage != listeningStage) return;
+                    if (updateAvailable) {
+                        // The update dialog is the gate; declined/later reveals the form.
+                        if (!gateOpen) {
+                            gateProgress = 100f;
+                            updateGateBar();
+                        }
+                    } else {
+                        openGate(false);
+                    }
+                }
+            });
+            try { game.updateChecker.checkForUpdate(); } catch (Throwable ignored) { }
+        } else {
+            // No checker backend (desktop default): reveal the form immediately.
+            openGate(false);
+        }
+    }
+
+    /** Show/hide the gated account widgets. The bottom gate bar stays visible
+     * until the form opens (check finished), then both hide together. */
+    private void setGateUi(boolean open) {
+        if (gatedActors.size == 0) {
+            for (Actor a : stage.getRoot().getChildren()) {
+                if (a == bg) continue;
+                String n = a.getName();
+                if (n != null && (n.equals("loginFormPanel") || n.equals("loginUsername")
+                        || n.equals("loginPassword") || n.equals("登录") || n.equals("注册"))) {
+                    gatedActors.add(a);
+                }
+            }
+        }
+        for (Actor a : gatedActors) {
+            a.setVisible(open);
+        }
+    }
+
+    /** Reveal the login form. If the check already resolved before the first
+     * rendered frame (fast/synchronous result), snap fully open with no
+     * animation; otherwise let the render loop finish the bar first. */
+    private void openGate(boolean offline) {
+        if (gateOpen) return;
+        gateFailed = offline;
+        gateOpen = true;
+        if (gateStatus != null) {
+            gateStatus.setText(offline ? "网络不佳，先进入" : "版本检查完成");
+        }
+        // The gate already decided: snap the bar to its end state, reveal the
+        // form and hide the gate strip immediately (no per-frame animation).
+        gateProgress = 100f;
+        updateGateBar();
+        setGateUi(true);
+        if (gatePanel != null) gatePanel.setVisible(false);
+    }
+
+    /** Render-loop driver: advances the indeterminate-style progress and reveals
+     * the form once the bar reaches 100 (after check success or timeout). */
+    private void tickVersionGate(float delta) {
+        if (stage == null) return;
+        if (!gateOpen) {
+            gateTimer += delta;
+            if (gateTimer >= GATE_TIMEOUT_SECONDS && !gateFailed) {
+                gateFailed = true;
+                openGate(true);
+                if (msg != null) msg.setText("网络不佳，先进入。");
+            }
+            if (gateProgress < GATE_TARGET) {
+                gateProgress = Math.min(GATE_TARGET, gateProgress + delta * 22f);
+                updateGateBar();
+            }
+        } else if (gateProgress < 100f) {
+            gateProgress = Math.min(100f, gateProgress + delta * 180f);
+            updateGateBar();
+            if (gateProgress >= 100f) {
+                setGateUi(true);
+                if (gatePanel != null) gatePanel.setVisible(false);
+            }
+        }
+    }
+
+    private void updateGateBar() {
+        if (gateBar != null) gateBar.setValue(gateProgress);
+        layoutGateShip();
     }
 
     private void releaseUi() {
@@ -406,6 +576,18 @@ public class LoginScreen extends ScreenAdapter {
             // enterVoyage already detaches input before hide() runs.
             Gdx.input.setCatchKey(Input.Keys.BACK, false);
         }
+        if (gateShip != null) {
+            Drawable d = gateShip.getDrawable();
+            if (d instanceof TextureRegionDrawable) {
+                TextureRegion region = ((TextureRegionDrawable) d).getRegion();
+                if (region != null && region.getTexture() != null) region.getTexture().dispose();
+            }
+            gateShip = null;
+        }
+        gateBar = null;
+        gatePanel = null;
+        gateStatus = null;
+        gatedActors.clear();
         if (stage != null && Gdx.input.getInputProcessor() == stage) {
             Gdx.input.setInputProcessor(null);
         }
@@ -512,6 +694,7 @@ public class LoginScreen extends ScreenAdapter {
         if (stage == null) {
             return;
         }
+        tickVersionGate(delta);
         stage.act(delta);
         stage.draw();
     }
