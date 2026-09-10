@@ -144,6 +144,16 @@ public class LoginScreen extends ScreenAdapter {
         return button;
     }
 
+    /** 0.28.20: short Tang-UI confirmation shown after successful login/register.
+     * One primary button「好的」(BACK/ESC confirm too); confirm proceeds in-game. */
+    private void showSuccessModal(String title, String body, final Runnable confirm) {
+        Runnable proceed = () -> { closeModal(); confirm.run(); };
+        Table content = openModal(title, proceed);
+        content.add(modalCopy(body)).width(760).row();
+        content.add(modalButton("好的", true, proceed)).size(340, 88).row();
+        presentModal();
+    }
+
     private void showUpdatePrompt(String version, final Runnable accept, final Runnable decline) {
         Runnable later = () -> { closeModal(); decline.run(); };
         updatePanel = openModal("发现新版本", later);
@@ -614,7 +624,8 @@ public class LoginScreen extends ScreenAdapter {
             game.currentUser = u.trim();
             game.state = GameState.newGame();
             game.accounts.save(game.currentUser, game.state.toSave());
-            enterVoyage();
+            // 0.28.20: register already logs the player in — confirm, then sail.
+            showSuccessModal("注册成功", "账号已创建，即将启航。", this::enterVoyage);
         } catch (Throwable t) { // Errors too: nothing on this path may kill the process
             Gdx.app.error("LoginScreen", "register failed", t);
             msg.setText("注册错误。");
@@ -642,7 +653,8 @@ public class LoginScreen extends ScreenAdapter {
             Gdx.app.error("LoginScreen", "login ok for '" + game.currentUser
                     + "', state dockedPort=" + game.state.dockedPort
                     + ", lastPort=" + game.state.lastPort);
-            enterVoyage();
+            // 0.28.20: confirm popup before proceeding into the voyage.
+            showSuccessModal("登录成功", "欢迎回来，" + game.currentUser + "。航程继续。", this::enterVoyage);
         } catch (Throwable t) { // Errors too: corrupt data must not kill the app
             Gdx.app.error("LoginScreen", "login failed", t);
             msg.setText("登录错误。");
