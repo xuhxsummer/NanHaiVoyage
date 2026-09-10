@@ -379,10 +379,11 @@ public final class VoyageWorldRenderer implements Disposable {
     }
     public float chaseDistance() { return distance; }
     public void beginLook() { looking = true; }
-    /** Deltas are viewport-normalized, so the same gesture works on phones and desktop. */
+    /** Deltas are viewport-normalized, so the same gesture works on phones and desktop.
+     * Slide left (dx<0) yaws the camera left — natural in both sail and combat zoom. */
     public void dragLook(float dx, float dy) {
         if (!looking) return;
-        lookYaw = MathUtils.clamp(lookYaw - dx*180f, -150f, 150f);
+        lookYaw = MathUtils.clamp(lookYaw + dx*180f, -150f, 150f);
         lookPitch = MathUtils.clamp(lookPitch + dy*100f, -50f, 60f);
     }
     public void endLook() {

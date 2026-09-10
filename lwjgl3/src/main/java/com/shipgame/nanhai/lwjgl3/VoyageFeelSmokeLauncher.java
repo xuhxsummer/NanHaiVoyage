@@ -93,7 +93,8 @@ public final class VoyageFeelSmokeLauncher {
                 downStage(cx-r*.7f,cy,0);voyage.render(.04f);
                 require(state.dockedPort<0 && state.headingDeg>0,"left helm undocks and yaws left");up(0,0,0);
                 sea();overlay("NONE");state.startAutoSail(0);voyage.render(0);
-                down(620,400,1);drag(880,240,1);voyage.render(.04f);
+                // 0.28.17: slide LEFT must look LEFT (dx<0 -> lookYaw<0).
+                down(880,400,1);drag(620,240,1);voyage.render(.04f);
                 require(renderer.lookYaw()<-20 && Math.abs(renderer.lookPitch())>10,"drag orbits");
                 require(state.autoSail && state.steerInput==0,"look preserves autopilot");
                 snap("look-sky");

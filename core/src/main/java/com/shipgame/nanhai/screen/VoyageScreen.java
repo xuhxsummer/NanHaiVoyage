@@ -112,7 +112,7 @@ public class VoyageScreen extends ScreenAdapter {
      * popup and the 需求文档 appendix drift apart. */
     private static final String HOWTO_BODY =
             "你将驾驶商船探索南海，在港口贸易、岛屿寻宝，并躲避或击败海盗。\n\n"
-            + "1. 航行：左侧摇杆控制船头方向，右侧按钮控制加速和减速。补给耗尽或耐久降到 0，航程就会失败。\n"
+            + "1. 航行：左侧摇杆向前推是油门（越大越快），左右推是转向；松杆船会缓缓滑行减速，向后拉杆轻减速；右侧按钮仅作加减速微调。补给耗尽或耐久降到 0，航程就会失败。\n"
             + "2. 港口贸易：不同港口的货价不同。低价买入、高价卖出可以赚取银两；点击「行情」可查看各港价格。\n"
             + "3. 岛屿探索：靠近岛屿后可以搜索草药和《山海经》异兽。发现后会收入货舱并加入图鉴，也可以带到港口出售。\n"
             + "4. 海上船只：海盗在680范围主动开火，可绕航避开；点船锁定还击。商船锁定后会反击，仅亲手击沉获得财货。\n"
@@ -146,6 +146,10 @@ public class VoyageScreen extends ScreenAdapter {
     // to TAP the icon once; the hint re-arms only after leaving its range.
     private int hintPort = -1;
     private int hintIsland = -1;
+    // 0.28.17 抛锚按钮：仅在港/岛范围内显示，可见性由 render() 每帧同步。
+    private TextButton btnAnchor;
+    // 0.28.17 漂移提醒：每次进入港/岛范围只提示一次，离开范围后重新武装。
+    private boolean driftHintShown;
     private int selectedQuest = -1;
     private static final int MAIN_QUEST_COUNT = 19;
     private int dialogueQuest = -1;
@@ -351,12 +355,14 @@ public class VoyageScreen extends ScreenAdapter {
                 world, this::toggleMine, this::openIntel, this::contextReopen,
                 () -> { if (g.autoSail) { g.cancelAutoSail(); rebuildMenu(); } else world.run(); },
                 () -> { g.cancelAutoSail(); rebuildMenu(); }, () -> g.lockPirate(), () -> g.cancelLock(),
-                this::openQuestDialogue);
+                this::toggleAnchor, this::openQuestDialogue);
         stage.addActor(voyageHud);
         applyHudScale(); // 0.27.4: scale the 1920×1080 HUD grid over the full viewport
         statVals = voyageHud.stats; hudLine = voyageHud.status; hudClock = voyageHud.clock;
         btnAccel = voyageHud.accel; btnDecel = voyageHud.decel;
         btnCancelAuto = voyageHud.cancelAuto; btnLockPirate = voyageHud.lock; btnCancelLock = voyageHud.cancelLock;
+        // 0.28.17: 抛锚/起锚 toggle button (visibility is synced every frame in render).
+        btnAnchor = voyageHud.anchor;
         hold(btnAccel, true); hold(btnDecel, false);
         menuRoot = new Table(); menuRoot.setFillParent(true);
         menuRoot.setTouchable(Touchable.childrenOnly);
@@ -644,6 +650,17 @@ public class VoyageScreen extends ScreenAdapter {
                 // keep the hold while the finger stays on the button
             }
         });
+    }
+
+    /** 0.28.17 抛锚/起锚：仅港/岛范围内可抛锚；抛锚后停稳便于经营。 */
+    private void toggleAnchor() {
+        if (g.anchored) {
+            g.weighAnchor();
+        } else {
+            g.dropAnchor();
+        }
+        persist();
+        rebuildMenu();
     }
 
     /** 0.25.2 docked-save lockup fix: the world pauses only while the port/island
@@ -2360,11 +2377,28 @@ public class VoyageScreen extends ScreenAdapter {
             } else if (ni < 0) {
                 hintIsland = -1;
             }
+            // 0.28.17: 未抛锚船在漂 — 提醒抛锚停稳后再经营（每次进入范围只提示一次，
+            // 且不打断刚弹出的靠近提示）。
+            boolean inLandRange = np >= 0 || ni >= 0;
+            if (inLandRange && !g.anchored && g.speed <= 1f && g.toastT <= 0.1f) {
+                if (!driftHintShown) {
+                    driftHintShown = true;
+                    g.toast("未抛锚，船会随海流漂移：可点「抛锚」停稳后再经营。");
+                }
+            } else if (!inLandRange) {
+                driftHintShown = false;
+            }
         }
 
         btnCancelAuto.setVisible(g.autoSail && overlay != Overlay.MAP);
         btnLockPirate.setVisible(g.pirateAlive && !g.combatLock && overlay == Overlay.NONE);
         btnCancelLock.setVisible((g.combatLock || g.merchantLock) && overlay == Overlay.NONE);
+        // 0.28.17: 抛锚按钮只在港/岛范围内可见；世界暂停（菜单开着）时隐藏，
+        // 已抛锚仍显示以便起锚。同步状态，避免命中前缀相同的 actor。
+        if (btnAnchor != null) {
+            btnAnchor.setText(g.anchored ? "起锚" : "抛锚");
+            btnAnchor.setVisible(overlay == Overlay.NONE && (g.anchored || g.canAnchor()));
+        }
         Label pageNotice = menuRoot.findActor("pageNotice");
         if (pageNotice != null) pageNotice.setText(g.toastT>0 ? g.toast : "世界暂停 · 关闭后继续航行");
         hudLine.setText(statusText());
@@ -2436,9 +2470,12 @@ public class VoyageScreen extends ScreenAdapter {
         }
         boolean w = Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.UP);
         boolean s = Gdx.input.isKeyPressed(Input.Keys.S) || Gdx.input.isKeyPressed(Input.Keys.DOWN);
-        // Tracked in hold(): reliable long-press even if isPressed() flickers.
-        g.holdAccel = w || accelDown;
-        g.holdDecel = s || decelDown;
+        // 0.28.17: W/↑ 与摇杆同义 = 油门；S/↓ 轻减速；加减速按钮仍是可选的精调。
+        if (!stickActive) {
+            g.thrustInput = w ? 1f : (s ? -0.55f : 0f);
+            g.holdAccel = accelDown;
+            g.holdDecel = decelDown;
+        }
         if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
             overlay = overlay == Overlay.MAP ? Overlay.NONE : Overlay.MAP;
             rebuildMenu();
@@ -2601,6 +2638,7 @@ public class VoyageScreen extends ScreenAdapter {
                 stickPointer = -1;
                 stickKX = stickKY = 0;
                 g.steerInput = 0;
+                g.thrustInput = 0;
                 g.releaseHeading();
                 return true;
             }
@@ -2622,15 +2660,18 @@ public class VoyageScreen extends ScreenAdapter {
         }
         stickKX = dx / stickR;
         stickKY = dy / stickR;
-        // The chase-view helm is ship-relative: left/right controls yaw at every speed.
+        // 0.28.17 easy-drive：杆向前推（屏幕上方，stickKY>0）= 油门（越大越快），
+        // 左右 = 转向；松杆滑行减速，向后拉杆（stickKY<0）只轻带减速。
+        // 不再需要按住 加速/减速 才能开船。
         g.releaseHeading();
         g.steerInput = Math.abs(dx) >= 10f ? stickKX : 0f;
+        g.thrustInput = stickKY > 0.12f ? Math.min(1f, stickKY) : (stickKY < -0.3f ? -0.55f : 0f);
     }
 
     private void releaseWorldControls() {
         stickActive = false; stickPointer = lookPointer = -1; stickKX = stickKY = 0;
         accelDown = decelDown = false;
-        g.steerInput = 0; g.releaseHeading(); g.holdAccel = g.holdDecel = false;
+        g.steerInput = 0; g.thrustInput = 0; g.releaseHeading(); g.holdAccel = g.holdDecel = false;
         if (world3d != null) world3d.resetLook();
     }
 

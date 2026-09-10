@@ -115,6 +115,11 @@ public class GameState {
 
     public boolean holdAccel, holdDecel;
     public float steerInput; // Screen-left is -1; subtract it: +heading yaws left in (x, height, -y).
+    // 0.28.17 摇杆油门：stick 前推 = +stickKY（0..1 前进油门，越大越快）。
+    // 轻推缓行、推满全速；松杆不硬刹；拉杆向后只轻带减速（无倒船）。
+    public float thrustInput;
+    // 0.28.17 抛锚：近港/岛时停稳船只便于经营。离范围自动起锚；世界暂停时锚不变。
+    public boolean anchored;
     public boolean manualHeadingActive;
     public float desiredHeadingDeg;
 
@@ -593,6 +598,55 @@ public class GameState {
         toastT = 3.2f;
     }
 
+    /** 抛锚条件：船在任一港口停靠范围或岛屿搜采范围内。纯查询。 */
+    public boolean canAnchor() {
+        return nearestPortInRange() >= 0 || nearestIslandInRange() >= 0;
+    }
+
+    /** 抛锚：仅港/岛范围内有效，停稳船便于稳定经营。 */
+    public void dropAnchor() {
+        if (!canAnchor() || worldPaused()) {
+            toast(canAnchor() ? "菜单开着，世界已暂停。" : "离港口/岛屿太远，无法抛锚。");
+            return;
+        }
+        anchored = true;
+        stopAutoSail();
+        speed = 0f;
+        toast("已抛锚，船停稳了，可以安心经营。再点一次起锚。");
+    }
+
+    /** 起锚：恢复自由航行（漂移/滑行）。 */
+    public void weighAnchor() {
+        if (!anchored) {
+            return;
+        }
+        anchored = false;
+        toast("起锚，恢复航行。");
+    }
+
+    /** 每帧锚检查：锚只在港/岛范围内维持；范围外或主动驱动则自动脱锚。 */
+    private void updateAnchor() {
+        if (anchored && !canAnchor()) {
+            anchored = false;
+            return;
+        }
+        if (!anchored) {
+            return;
+        }
+        // 主动开船（明显推杆/按加速）= 起锚，避免摇杆“失灵”的死锁感。
+        if (holdAccel || Math.abs(steerInput) > 0.3f || thrustInput > 0.3f) {
+            anchored = false;
+            toast("起锚，恢复航行。");
+            return;
+        }
+        steerInput = 0f;
+        thrustInput = 0f;
+        holdAccel = holdDecel = false;
+        manualHeadingActive = false;
+        stopAutoSail();
+        speed = 0f;
+    }
+
     public void update(float dt) {
         if (toastT > 0) {
             toastT -= dt;
@@ -608,6 +662,8 @@ public class GameState {
         }
         leaveCooldown = Math.max(0f, leaveCooldown - dt);
         updateWeather(dt);
+        // 0.28.17: 抛锚时每帧停稳；被推出锚地则自动起锚。
+        updateAnchor();
         applySteerAndSpeed(dt);
         move(dt);
         drain(dt);
@@ -680,9 +736,25 @@ public class GameState {
         } else if (holdDecel) {
             speed -= Catalog.ACCEL * 1.2f * dt;
         } else {
-            speed -= Catalog.COAST * dt;
+            // 0.28.17 摇杆油门：默认好开 —— 杆量即目标航速，柔和趋近；
+            // 松杆渐渐滑行减速（无硬刹），向后拉杆只轻带减速，不倒船。
+            float target = thrustTarget(max);
+            if (speed < target) {
+                speed = Math.min(target, speed + Catalog.ACCEL * dt);
+            } else {
+                float rate = thrustInput < -0.3f ? Catalog.COAST * 2.2f : Catalog.COAST;
+                speed = Math.max(target, speed - rate * dt);
+            }
         }
         speed = MathUtils.clamp(speed, 0f, max);
+    }
+
+    /** 摇杆油门的目标航速：向前推 = 油门（带小死区），向后拉 = 轻减速，不产生倒退目标。 */
+    private float thrustTarget(float max) {
+        if (thrustInput > 0.12f) {
+            return max * Math.min(1f, thrustInput);
+        }
+        return 0f;
     }
 
     private void move(float dt) {
@@ -906,6 +978,7 @@ public class GameState {
         lastPort = port;
         islandMenu = -1;
         speed = 0f;
+        anchored = false;
         stopAutoSail();
         cancelLock(); // Docking pauses traffic; it does not erase nearby ships.
         // 任务追踪：访问新港口
@@ -931,6 +1004,7 @@ public class GameState {
         // 0.26.3: 离港即停捕鱼（渔夫只能在家门口作业）。
         fishingOn = false;
         fishTimer = 0f;
+        anchored = false;
         x = Catalog.PORT_X[p] + Catalog.DOCK_RANGE + 12f;
         y = Catalog.PORT_Y[p] + 10f;
         headingDeg = 0f;
@@ -945,6 +1019,7 @@ public class GameState {
         }
         int i = islandMenu;
         islandMenu = -1;
+        anchored = false;
         x = Catalog.ISLAND_X[i] + Catalog.ISLAND_RANGE + 12f;
         y = Catalog.ISLAND_Y[i];
         leaveCooldown = 2.2f;

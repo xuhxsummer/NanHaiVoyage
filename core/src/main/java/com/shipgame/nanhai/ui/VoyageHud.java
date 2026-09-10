@@ -13,7 +13,7 @@ public final class VoyageHud extends Group implements Disposable {
     public final VoyageHudChrome ui;
     public final Label[] stats=new Label[4];
     public final Label status,clock;
-    public final TextButton accel,decel,auto,cancelAuto,lock,cancelLock;
+    public final TextButton accel,decel,auto,cancelAuto,lock,cancelLock,anchor;
     private final Label coords,toast,place,placeSub;
     private final Table location,toastBar,questGroup;
     private final Table[] questCards=new Table[2];
@@ -25,7 +25,7 @@ public final class VoyageHud extends Group implements Disposable {
     private int shownAvatar = -1;
     private final Array<float[]> anchors = new Array<>();
     public VoyageHud(Skin skin,Runnable captain,IntConsumer stat,Runnable[] shortcuts,Runnable world,
-                     Runnable mine,Runnable intel,Runnable port,Runnable autoAction,Runnable cancel,Runnable lockAction,Runnable unlock,IntConsumer quest){
+                     Runnable mine,Runnable intel,Runnable port,Runnable autoAction,Runnable cancel,Runnable lockAction,Runnable unlock,Runnable anchorAction,IntConsumer quest){
         setSize(1920,1080);setScale(2f/3f);setTouchable(Touchable.childrenOnly);
         ui=new VoyageHudChrome(skin);
         Table resources=panel(ui.panel,136,968,664,88);
@@ -71,6 +71,8 @@ public final class VoyageHud extends Group implements Disposable {
         toastBar=panel(ui.panel,600,24,896,56);toastBar.setName("航行消息");toastBar.pad(8,24,8,24);toastBar.add(icon("anchor")).size(32).padRight(12);toast=ui.label("",22,VoyageHudChrome.PAPER);toast.setWrap(true);toastBar.add(toast).growX();toastBar.setTouchable(Touchable.disabled);
         location=panel(ui.panel,600,696,264,80);location.setTouchable(Touchable.enabled);location.pad(8);place=ui.label("",28,VoyageHudChrome.PAPER);placeSub=ui.label("",20,VoyageHudChrome.GOLD);location.add(place).row();location.add(placeSub);location.addListener(click(port));location.setName("所在地");
         cancelAuto=utility("取消自动",cancel,648);lock=utility("锁定海盗",lockAction,824);cancelLock=utility("取消锁定",unlock,1000);
+        // 0.28.17 抛锚：仅港/岛范围内显示，标签在 抛锚/起锚 间切换。
+        anchor=utility("抛锚",anchorAction,1176);
         for(Actor actor:getChildren()) anchors.add(new float[]{actor.getX(),actor.getY()});
     }
     /** Extend the sea-facing space while anchoring controls to the safe edges. */
