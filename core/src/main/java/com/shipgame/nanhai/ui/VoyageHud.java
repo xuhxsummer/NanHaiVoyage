@@ -5,6 +5,7 @@ import com.badlogic.gdx.scenes.scene2d.*;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.*;
 import com.badlogic.gdx.utils.*;
+import com.shipgame.nanhai.audio.VoyageAudio;
 import com.shipgame.nanhai.data.*;
 import java.util.function.*;
 
@@ -93,7 +94,11 @@ public final class VoyageHud extends Group implements Disposable {
     private void textLink(String text,Runnable action,float x,float y,float w){TextButton b=ui.button(text,ui.panel,20);b.setName(text);b.setBounds(x,y,w,40);b.addListener(click(action));addActor(b);}
     private TextButton speed(String text,String symbol,Drawable bg,float x,float y){TextButton b=ui.button(text,bg,28);TextButton.TextButtonStyle style=new TextButton.TextButtonStyle(b.getStyle());style.down=ui.circle;b.setStyle(style);Label l=b.getLabel();b.clearChildren();b.pad(12);b.add(icon(symbol)).size(56).row();b.add(l).height(32);b.setName(text);b.setBounds(x,y,120,120);addActor(b);return b;}
     private TextButton utility(String text,Runnable action,float x){TextButton b=ui.button(text,ui.panel,20);b.setName(text);b.setBounds(x,856,168,48);b.addListener(click(action));addActor(b);return b;}
-    private static ClickListener click(Runnable r){return new ClickListener(){@Override public void clicked(InputEvent e,float x,float y){e.stop();r.run();}};}
+    private static ClickListener click(Runnable r){return new ClickListener(){@Override public void clicked(InputEvent e,float x,float y){
+        e.stop();
+        // 0.28.18: UI tap SFX on HUD buttons (not on holds/hover).
+        VoyageAudio audio=VoyageAudio.get();if(audio!=null)audio.playUi();
+        r.run();}};}
     public void quest(int card,String title,String body,String progress){questTitles[card].setText(title);questBodies[card].setText(body);questProgress[card].setText(progress);}
     public void update(GameState g,boolean neutral,boolean ready,float kx,float ky){
         if(shownAvatar!=g.avatarIndex){shownAvatar=g.avatarIndex;captainPortrait.setDrawable(IconLib.avatar(shownAvatar));}

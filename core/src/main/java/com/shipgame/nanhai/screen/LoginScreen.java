@@ -30,6 +30,7 @@ import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.shipgame.nanhai.NanHaiVoyage;
+import com.shipgame.nanhai.audio.VoyageAudio;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.data.SaveData;
 import com.shipgame.nanhai.ui.UiFactory;
@@ -58,6 +59,9 @@ public class LoginScreen extends ScreenAdapter {
     @Override public void show() {
         switching = false;
         buildUi();
+        // 0.28.18: app-wide audio singleton; login scene BGM (idempotent).
+        VoyageAudio audio = VoyageAudio.initialize();
+        audio.setScene(VoyageAudio.Scene.LOGIN);
         if (game.updateChecker != null) {
             final Stage listeningStage = stage;
             game.updateChecker.setListener(new UpdateChecker.Listener() {
@@ -207,7 +211,10 @@ public class LoginScreen extends ScreenAdapter {
                     .width(760).row();
             content.add(settingButton("登录动效", "loginMotion", true)).size(700, 80).row();
             content.add(settingButton("海水波纹", "loginSea", true)).size(700, 80).row();
-            content.add(modalCopy("当前版本暂无音乐与音效。\n本机存档：账号与航程保存在当前设备，设置不会清除存档。"))
+            // 0.28.18: audio toggles (persisted, applied immediately).
+            content.add(audioSettingButton("背景音乐", true)).size(700, 80).row();
+            content.add(audioSettingButton("游戏音效", false)).size(700, 80).row();
+            content.add(modalCopy("本机存档：账号与航程保存在当前设备，设置不会清除存档。"))
                     .width(760).row();
         }
         content.add(modalButton("关闭", false, this::closeModal)).size(340, 80).row();
@@ -231,6 +238,29 @@ public class LoginScreen extends ScreenAdapter {
     private void applySettings() {
         bg.setMotionEnabled(settings.getBoolean("loginMotion", true));
         bg.setSeaEnabled(settings.getBoolean("loginSea", true));
+    }
+
+    /** 0.28.18: music/SFX mute toggle wired to the shared VoyageAudio prefs. */
+    private TextButton audioSettingButton(String title, boolean music) {
+        final VoyageAudio audio = VoyageAudio.initialize();
+        boolean muted = music ? audio.musicMuted() : audio.sfxMuted();
+        TextButton toggle = button(title + "：" + (muted ? "关闭" : "开启"), modalBlue, modalHover);
+        toggle.setName(music ? "设置背景音乐" : "设置游戏音效");
+        toggle.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent e, float x, float y) {
+                boolean nowMuted = music ? !audio.musicMuted() : !audio.sfxMuted();
+                if (music) {
+                    audio.setMusicMuted(nowMuted);
+                } else {
+                    audio.setSfxMuted(nowMuted);
+                }
+                toggle.setText(title + "：" + (nowMuted ? "关闭" : "开启"));
+                if (!music) {
+                    audio.playUi();
+                }
+            }
+        });
+        return toggle;
     }
 
     private BitmapFont font(int size) {

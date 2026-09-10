@@ -7,6 +7,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.shipgame.nanhai.audio.VoyageAudio;
 import com.shipgame.nanhai.data.AccountStore;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.screen.LoginScreen;
@@ -111,5 +112,8 @@ public class NanHaiVoyage extends Game {
         for(FreeTypeFontGenerator generator:fontGenerators) generator.dispose();
         fontGenerators.clear();
         if (batch != null) batch.dispose();
+        // 0.28.18: release the shared audio singleton last.
+        VoyageAudio audio = VoyageAudio.get();
+        if (audio != null) audio.dispose();
     }
 }

@@ -34,6 +34,7 @@ import com.badlogic.gdx.utils.Scaling;
 import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 import com.shipgame.nanhai.NanHaiVoyage;
+import com.shipgame.nanhai.audio.VoyageAudio;
 import com.shipgame.nanhai.data.Catalog;
 import com.shipgame.nanhai.data.GameState;
 import com.shipgame.nanhai.data.SaveData;
@@ -2387,6 +2388,19 @@ public class VoyageScreen extends ScreenAdapter {
                 }
             } else if (!inLandRange) {
                 driftHintShown = false;
+            }
+        }
+
+        // 0.28.18: BGM scene sync — battle > port/island UI or anchored > sailing.
+        // On combat end this restores sail (or port when still docked).
+        VoyageAudio voyageAudio = VoyageAudio.get();
+        if (voyageAudio != null) {
+            if (g.pirateAlive) {
+                voyageAudio.setScene(VoyageAudio.Scene.BATTLE);
+            } else if (g.worldPaused() || g.anchored) {
+                voyageAudio.setScene(VoyageAudio.Scene.PORT);
+            } else {
+                voyageAudio.setScene(VoyageAudio.Scene.SAIL);
             }
         }
 

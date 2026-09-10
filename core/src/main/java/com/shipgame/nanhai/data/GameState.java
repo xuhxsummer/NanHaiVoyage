@@ -2,6 +2,7 @@ package com.shipgame.nanhai.data;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.math.MathUtils;
+import com.shipgame.nanhai.audio.VoyageAudio;
 
 /** Runtime voyage: ship, cargo, weather, pirates, port/island actions. */
 public class GameState {
@@ -15,6 +16,7 @@ public class GameState {
         if(!canClaimDaily()) { toast("今日奖励已领取，下一游戏日再来。"); return false; }
         if(silver>Integer.MAX_VALUE-Catalog.DAILY_LOGIN_SILVER) { toast("银两已达上限，请稍后领取。"); return false; }
         silver+=Catalog.DAILY_LOGIN_SILVER; dailyClaimDay=gameDay;
+        playCoinSfx();
         questSilverPeak=Math.max(questSilverPeak,silver);
         toast("每日登录奖励：银两 +"+Catalog.DAILY_LOGIN_SILVER); return true;
     }
@@ -28,6 +30,7 @@ public class GameState {
         int reward=bit==1?666:888;
         if(silver>Integer.MAX_VALUE-reward) { toast("银两已达上限，请稍后兑换。"); return false; }
         silver+=reward; redeemedCodes|=bit; questSilverPeak=Math.max(questSilverPeak,silver);
+        playCoinSfx();
         toast("兑换成功：银两 +"+reward); return true;
     }
 
@@ -1097,6 +1100,7 @@ public class GameState {
         trade[good] -= qty;
         questGoodsSold[good] += qty;
         silver += gain;
+        playCoinSfx();
         // 任务追踪：卖出丝绸 / 卖 30 瓷器
         if (good == 0) {
             questSellSilk += qty;
@@ -1114,6 +1118,7 @@ public class GameState {
         int gain = Catalog.BEAST_PRICE[idx] * qty;
         beasts[idx] -= qty;
         silver += gain;
+        playCoinSfx();
         return "卖掉 " + Catalog.BEASTS[idx] + " x" + qty + "，得 " + gain + " 两。";
     }
 
@@ -1124,6 +1129,7 @@ public class GameState {
         int gain = Catalog.HERB_PRICE[idx] * qty;
         herbs[idx] -= qty;
         silver += gain;
+        playCoinSfx();
         return "卖掉 " + Catalog.HERBS[idx] + " x" + qty + "，得 " + gain + " 两。";
     }
 
@@ -1328,6 +1334,7 @@ public class GameState {
         int gain = Catalog.FISH_PRICE[idx] * qty;
         fish[idx] -= qty;
         silver += gain;
+        playCoinSfx();
         return "卖出 " + Catalog.FISH[idx] + " x" + qty + "，得 " + gain + " 两。";
     }
 
@@ -1583,13 +1590,25 @@ public class GameState {
 
     public void releaseHeading() {
         manualHeadingActive = false;
-    }
-
-    /** Player hits retain one damage; cannon upgrades and roster fire bonuses improve reload. */
+    }    /** Player hits retain one damage; cannon upgrades and roster fire bonuses improve reload.
+     * 0.28.18: slowed ~4x so the short cannon SFX can finish between shots.
+     * Per-shot damage is unchanged; upgrades still raise damage, not rate. */
     public float fireInterval() {
         float rate = 1f + 0.15f * Math.max(0, cannonLevel - 1) + 0.04f * Math.max(0, crew - 1);
         float shipFire = 1f + Catalog.SHIP_FIRE[ship] / 100f;
-        return Math.max(0.13f, Catalog.FIRE_INTERVAL / (rate * shipFire));
+        return Math.max(0.6f, Catalog.FIRE_INTERVAL * 3.6f / (rate * shipFire));
+    }
+
+    /** 0.28.18 cannon SFX hook; safe no-op when audio is unavailable. */
+    public void playCannonSfx() {
+        VoyageAudio a = VoyageAudio.get();
+        if (a != null) a.playCannon();
+    }
+
+    /** 0.28.18 coin SFX hook; safe no-op when audio is unavailable. */
+    public void playCoinSfx() {
+        VoyageAudio a = VoyageAudio.get();
+        if (a != null) a.playCoin();
     }
 
     /** Shots per second, shown on the port menu as 射速. */
@@ -1681,8 +1700,10 @@ public class GameState {
             pirateHeading=MathUtils.atan2(ty-pirateY,tx-pirateX)*MathUtils.radiansToDegrees;
             pirateFireCd-=dt;
             if(pirateFireCd<=0) {
-                pirateFireCd=Catalog.PIRATE_FIRE_INTERVAL;
+                // 0.28.18: slowed 2x so the cannon SFX can finish between volleys.
+                pirateFireCd=Catalog.PIRATE_FIRE_INTERVAL*2f;
                 fireAt(false,player?PLAYER:MERCHANT,pirateDamage,pirateX,pirateY,tx,ty);
+                playCannonSfx();
             }
         }
     }
@@ -1782,6 +1803,7 @@ public class GameState {
         playerFireCd-=dt;
         if(playerFireCd<=0) {
             playerFireCd=fireInterval(); fireAt(true,target,1,x,y,tx,ty);
+            playCannonSfx();
         }
     }
 
@@ -1876,6 +1898,7 @@ public class GameState {
         questDefeatedPirates++;
         int loot = 25 + MathUtils.random(55);
         silver += loot;
+        playCoinSfx();
         String extra = "";
         if (cargoFree() > 0 && MathUtils.randomBoolean()) {
             int g = MathUtils.random(Catalog.GOODS.length - 1);
@@ -1902,6 +1925,7 @@ public class GameState {
         if(playerKill) {
             int cargo=Math.min(cargoFree(),merchant.cargo);
             silver+=merchant.silver; trade[merchant.cargoGood]+=cargo;
+            playCoinSfx();
             toast("击沉商船，自动收取银两"+merchant.silver+"、"+Catalog.GOODS[merchant.cargoGood]+"×"+cargo+"。"+(cargo<merchant.cargo?"货舱不足，余货沉没。":""));
         }
         merchant=null; merchantLock=false;
