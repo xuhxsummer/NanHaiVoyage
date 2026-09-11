@@ -982,6 +982,7 @@ public class GameState {
             default:
                 WarshipData w = v.index < warships.length ? warships[v.index] : null;
                 if (w == null || !w.alive) return;
+                w.provoked = true; // 0.28.24: 被打/被撞后记仇：追击并还击
                 w.hp -= dmg;
                 if (w.hp <= 0f) despawnWarship(v.index, false);
         }
@@ -1024,7 +1025,8 @@ public class GameState {
     }
 
     private boolean warshipHostile(WarshipData w) {
-        return pirateAlive || (merchant != null && merchant.hostile);
+        // 0.28.24: 被玩家撞过/击伤的战船记仇（锁定等效），转入战斗语境。
+        return w.provoked || pirateAlive || (merchant != null && merchant.hostile);
     }
 
     /** 每帧检测玩家与所有 NPC、NPC 互相之间的船体接触；接触即结算一次撞击伤害。 */
@@ -1114,18 +1116,40 @@ public class GameState {
     /** Apply a bounded mutual separation impulse to every live NPC hull. */
     private void separateLiveShips() {
         if (pirateAlive) ensurePirateSeparation();
-        separatePlayerFrom(merchant == null ? 0f : merchant.x, merchant == null ? 0f : merchant.y,
-                merchant == null ? 0f : VoyageGeometry.ship(merchant.ship).radius());
-        for (TraderData t: traders) if (t != null && t.alive) separatePlayerFrom(t.x,t.y,VoyageGeometry.ship(t.ship).radius());
-        for (WarshipData w: warships) if (w != null && w.alive) separatePlayerFrom(w.x,w.y,VoyageGeometry.ship(w.ship).radius());
+        if (merchant != null) separateFrom(merchant);
+        for (TraderData t: traders) if (t != null && t.alive) separateFrom(t);
+        for (WarshipData w: warships) if (w != null && w.alive) separateFrom(w);
     }
-    private void separatePlayerFrom(float ox,float oy,float otherR) {
-        if (otherR<=0f) return;
-        float dx=x-ox,dy=y-oy,d=(float)Math.sqrt(dx*dx+dy*dy);
+
+    /** 0.28.24 玩家与 NPC 的互推位移结果（NPC 侧），separateMutual 写入。 */
+    private final float[] sepNpc = new float[2];
+
+    /** 0.28.24: 船体重叠时双方都沿接触法线分开（玩家 45% / NPC 55%，单步上限
+     * 12 单位）——此前只推玩家导致撞船后粘船。NPC 位移写入 sepNpc。 */
+    private void separateMutual(float ox, float oy, float otherR) {
+        sepNpc[0] = 0f; sepNpc[1] = 0f;
+        float dx=x-ox, dy=y-oy, d=(float)Math.sqrt(dx*dx+dy*dy);
         float limit=VoyageGeometry.ship(ship).radius()+otherR;
-        if(d>=limit || d<.001f) return;
-        float nx=dx/d,ny=dy/d,step=Math.min(6f,limit-d),ps=step*.45f;
-        x=MathUtils.clamp(x+nx*ps,40f,Catalog.WORLD_W-40f); y=MathUtils.clamp(y+ny*ps,40f,Catalog.WORLD_H-40f);
+        if (d>=limit || d<.001f) return;
+        float nx=dx/d, ny=dy/d, step=Math.min(12f, limit-d), ps=step*.45f, ns=step-ps;
+        x=MathUtils.clamp(x+nx*ps,40f,Catalog.WORLD_W-40f);
+        y=MathUtils.clamp(y+ny*ps,40f,Catalog.WORLD_H-40f);
+        sepNpc[0]=-nx*ns; sepNpc[1]=-ny*ns;
+    }
+    private void separateFrom(MerchantData m) {
+        separateMutual(m.x, m.y, VoyageGeometry.ship(m.ship).radius());
+        m.x=MathUtils.clamp(m.x+sepNpc[0],40f,Catalog.WORLD_W-40f);
+        m.y=MathUtils.clamp(m.y+sepNpc[1],40f,Catalog.WORLD_H-40f);
+    }
+    private void separateFrom(TraderData t) {
+        separateMutual(t.x, t.y, VoyageGeometry.ship(t.ship).radius());
+        t.x=MathUtils.clamp(t.x+sepNpc[0],40f,Catalog.WORLD_W-40f);
+        t.y=MathUtils.clamp(t.y+sepNpc[1],40f,Catalog.WORLD_H-40f);
+    }
+    private void separateFrom(WarshipData w) {
+        separateMutual(w.x, w.y, VoyageGeometry.ship(w.ship).radius());
+        w.x=MathUtils.clamp(w.x+sepNpc[0],40f,Catalog.WORLD_W-40f);
+        w.y=MathUtils.clamp(w.y+sepNpc[1],40f,Catalog.WORLD_H-40f);
     }
 
     private void move(float dt) {
@@ -1987,7 +2011,8 @@ public class GameState {
         return false;
     }
 
-    /** Focus the pirate; merchants can independently remain hostile. */
+    /** Focus the pirate; merchants can independently remain hostile.
+     * 0.28.24: 锁定即追击 —— combatLock 让海盗主动逼近玩家（半血后改为边打边逃）。 */
     public void lockPirate() {
         if (!pirateAlive) {
             return;
@@ -1995,7 +2020,7 @@ public class GameState {
         combatLock = true;
         merchantLock = false;
         playerFireCd = Math.min(playerFireCd, 0.08f);
-        toast("已锁定海盗，自动连续开火。");
+        toast("已锁定海盗，对方将追击，自动连续开火。");
     }
 
     public void cancelLock() {
@@ -2051,6 +2076,34 @@ public class GameState {
         return true;
     }
 
+    /** 0.28.24 海盗巡航/追击/逃离速度（单位/秒）：追击略快于货船，慢于玩家全速。 */
+    private static final float PIRATE_SAIL_SPEED = 84f;
+
+    /** 0.28.24 海盗步进移动：避岸避船，12 向弧采样（与货船/战船一致）。 */
+    private void stepPirate(float tx, float ty, float speed, float dt) {
+        int steps = Math.max(1, (int) Math.ceil(dt * speed / 10f));
+        for (int s = 0; s < steps; s++) {
+            float angle = MathUtils.atan2(ty - pirateY, tx - pirateX) * MathUtils.radiansToDegrees;
+            for (int n = 0; n < 12; n++) {
+                float offset = ((n + 1) / 2) * 30 * (n % 2 == 0 ? 1 : -1);
+                float heading = angle + offset;
+                float nx = pirateX + MathUtils.cosDeg(heading) * speed * dt / steps;
+                float ny = pirateY + MathUtils.sinDeg(heading) * speed * dt / steps;
+                if (!pirateWaterClear(nx, ny)) continue;
+                if (Catalog.dist(nx, ny, x, y) < VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius() + VoyageGeometry.ship(ship).radius() + 8) continue;
+                pirateX = nx; pirateY = ny; pirateHeading = heading;
+                break;
+            }
+        }
+    }
+
+    /** 0.28.24 半血逃离：沿「玩家-海盗」连线的镜像点跑，同时保留开火（边打边逃）。 */
+    private void fleePirateFromPlayer(float dt) {
+        float tx = MathUtils.clamp(pirateX * 2f - x, 300f, Catalog.WORLD_W - 300f);
+        float ty = MathUtils.clamp(pirateY * 2f - y, 300f, Catalog.WORLD_H - 300f);
+        stepPirate(tx, ty, PIRATE_SAIL_SPEED * 1.35f, dt);
+    }
+
     private void updateCombat(float dt) {
         float d=Catalog.dist(x,y,pirateX,pirateY);
         if (d>Catalog.NPC_HORIZON) {
@@ -2058,7 +2111,16 @@ public class GameState {
             toast(autoSail ? "已驶出海盗海域，自动航行继续。" : "已驶出海盗海域。");
             return;
         }
-        // Stationary, no retaliation chase. Either nearby ship can draw its fire.
+        // 0.28.24: 锁定追打 —— 锁定后海盗主动逼近玩家；血量≤50% 改为边打边逃；
+        // 未锁定仍原地炮击（追击需要锁定）。开火逻辑不变。
+        boolean lowHp = pirateHp <= pirateHpMax * .5f;
+        pirateChase = combatLock && !lowHp;
+        if (combatLock && lowHp) {
+            fleePirateFromPlayer(dt);
+        } else if (pirateChase) {
+            stepPirate(x, y, PIRATE_SAIL_SPEED, dt);
+            d = Catalog.dist(x, y, pirateX, pirateY);
+        }
         float md=merchant==null ? Float.MAX_VALUE : Catalog.dist(pirateX,pirateY,merchant.x,merchant.y);
         if (Math.min(d,md)<=Catalog.PIRATE_RANGE) {
             boolean player=d<=md;
@@ -2158,6 +2220,14 @@ public class GameState {
             }
         }
         moveNpc(t, t.ship, tx, ty, 58f * (1f + Catalog.SHIP_SPEED[t.ship] / 100f) * (t.hostile ? 1.6f : 1f), dt);
+        // 0.28.24: 警觉货船边逃边还击（此前 fireCd 从未使用，货船只会逃不会打）。
+        if (t.hostile && Catalog.dist(x, y, t.x, t.y) <= Catalog.PIRATE_RANGE) {
+            t.fireCd -= dt;
+            if (t.fireCd <= 0f) {
+                t.fireCd = Catalog.PIRATE_FIRE_INTERVAL * 1.8f;
+                fireAt(false, PLAYER, traderDamage(t.ship), t.x, t.y, x, y);
+            }
+        }
     }
 
     private void updateWarshipRoster(float dt) {
@@ -2193,18 +2263,22 @@ public class GameState {
         if (Catalog.dist(x, y, w.x, w.y) <= Catalog.NPC_HORIZON) toast("远处发现战船，交战海域注意规避。");
     }
 
-    /** 战船 AI：和平期沿岸巡逻；战斗语境（海盗在场/玩家掠夺）下逼近并炮击。
-     * 主动撞船走概率判定（updateShipImpacts 内 roll）。 */
+    /** 战船 AI：和平期沿岸巡逻；战斗语境（海盗在场/玩家掠夺/被玩家激怒）下
+     * 逼近并炮击；血量≤50% 改为边打边逃。主动撞船走概率判定（updateShipImpacts 内 roll）。 */
     private void updateWarship(WarshipData w, float dt) {
         w.hostile = warshipHostile(w);
+        boolean lowHp = w.hp <= w.hpMax * .5f;
         float tx, ty;
-        if (w.hostile) { tx = x; ty = y; }
+        if (w.hostile && lowHp) { // 0.28.24: 半血战船边打边逃
+            tx = MathUtils.clamp(w.x * 2f - x, 300f, Catalog.WORLD_W - 300f);
+            ty = MathUtils.clamp(w.y * 2f - y, 300f, Catalog.WORLD_H - 300f);
+        } else if (w.hostile) { tx = x; ty = y; }
         else {
             w.patrolAngle += 14f * dt;
             tx = w.anchorX + MathUtils.cosDeg(w.patrolAngle) * 240f;
             ty = w.anchorY + MathUtils.sinDeg(w.patrolAngle) * 240f;
         }
-        moveNpc(w, w.ship, tx, ty, 72f * (1f + Catalog.SHIP_SPEED[w.ship] / 100f) * (w.hostile ? 1.25f : .7f), dt);
+        moveNpc(w, w.ship, tx, ty, 72f * (1f + Catalog.SHIP_SPEED[w.ship] / 100f) * (w.hostile ? (lowHp ? 1.55f : 1.25f) : .7f), dt);
         if (w.hostile && Catalog.dist(x, y, w.x, w.y) <= Catalog.PIRATE_RANGE) {
             w.fireCd -= dt;
             if (w.fireCd <= 0f) {

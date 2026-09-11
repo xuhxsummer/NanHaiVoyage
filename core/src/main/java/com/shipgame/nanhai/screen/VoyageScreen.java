@@ -681,7 +681,10 @@ public class VoyageScreen extends ScreenAdapter {
             g.leaveIslandInPlace();
             dismissedIsland = -1;
         } else if (overlay == Overlay.FAIL) {
-            dismissedFail = true;
+            // 0.28.24: 关闭失败弹窗（右上角 X）≡ 重新开始 —— 沉船后不再留下
+            // 0 耐久、弹窗已关、无法操作的死档。
+            restartNewGame();
+            return;
         } else if (overlay == Overlay.PORT || overlay == Overlay.ISLAND) {
             // port/island disappeared while the popup was up; reset dismissals
             dismissedPort = -1;

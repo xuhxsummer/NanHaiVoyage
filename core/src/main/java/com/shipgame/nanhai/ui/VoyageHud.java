@@ -78,7 +78,10 @@ public final class VoyageHud extends Group implements Disposable {
         // 0.28.21/0.28.22: 停靠提示 + 抛锚按钮贴船水平排列（都在船右侧：
         // 停靠提示左、抛锚右，等宽等高）。位置每帧由 VoyageScreen 投影同步。
         location=panel(ui.panel,600,696,224,64);location.setTouchable(Touchable.enabled);location.pad(6,10,6,10);place=ui.label("",24,VoyageHudChrome.PAPER);placeSub=ui.label("",17,VoyageHudChrome.GOLD);location.add(place).row();location.add(placeSub);location.addListener(click(port));location.setName("所在地");
-        cancelAuto=utility("取消自动",cancel,648);lock=utility("锁定海盗",lockAction,824);cancelLock=utility("取消锁定",unlock,1000);
+        // 0.28.24:「取消锁定」与「自动航行」并排（同一行、同尺寸，紧挨其右）。
+        cancelAuto=utility("取消自动",cancel,648);lock=utility("锁定海盗",lockAction,824);
+        cancelLock=ui.button("取消锁定",ui.panel,22);cancelLock.setName("取消锁定");
+        cancelLock.setBounds(648,96,168,64);cancelLock.addListener(click(unlock));addActor(cancelLock);
         // 0.28.21 抛锚/起锚：贴船按钮 —— 位置每帧由 VoyageScreen 投影同步
         // （与停靠提示并排在船右侧），仅港/岛范围内（或已抛锚）可见。
         // 0.28.22: 与停靠提示等宽等高（180×64），共享样式。
