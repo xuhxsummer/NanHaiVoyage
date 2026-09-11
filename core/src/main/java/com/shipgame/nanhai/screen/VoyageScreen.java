@@ -97,6 +97,8 @@ public class VoyageScreen extends ScreenAdapter {
 
     private enum Overlay {
         NONE, PORT, ISLAND, MAP, CODEX, CARGO, PRICE, FAIL,
+        // 0.28.22: LOOT —— 击沉海盗/商船后的战利品结算弹窗（世界暂停）。
+        LOOT,
         // 0.26.0 sub-views: MARKET is the paged buy/sell screen reachable from
         // the docked actions menu; AVATAR is the paused 船长菜单 (account menu);
         // HOWTO is the first-run 玩法说明 popup shown once per install.
@@ -782,7 +784,8 @@ public class VoyageScreen extends ScreenAdapter {
         if (isFullscreenOverlay()) {
             if (pageUi == null) pageUi = new QuestUi(game.skin);
             Table page;
-            if (overlay == Overlay.FISH) page = fishingPage();
+            if (overlay == Overlay.LOOT) page = lootPage();
+            else if (overlay == Overlay.FISH) page = fishingPage();
             else if (overlay == Overlay.PRICE) page = pricePage();
             else if (overlay == Overlay.STAT) page = statPage();
             else if (overlay == Overlay.FAIL) page = failurePage();
@@ -2419,9 +2422,9 @@ public class VoyageScreen extends ScreenAdapter {
         btnCancelAuto.setVisible(g.autoSail && overlay != Overlay.MAP);
         btnLockPirate.setVisible(g.pirateAlive && !g.combatLock && overlay == Overlay.NONE);
         btnCancelLock.setVisible((g.combatLock || g.merchantLock) && overlay == Overlay.NONE);
-        // 0.28.21: 停靠提示（所在地）+ 抛锚/起锚按钮竖排贴船 —— 跟随船在屏幕上的
-        // 位置，便于拇指直接点按。停靠提示在上，抛锚在下；只在港/岛范围内（或已
-        // 抛锚）显示。菜单开着（世界暂停）或投影失败（船在屏外）时隐藏。
+        // 0.28.21/0.28.22: 停靠提示（所在地）+ 抛锚/起锚按钮贴船 —— 0.28.22 改为
+        // 船右侧水平排列：停靠提示在左、抛锚在右，等宽等高（180×64）。只在港/岛
+        // 范围内（或已抛锚）显示；菜单开着（世界暂停）或投影失败（船在屏外）时隐藏。
         if (btnAnchor != null) {
             btnAnchor.setText(g.anchored ? "起锚" : "抛锚");
             boolean nearLand = g.dockedPort >= 0 || g.islandMenu >= 0 || g.anchored || g.canAnchor();
@@ -2439,11 +2442,13 @@ public class VoyageScreen extends ScreenAdapter {
                         new com.badlogic.gdx.math.Vector2(tmp.x, tmp.y));
                 float bx = p.x, by = p.y;
                 if (locationPanel != null) {
-                    locationPanel.setPosition(bx - locationPanel.getWidth() / 2f, by + 40f);
+                    // 所在地：船右侧垂直居中（左缘贴船屏上位置 + 56）。
+                    locationPanel.setSize(180f, 64f);
+                    locationPanel.setPosition(bx + 56f, by - 32f);
                 }
                 if (showAnchor) {
-                    btnAnchor.setPosition(bx - btnAnchor.getWidth() / 2f,
-                            by + 40f - btnAnchor.getHeight() - 10f);
+                    // 抛锚：紧贴所在地右侧，等高等宽 —— 一眼看去是一对按钮。
+                    btnAnchor.setPosition(bx + 56f + 180f + 8f, by - 32f);
                 }
             }
         }
@@ -2458,6 +2463,13 @@ public class VoyageScreen extends ScreenAdapter {
 
         if (world3d != null) world3d.render(g, overlay == Overlay.NONE ? delta : 0f);
         else ScreenUtils.clear(WATER);
+
+        // 0.28.22: 沉船音量/BGM 压低计时（无音也幂等）。
+        com.shipgame.nanhai.audio.VoyageAudio va = com.shipgame.nanhai.audio.VoyageAudio.get();
+        if (va != null) va.update(delta);
+
+        // 0.28.22: 掠夺结算弹窗（击沉海盗/商船后展示战利品，替代底部横幅）。
+        tickLootPopup(delta);
 
         hudVp.apply();
         shapes.setProjectionMatrix(hudVp.getCamera().combined);
@@ -2480,6 +2492,49 @@ public class VoyageScreen extends ScreenAdapter {
             stage.draw();
         }
 
+    }
+
+    /** 0.28.22 掠夺结算弹窗：玩家亲手击沉海盗/商船后，用居中模态列出银两、
+     * 货物与附加说明（替代旧的底部横幅）。弹窗打开时世界暂停；「收下」关闭。 */
+    private GameState.LootGain lootGain;
+
+    private void tickLootPopup(float delta) {
+        if (overlay != Overlay.NONE) return; // 有菜单开着：等关闭后再结算
+        GameState.LootGain gain = g.pollLootPopup();
+        if (gain != null) {
+            lootGain = gain;
+            overlay = Overlay.LOOT;
+            rebuildMenu();
+        }
+    }
+
+    private Table lootPage() {
+        Table page = new Table(game.skin);
+        page.pad(32);
+        GameState.LootGain gain = lootGain;
+        Label title = new Label(gain == null ? "战利品" : gain.title, game.skin, "gold");
+        title.setFontScale(1.5f);
+        page.add(title).center().padBottom(18).row();
+        StringBuilder body = new StringBuilder();
+        if (gain != null) {
+            if (gain.silver > 0) body.append("银两 +").append(gain.silver).append("\n");
+            if (gain.goodCount > 0 && gain.good != null && !gain.good.isEmpty()) {
+                body.append(gain.good).append(" ×").append(gain.goodCount).append("\n");
+            }
+            if (gain.extra != null && !gain.extra.isEmpty()) body.append(gain.extra);
+        }
+        if (body.length() == 0) body.append("战利品已收取。");
+        Label copy = new Label(body.toString(), game.skin);
+        copy.setFontScale(1.1f);
+        copy.setAlignment(Align.center);
+        page.add(copy).center().padBottom(24).row();
+        TextButton ok = new TextButton("收下", game.skin);
+        ok.getLabel().setFontScale(1.25f);
+        ok.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent e, float x, float y) { closePopup(); }
+        });
+        page.add(ok).size(300, 76).center();
+        return page;
     }
 
     private String statusText() {

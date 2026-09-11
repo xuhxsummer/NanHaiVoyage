@@ -356,8 +356,13 @@ public class LoginScreen extends ScreenAdapter {
         formPanel.setBackground(frame("loginPanel", "06111CEB"));
         formPanel.setTouchable(Touchable.disabled);
         place(formPanel, 504, 352, 912, 304);
-        place(label("扬帆南海 · 通商万国", 32), 576, 672, 768, 56);
+        // 0.28.22: 版本检查期间隐藏整个中央登录区（标题/说明/输入/按钮/提示），
+        // 检查完成（最新/离线超时）后才显示；更新弹窗仍可覆盖在最上层。
+        Label title = label("扬帆南海 · 通商万国", 32);
+        title.setName("loginTitle");
+        place(title, 576, 672, 768, 56);
         Label local = label("本机登录 · 本机存档（关掉不丢）", 28);
+        local.setName("loginLocal");
         local.setColor(Color.valueOf("FFF0CC"));
         place(local, 544, 600, 832, 40);
 
@@ -378,6 +383,7 @@ public class LoginScreen extends ScreenAdapter {
         for (int i = 0; i < 2; i++) {
             int y = 496 - i * 112;
             Table caption = new Table(); caption.setBackground(navy);
+            caption.setName(i == 0 ? "loginUserCaption" : "loginPassCaption");
             Label captionLabel = label(i == 0 ? "用户名" : "密码", 40);
             captionLabel.setColor(Color.valueOf("FFF4D3"));
             caption.add(captionLabel).expand().fill();
@@ -397,6 +403,7 @@ public class LoginScreen extends ScreenAdapter {
             @Override public void clicked(InputEvent e, float x, float y) { doRegister(user.getText(), pass.getText()); }
         });
         msg = label("注册一个本机账号，或登录已有账号。", 28);
+        msg.setName("loginMsg");
         msg.setColor(Color.valueOf("FFF0CC"));
         msg.setWrap(true);
         place(msg, 520, 144, 880, 72);
@@ -525,11 +532,14 @@ public class LoginScreen extends ScreenAdapter {
      * until the form opens (check finished), then both hide together. */
     private void setGateUi(boolean open) {
         if (gatedActors.size == 0) {
+            // 0.28.22: 中央登录区整体隐藏 —— 面板、标题、说明、字段、按钮、提示。
             for (Actor a : stage.getRoot().getChildren()) {
                 if (a == bg) continue;
                 String n = a.getName();
                 if (n != null && (n.equals("loginFormPanel") || n.equals("loginUsername")
-                        || n.equals("loginPassword") || n.equals("登录") || n.equals("注册"))) {
+                        || n.equals("loginPassword") || n.equals("登录") || n.equals("注册")
+                        || n.equals("loginTitle") || n.equals("loginLocal") || n.equals("loginMsg")
+                        || n.equals("loginUserCaption") || n.equals("loginPassCaption"))) {
                     gatedActors.add(a);
                 }
             }

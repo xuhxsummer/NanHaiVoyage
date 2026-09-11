@@ -18,7 +18,9 @@ import com.badlogic.gdx.utils.Disposable;
  *   PORT   港口/岛屿经营    bgm_port
  *   BATTLE 海盗战斗        bgm_battle
  * 环境音：SAIL 场景下海浪低音量循环；靠泊/锚泊/菜单/登录时更安静或静音。
- * 音效：cannon（开炮）、coin（银两）、ui（主要按钮/面板开关）。
+ * 音效：cannon（开炮）、coin（银两）、ui（主要按钮/面板开关）、
+ *       sink（沉船 · Pixabay "Water Splash 02" by Universfield，音量更大，
+ *       播放时 BGM 短暂压低 ~0.9s，保证战斗音乐盖不住沉船声）。
  */
 public final class VoyageAudio implements Disposable {
     public enum Scene { LOGIN, SAIL, PORT, BATTLE }
@@ -42,9 +44,15 @@ public final class VoyageAudio implements Disposable {
 
     private final Preferences prefs;
     private final Music loginBgm, sailBgm, portBgm, battleBgm, waves;
-    private final Sound cannon, coin, ui;
+    private final Sound cannon, coin, ui, sink;
     private Scene scene = Scene.LOGIN;
     private float wavesVolume;
+    // 0.28.22 BGM ducking: while a duck is active the current scene track plays
+    // at a reduced volume, then the scene volume is restored. Driven by
+    // update(delta) from the active screens.
+    private Music currentBgm;
+    private float currentBgmVolume;
+    private float duckTimer;
 
     private VoyageAudio() {
         prefs = Gdx.app.getPreferences("nanhai-settings");
@@ -56,6 +64,7 @@ public final class VoyageAudio implements Disposable {
         cannon = sound("audio/sfx_cannon.mp3");
         coin = sound("audio/sfx_coin.mp3");
         ui = sound("audio/sfx_ui.mp3");
+        sink = sound("audio/sfx_sink.mp3");
         applyScene(true);
     }
 
@@ -139,6 +148,9 @@ public final class VoyageAudio implements Disposable {
             } catch (Throwable ignored) {
             }
         }
+        currentBgm = bgm;
+        currentBgmVolume = volume;
+        duckTimer = 0f;
         if (bgm == null) return;
         try {
             bgm.setLooping(true);
@@ -148,6 +160,28 @@ public final class VoyageAudio implements Disposable {
             } else if (!bgm.isPlaying()) {
                 bgm.play();
             }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** Per-frame tick: restores BGM volume once a sink duck expires. */
+    public void update(float delta) {
+        if (duckTimer <= 0f) return;
+        duckTimer -= delta;
+        if (duckTimer <= 0f && currentBgm != null) {
+            try {
+                currentBgm.setVolume(musicMuted() ? 0f : currentBgmVolume);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** Lower the current BGM for ~0.9s so a one-shot SFX (sink) is audible. */
+    private void duckBgm(float seconds) {
+        if (currentBgm == null) return;
+        duckTimer = seconds;
+        try {
+            currentBgm.setVolume(musicMuted() ? 0f : currentBgmVolume * 0.3f);
         } catch (Throwable ignored) {
         }
     }
@@ -169,6 +203,17 @@ public final class VoyageAudio implements Disposable {
     /** Major UI taps (panel open/close, main buttons); do not spam on hover. */
     public void playUi() {
         play(ui, 0.65f);
+    }
+
+    /** 0.28.22 沉船音：Pixabay "Water Splash 02"（Universfield），音量拉满并
+     * 短暂压低 BGM —— 战斗音乐不能盖住沉船的声音。 */
+    public void playSink() {
+        if (sink == null || sfxMuted()) return;
+        duckBgm(0.9f);
+        try {
+            sink.play(1f);
+        } catch (Throwable ignored) {
+        }
     }
 
     private void play(Sound s, float volume) {
@@ -215,7 +260,7 @@ public final class VoyageAudio implements Disposable {
             if (m == null) continue;
             try { m.dispose(); } catch (Throwable ignored) { }
         }
-        Sound[] allSounds = {cannon, coin, ui};
+        Sound[] allSounds = {cannon, coin, ui, sink};
         for (Sound s : allSounds) {
             if (s == null) continue;
             try { s.dispose(); } catch (Throwable ignored) { }

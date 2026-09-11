@@ -13,6 +13,8 @@ import java.util.*;
 public final class VoyageHudChrome implements Disposable {
     public static final Color GOLD=Color.valueOf("D8B579"), PAPER=Color.valueOf("F4DEB0"), MUTED=Color.valueOf("B8C5C3");
     public final Drawable goldLine, panel, parchment, red, blue, jade, circle, greenCircle, redCircle, ring, compass;
+    /** 0.28.22 半透明深色底板：放在亮色天空上的文字标签后面，保证可读。 */
+    public final Drawable plate;
     private final java.util.List<Texture> owned=new ArrayList<>();
     private final Map<String,Drawable> icons=new HashMap<>();
     private final Skin skin;
@@ -31,6 +33,9 @@ public final class VoyageHudChrome implements Disposable {
         panel=patch("102631"); parchment=patch("CAB184"); red=patch("622C25"); blue=patch("163A47"); jade=patch("264C42");
         circle=disc("112A36",true,false); greenCircle=disc("315C44",true,false); redCircle=disc("733329",true,false);
         ring=disc("112A36",false,false); compass=disc("142F39",true,true);
+        Pixmap platePixmap=new Pixmap(8,8,Pixmap.Format.RGBA8888);
+        platePixmap.setColor(0.02f,0.055f,0.09f,0.8f);platePixmap.fill();
+        plate=new TextureRegionDrawable(texture(platePixmap));
     }
     private Texture texture(Pixmap p) {Texture t=new Texture(p);p.dispose();t.setFilter(Texture.TextureFilter.Linear,Texture.TextureFilter.Linear);owned.add(t);return t;}
     private Drawable patch(String base) {

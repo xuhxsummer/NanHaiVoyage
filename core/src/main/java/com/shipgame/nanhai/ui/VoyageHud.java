@@ -45,6 +45,11 @@ public final class VoyageHud extends Group implements Disposable {
         for(int i=0;i<rail.length;i++){Table item=badge(rail[i],glyph[i],80,shortcuts[i]);item.setBounds(1008+i*104,952,80,108);addActor(item);
             if(i==3){questDot=new Image(ui.redCircle);questDot.setBounds(1068+i*104,1032,20,20);questDot.setTouchable(Touchable.disabled);addActor(questDot);}}
         dot=questDot;
+        // 0.28.22 顶部右侧栏文字对比度：标题放在半透明深色小底板上，
+        // 不再直接叠在亮色天空上（福利等清晰可读）。底板不接收触摸。
+        for(int i=0;i<rail.length;i++){
+            Table plateT=new Table();plateT.setBackground(ui.plate);plateT.setBounds(1012+i*104,952,72,30);plateT.setTouchable(Touchable.disabled);addActor(plateT);
+        }
         minimap=new VoyageMinimap(ui);minimap.setName("小地图");minimap.setBounds(1632,784,264,264);minimap.addListener(click(world));addActor(minimap);
         Label north=ui.label("北",24,VoyageHudChrome.PAPER);north.setBounds(1748,1008,32,32);north.setTouchable(Touchable.disabled);addActor(north);
         coords=ui.label("",17,VoyageHudChrome.PAPER);coords.setAlignment(Align.center);coords.setBounds(1664,816,192,24);coords.setTouchable(Touchable.disabled);addActor(coords);
@@ -71,12 +76,14 @@ public final class VoyageHud extends Group implements Disposable {
         auto=ui.button("自动航行",ui.panel,22);auto.setName("自动航行");auto.setBounds(472,96,168,64);Label autoLabel=auto.getLabel();auto.clearChildren();auto.add(icon("helm")).size(40).padRight(8);auto.add(autoLabel);auto.addListener(click(autoAction));addActor(auto);
         Table time=panel(ui.panel,24,24,360,48);time.pad(4,12,4,12);time.add(icon("sun")).size(32).padRight(8);clock=ui.label("",22,VoyageHudChrome.PAPER);time.add(clock).growX();
         toastBar=panel(ui.panel,600,24,896,56);toastBar.setName("航行消息");toastBar.pad(8,24,8,24);toastBar.add(icon("anchor")).size(32).padRight(12);toast=ui.label("",22,VoyageHudChrome.PAPER);toast.setWrap(true);toastBar.add(toast).growX();toastBar.setTouchable(Touchable.disabled);
-        // 0.28.21: 停靠提示 + 抛锚按钮竖排贴船（位置每帧由 VoyageScreen 投影同步）。
-        location=panel(ui.panel,600,696,264,80);location.setTouchable(Touchable.enabled);location.pad(8);place=ui.label("",28,VoyageHudChrome.PAPER);placeSub=ui.label("",20,VoyageHudChrome.GOLD);location.add(place).row();location.add(placeSub);location.addListener(click(port));location.setName("所在地");
+        // 0.28.21/0.28.22: 停靠提示 + 抛锚按钮贴船水平排列（都在船右侧：
+        // 停靠提示左、抛锚右，等宽等高）。位置每帧由 VoyageScreen 投影同步。
+        location=panel(ui.panel,600,696,224,64);location.setTouchable(Touchable.enabled);location.pad(6,10,6,10);place=ui.label("",24,VoyageHudChrome.PAPER);placeSub=ui.label("",17,VoyageHudChrome.GOLD);location.add(place).row();location.add(placeSub);location.addListener(click(port));location.setName("所在地");
         cancelAuto=utility("取消自动",cancel,648);lock=utility("锁定海盗",lockAction,824);cancelLock=utility("取消锁定",unlock,1000);
-        // 0.28.21 抛锚/起锚：贴船按钮 —— 位置每帧由 VoyageScreen 投影同步（船上方），
-        // 仅港/岛范围内（或已抛锚）可见。
-        anchor=ui.button("抛锚",ui.panel,20);anchor.setName("抛锚");anchor.setSize(168,48);anchor.setOrigin(Align.center);anchor.addListener(click(anchorAction));addActor(anchor);
+        // 0.28.21 抛锚/起锚：贴船按钮 —— 位置每帧由 VoyageScreen 投影同步
+        // （与停靠提示并排在船右侧），仅港/岛范围内（或已抛锚）可见。
+        // 0.28.22: 与停靠提示等宽等高（180×64），共享样式。
+        anchor=ui.button("抛锚",ui.panel,20);anchor.setName("抛锚");anchor.setSize(180,64);anchor.setOrigin(Align.center);anchor.addListener(click(anchorAction));addActor(anchor);
         for(Actor actor:getChildren()) anchors.add(new float[]{actor.getX(),actor.getY()});
     }
     /** Extend the sea-facing space while anchoring controls to the safe edges. */

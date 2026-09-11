@@ -15,6 +15,15 @@ public class AndroidLauncher extends AndroidApplication {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 0.28.22: 游戏内不熄屏 —— 整个应用会话保持屏幕常亮（登录/航行/更新下载
+        // 都不会因闲置熄屏中断；与其他游戏的做法一致）。
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                getWindow().addFlags(
+                        android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+        });
         AndroidApplicationConfiguration config = new AndroidApplicationConfiguration();
         config.useAccelerometer = false;
         config.useCompass = false;

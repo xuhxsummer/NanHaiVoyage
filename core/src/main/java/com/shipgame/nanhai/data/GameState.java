@@ -88,6 +88,12 @@ public class GameState {
     public float weatherTimer = 18f;
 
     public MerchantData merchant;
+    // 0.28.22 海面船队：原有单艘商船/海盗之外，新增 2 艘货船 + 2 艘战船软上限，
+    // 刷新仍走远处带（NPC_SPAWN_MIN..MAX），每次刷怪判定 ~25% 概率，避免扎堆。
+    public final TraderData[] traders = new TraderData[2];
+    public final WarshipData[] warships = new WarshipData[2];
+    public float traderSpawnTimer = 70f;
+    public float warshipSpawnTimer = 90f;
     public float merchantSpawnTimer = 45f;
     public boolean merchantLock;
     public int pirateDamage = 1;
@@ -115,6 +121,31 @@ public class GameState {
     public final boolean[] ballFromPlayer = new boolean[MAX_BALLS];
     private final int[] ballTarget = new int[MAX_BALLS], ballGeneration = new int[MAX_BALLS];
     private final int[] ballDamage = new int[MAX_BALLS];
+
+    // 0.28.22 沉船表现：击沉的船不瞬间消失，先倾侧下沉 ~2.5 秒再移除。
+    public final Wreck[] wrecks = new Wreck[4];
+    // 0.28.22 掠夺结算：玩家亲手击沉时记录战利品，由界面弹窗展示（不再只用底部横幅）。
+    public final LootGain[] lootPopup = new LootGain[2];
+    public float lootPopupT;
+
+    /** One sinking ship: 2.5s tilt+submerge animation, then despawn. */
+    public static final class Wreck {
+        public float x, y, headingDeg;
+        public int ship;         // Catalog.SHIPS index (PIRATE_SHIP for pirates)
+        public float timer;      // counts down to 0
+        public float duration;   // total sink time (2.5s)
+        public float tilt, submerge, sway; // renderer helper values (0..1)
+        public boolean alive;
+    }
+
+    /** 0.28.22 玩家掠夺收益（击沉海盗/商船后弹窗展示）。 */
+    public static final class LootGain {
+        public String title;      // 弹窗标题（击沉海盗 / 击沉商船）
+        public int silver;
+        public String good;       // 货物名（可为空字符串）
+        public int goodCount;
+        public String extra;      // 附加说明（缴获部件 / 货舱不足等）
+    }
 
     public boolean holdAccel, holdDecel;
     public float steerInput; // Screen-left is -1; subtract it: +heading yaws left in (x, height, -y).
@@ -689,8 +720,13 @@ public class GameState {
             }
         }
         updateMerchant(dt);
+        // 0.28.22: 远处带 soft-cap 刷新 —— 2 商船 + 2 战船，每次判定约 25% 概率。
+        updateTraderRoster(dt);
+        updateWarshipRoster(dt);
         updatePlayerFire(dt);
         updateBalls(dt);
+        updateShipImpacts(dt);
+        updateWrecks(dt);
         if (failed) return;
         // 0.27.2: 靠近港口/岛屿不再自动靠泊/登岛（tryApproach 已移除）——
         // 玩家必须在范围内点击港口/岛屿图标才会打开对应菜单。自动航行
@@ -786,6 +822,293 @@ public class GameState {
 
     /** 近岸漂流速度（单位/秒）：DOCK_RANGE 218，几秒内能明显滑出范围。 */
     private static final float COASTAL_DRIFT_SPEED = 20f;
+
+    // ================= 0.28.22 沉船表现 =================
+    /** 沉没动画时长：倾侧 + 下沉，之后移除（从不瞬间消失）。 */
+    private static final float SINK_SECONDS = 2.5f;
+
+    /** 记录一艘沉船并开始下沉动画（位置保持不变，倾侧渐增，整体没入水中）。 */
+    private void addWreck(float wx, float wy, float heading, int shipIndex) {
+        for (int i = 0; i < wrecks.length; i++) {
+            if (wrecks[i] != null && wrecks[i].alive) continue;
+            Wreck w = wrecks[i] == null ? new Wreck() : wrecks[i];
+            w.x = wx; w.y = wy; w.headingDeg = heading; w.ship = shipIndex;
+            w.duration = SINK_SECONDS; w.timer = SINK_SECONDS;
+            w.tilt = 0f; w.submerge = 0f; w.sway = MathUtils.random(-14f, 14f);
+            w.alive = true;
+            wrecks[i] = w;
+            playSinkSfx();
+            return;
+        }
+    }
+
+    private void updateWrecks(float dt) {
+        for (int i = 0; i < wrecks.length; i++) {
+            Wreck w = wrecks[i];
+            if (w == null || !w.alive) continue;
+            w.timer = Math.max(0f, w.timer - dt);
+            float p = 1f - w.timer / w.duration; // 0..1
+            w.tilt = Math.min(72f, p * 86f);                  // 越沉越倾侧
+            w.submerge = p * p;                                // 后半段沉得更快
+            if (w.timer <= 0f) w.alive = false;
+        }
+    }
+
+    private void playSinkSfx() {
+        VoyageAudio a = VoyageAudio.get();
+        if (a != null) a.playSink();
+    }
+
+    // ================= 0.28.22 掠夺结算（弹窗数据） =================
+    private void pushLootPopup(String title, int silver, String good, int goodCount, String extra) {
+        LootGain gain = lootPopup[0];
+        if (gain == null) { gain = new LootGain(); lootPopup[0] = gain; }
+        gain.title = title; gain.silver = silver; gain.good = good;
+        gain.goodCount = goodCount; gain.extra = extra == null ? "" : extra;
+        lootPopupT = 6f; // 弹窗未处理时保留一段时间
+    }
+
+    /** 界面每帧调用：取走并清空当前掠夺结算。 */
+    public LootGain pollLootPopup() {
+        LootGain gain = lootPopup[0];
+        lootPopup[0] = lootPopup[1];
+        lootPopup[1] = null;
+        lootPopupT = 0f;
+        return gain;
+    }
+
+    // ================= 0.28.22 船体碰撞（撞船） =================
+    /** 撞击冷却：一对船碰一次后 3 秒内不再结算，一次擦碰不等于连击。 */
+    private static final float RAM_COOLDOWN_SECONDS = 3f;
+    /** 战斗中战船主动撞船的概率（每次冷却转好后的判定）—— 不是 100%，修船很贵。 */
+    private static final float WARSHIP_RAM_CHANCE = 0.25f;
+
+    /** 原有单艘商船的撞击伤害结算也走这条路径（复用冷却字段）。 */
+    private float ramRamCd;
+    private float ramTraderCd;
+    private final float[] ramWarshipCd = new float[2];
+
+    /** 受击者标识：撞击与伤害按实体寻址，避免用坐标反查撞到谁。 */
+    private static final class Victim {
+        static final int PIRATE = 1, MERCHANT = 2, TRADER = 3, WARSHIP = 4;
+        final int kind, index;
+        Victim(int kind, int index) { this.kind = kind; this.index = index; }
+    }
+
+    private static final Victim victimPirate() { return new Victim(Victim.PIRATE, 0); }
+    private static final Victim victimMerchant() { return new Victim(Victim.MERCHANT, 0); }
+    private static final Victim victimTrader(int i) { return new Victim(Victim.TRADER, i); }
+    private static final Victim victimWarship(int i) { return new Victim(Victim.WARSHIP, i); }
+
+    private float npcHp(Victim v) {
+        switch (v.kind) {
+            case Victim.PIRATE: return pirateAlive ? pirateHp : 0f;
+            case Victim.MERCHANT: return merchant != null ? merchant.hp : 0f;
+            case Victim.TRADER:
+                TraderData t = v.index < traders.length ? traders[v.index] : null;
+                return t != null && t.alive ? t.hp : 0f;
+            default:
+                WarshipData w = v.index < warships.length ? warships[v.index] : null;
+                return w != null && w.alive ? w.hp : 0f;
+        }
+    }
+
+    private float npcHpMax(Victim v) {
+        switch (v.kind) {
+            case Victim.PIRATE: return Catalog.PIRATE_HP;
+            case Victim.MERCHANT: return merchant != null ? merchant.hpMax : 0f;
+            case Victim.TRADER:
+                TraderData t = v.index < traders.length ? traders[v.index] : null;
+                return t != null ? traderHull(t.ship) : 0f;
+            default:
+                WarshipData w = v.index < warships.length ? warships[v.index] : null;
+                return w != null ? warshipHull(w.ship) : 0f;
+        }
+    }
+
+    private int npcShipIndex(Victim v) {
+        switch (v.kind) {
+            case Victim.PIRATE: return VoyageGeometry.PIRATE_SHIP;
+            case Victim.MERCHANT: return merchant != null ? merchant.ship : 0;
+            case Victim.TRADER:
+                TraderData t = v.index < traders.length ? traders[v.index] : null;
+                return t != null ? t.ship : 0;
+            default:
+                WarshipData w = v.index < warships.length ? warships[v.index] : null;
+                return w != null ? w.ship : 0;
+        }
+    }
+
+    private float npcX(Victim v) {
+        switch (v.kind) {
+            case Victim.PIRATE: return pirateX;
+            case Victim.MERCHANT: return merchant.x;
+            case Victim.TRADER: return traders[v.index].x;
+            default: return warships[v.index].x;
+        }
+    }
+
+    private float npcY(Victim v) {
+        switch (v.kind) {
+            case Victim.PIRATE: return pirateY;
+            case Victim.MERCHANT: return merchant.y;
+            case Victim.TRADER: return traders[v.index].y;
+            default: return warships[v.index].y;
+        }
+    }
+
+    /** 伤害入口：扣血，沉船时给残骸 +（玩家火炮击沉时）掠夺结算。 */
+    private void damageNpc(Victim v, float dmg) {
+        if (dmg <= 0f) return;
+        switch (v.kind) {
+            case Victim.PIRATE:
+                if (!pirateAlive) return;
+                pirateHp -= dmg;
+                if (pirateHp <= 0f) { addWreck(pirateX, pirateY, pirateHeading, VoyageGeometry.PIRATE_SHIP); clearPirate(); }
+                return;
+            case Victim.MERCHANT:
+                if (merchant == null) return;
+                merchant.hp -= dmg;
+                if (merchant.hp <= 0f) sinkMerchant(false);
+                return;
+            case Victim.TRADER:
+                TraderData t = v.index < traders.length ? traders[v.index] : null;
+                if (t == null || !t.alive) return;
+                t.hostile = true; // 被打/被撞后警觉：还击并逃离
+                t.hp -= dmg;
+                if (t.hp <= 0f) despawnTrader(v.index, true);
+                return;
+            default:
+                WarshipData w = v.index < warships.length ? warships[v.index] : null;
+                if (w == null || !w.alive) return;
+                w.hp -= dmg;
+                if (w.hp <= 0f) despawnWarship(v.index, false);
+        }
+    }
+
+    /** 撞击伤害规则（文档化选择）：小船掉自身上限 20%，大船掉自身上限 10%，
+     * 同大小各 15% —— 力的作用是相互的，即使大撞小也承受损伤。撞击击沉
+     * 不算「亲手击沉」，不产生掠夺收益。 */
+    private int ramDamageSelf(float selfMax, float selfSize, float otherSize) {
+        if (selfSize > otherSize * 1.06f) return pct(selfMax, .10f);
+        if (otherSize > selfSize * 1.06f) return pct(selfMax, .20f);
+        return pct(selfMax, .15f);
+    }
+
+    private static int pct(float value, float fraction) {
+        return Math.max(1, Math.round(value * fraction));
+    }
+
+    /** 玩家与一名 NPC 的对撞：双方按大小结算，冷却 3 秒。 */
+    private void ramPlayerVs(Victim other) {
+        float otherMax = npcHpMax(other);
+        if (otherMax <= 0f) return;
+        float playerSize = VoyageGeometry.ship(ship).radius();
+        float otherSize = VoyageGeometry.ship(npcShipIndex(other)).radius();
+        hull = Math.max(0f, hull - ramDamageSelf(hullMax, playerSize, otherSize));
+        damageNpc(other, ramDamageSelf(otherMax, otherSize, playerSize));
+        playCannonSfx(); // 撞击重响
+        toast("撞击！船体受损。");
+        if (hull <= 0f) fail("船沉");
+    }
+
+    /** NPC 互撞：双方按大小结算（海盗/战船与商船交战擦碰）。 */
+    private void ramNpcVs(Victim a, Victim b) {
+        float aMax = npcHpMax(a), bMax = npcHpMax(b);
+        if (aMax <= 0f || bMax <= 0f) return;
+        float aSize = VoyageGeometry.ship(npcShipIndex(a)).radius();
+        float bSize = VoyageGeometry.ship(npcShipIndex(b)).radius();
+        damageNpc(a, ramDamageSelf(aMax, aSize, bSize));
+        damageNpc(b, ramDamageSelf(bMax, bSize, aSize));
+    }
+
+    private boolean warshipHostile(WarshipData w) {
+        return pirateAlive || (merchant != null && merchant.hostile);
+    }
+
+    /** 每帧检测玩家与所有 NPC、NPC 互相之间的船体接触；接触即结算一次撞击伤害。 */
+    private void updateShipImpacts(float dt) {
+        ramRamCd = Math.max(0f, ramRamCd - dt);
+        ramTraderCd = Math.max(0f, ramTraderCd - dt);
+        for (int i = 0; i < ramWarshipCd.length; i++) ramWarshipCd[i] = Math.max(0f, ramWarshipCd[i] - dt);
+        float playerR = VoyageGeometry.ship(ship).radius();
+
+        // 玩家 vs 原有单艘商船 / 海盗（共用一对冷却，同时接触只结算一次）
+        if (ramRamCd <= 0f) {
+            if (merchant != null && Catalog.dist(x, y, merchant.x, merchant.y)
+                    < playerR + VoyageGeometry.ship(merchant.ship).radius()) {
+                ramPlayerVs(victimMerchant());
+                ramRamCd = RAM_COOLDOWN_SECONDS;
+            } else if (pirateAlive && Catalog.dist(x, y, pirateX, pirateY)
+                    < playerR + VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius()) {
+                ramPlayerVs(victimPirate());
+                ramRamCd = RAM_COOLDOWN_SECONDS;
+            }
+        }
+        // 玩家 vs 货船编队
+        for (int i = 0; i < traders.length && ramTraderCd <= 0f; i++) {
+            TraderData t = traders[i];
+            if (t == null || !t.alive) continue;
+            if (Catalog.dist(x, y, t.x, t.y) < playerR + VoyageGeometry.ship(t.ship).radius()) {
+                ramPlayerVs(victimTrader(i));
+                ramTraderCd = RAM_COOLDOWN_SECONDS;
+            }
+        }
+        // 玩家 vs 战船编队（交战中的战船还可能概率性主动撞船）
+        for (int i = 0; i < warships.length; i++) {
+            WarshipData w = warships[i];
+            if (w == null || !w.alive) continue;
+            float d = Catalog.dist(x, y, w.x, w.y);
+            if (d < playerR + VoyageGeometry.ship(w.ship).radius()) {
+                if (ramWarshipCd[i] <= 0f) {
+                    ramPlayerVs(victimWarship(i));
+                    ramWarshipCd[i] = RAM_COOLDOWN_SECONDS;
+                }
+            } else if (warshipHostile(w) && d < Catalog.PIRATE_RANGE * 0.45f
+                    && ramWarshipCd[i] <= 0f) {
+                // 概率性主动撞船：不是每次都撞（修船很贵）。
+                ramWarshipCd[i] = RAM_COOLDOWN_SECONDS;
+                if (MathUtils.random() < WARSHIP_RAM_CHANCE) {
+                    // 冲刺贴帮后结算（力的作用是相互的）。
+                    if (d > 1f) {
+                        float push = Math.min(90f, d - playerR - VoyageGeometry.ship(w.ship).radius() * 0.5f);
+                        if (push > 0f) { w.x += (x - w.x) / d * push; w.y += (y - w.y) / d * push; }
+                    }
+                    ramPlayerVs(victimWarship(i));
+                }
+            }
+        }
+        // NPC 互撞：海盗/战船 与 商船/货船 接触擦碰（只在同屏交战语境发生）。
+        if (pirateAlive && merchant != null && ramRamCd <= 0f
+                && Catalog.dist(pirateX, pirateY, merchant.x, merchant.y)
+                        < VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius()
+                                + VoyageGeometry.ship(merchant.ship).radius()) {
+            ramNpcVs(victimPirate(), victimMerchant());
+            ramRamCd = RAM_COOLDOWN_SECONDS;
+        }
+        for (int i = 0; i < warships.length; i++) {
+            WarshipData w = warships[i];
+            if (w == null || !w.alive || ramWarshipCd[i] > 0f) continue;
+            float wr = VoyageGeometry.ship(w.ship).radius();
+            boolean hit = false;
+            if (merchant != null && Catalog.dist(w.x, w.y, merchant.x, merchant.y)
+                    < wr + VoyageGeometry.ship(merchant.ship).radius()) {
+                ramNpcVs(victimWarship(i), victimMerchant());
+                hit = true;
+            } else {
+                for (int j = 0; j < traders.length; j++) {
+                    TraderData t = traders[j];
+                    if (t == null || !t.alive) continue;
+                    if (Catalog.dist(w.x, w.y, t.x, t.y) < wr + VoyageGeometry.ship(t.ship).radius()) {
+                        ramNpcVs(victimWarship(i), victimTrader(j));
+                        hit = true;
+                        break;
+                    }
+                }
+            }
+            if (hit) ramWarshipCd[i] = RAM_COOLDOWN_SECONDS;
+        }
+    }
 
     private void move(float dt) {
         ensureLandClearance();
@@ -1697,7 +2020,8 @@ public class GameState {
             float px=x+MathUtils.cosDeg(angle)*radius, py=y+MathUtils.sinDeg(angle)*radius;
             if (trafficWaterClear(px,py,hullType)
                     && (!pirateAlive || Catalog.dist(px,py,pirateX,pirateY)>180)
-                    && (merchant==null || Catalog.dist(px,py,merchant.x,merchant.y)>180)) return new float[]{px,py};
+                    && (merchant==null || Catalog.dist(px,py,merchant.x,merchant.y)>180)
+                    && rosterClear(px,py)) return new float[]{px,py};
         }
         return null; // Never clamp a spawn into fire range or onto land.
     }
@@ -1749,6 +2073,170 @@ public class GameState {
     public static int merchantDamage(int ship) { return 1+Catalog.SHIP_FIRE[ship]/10; }
     public static float merchantHull(int ship) { return 28+Catalog.SHIP_FIRE[ship]+Catalog.SHIP_HOLD[ship]/2f; }
 
+    // ================= 0.28.22 远处船队刷新（软上限 + 低概率判定） =================
+    /** 每次刷怪判定成功生成的概率：支持「船队感」但不扎堆（约 25%）。 */
+    private static final float SPAWN_ROLL_CHANCE = 0.25f;
+
+    private boolean rosterClear(float px, float py) {
+        for (TraderData t : traders) if (t != null && t.alive && Catalog.dist(px, py, t.x, t.y) < 170f) return false;
+        for (WarshipData w : warships) if (w != null && w.alive && Catalog.dist(px, py, w.x, w.y) < 170f) return false;
+        return true;
+    }
+
+    static int traderHull(int ship) { return Math.round(30 + Catalog.SHIP_FIRE[ship] * .6f + Catalog.SHIP_HOLD[ship] * .5f); }
+    static int traderDamage(int ship) { return 1 + Catalog.SHIP_FIRE[ship] / 12; }
+    public static int warshipHull(int ship) { return 46 + Catalog.SHIP_FIRE[ship]; }
+    public static int warshipDamage(int ship) { return 2 + Catalog.SHIP_FIRE[ship] / 9; }
+
+    private void updateTraderRoster(float dt) {
+        traderSpawnTimer -= dt;
+        if (traderSpawnTimer <= 0f) {
+            traderSpawnTimer = 90f + MathUtils.random(60f);
+            if (MathUtils.random() < SPAWN_ROLL_CHANCE) {
+                for (int i = 0; i < traders.length; i++) {
+                    if (traders[i] != null && traders[i].alive) continue;
+                    spawnTrader(i);
+                    break;
+                }
+            }
+        }
+        for (int i = 0; i < traders.length; i++) {
+            TraderData t = traders[i];
+            if (t == null || !t.alive) continue;
+            if (Catalog.dist(x, y, t.x, t.y) > Catalog.NPC_HORIZON * 1.4f) { traders[i] = null; continue; }
+            updateTrader(t, dt);
+        }
+    }
+
+    private void spawnTrader(int slot) {
+        int type = new int[]{0, 3, 6}[MathUtils.random(2)]; // 商级船体：小商船/漕舫/货舶
+        float[] point = trafficSpawn(type);
+        if (point == null) { traderSpawnTimer = 15f; return; }
+        TraderData t = new TraderData();
+        t.ship = type; t.x = point[0]; t.y = point[1];
+        t.hp = t.hpMax = traderHull(type);
+        t.targetPort = nearestPortTo(t.x, t.y);
+        traders[slot] = t;
+    }
+
+    private int nearestPortTo(float px, float py) {
+        int best = 0; float bd = Float.MAX_VALUE;
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            float d = Catalog.dist(px, py, Catalog.PORT_X[i], Catalog.PORT_Y[i]);
+            if (d < bd) { bd = d; best = i; }
+        }
+        return best;
+    }
+
+    /** 货船 AI：循商路航行；从不主动撞船；被攻击/被撞后还击并加速逃离。 */
+    private void updateTrader(TraderData t, float dt) {
+        float tx, ty;
+        if (t.hostile) { // 逃离：沿「玩家-货船」连线的镜像点跑
+            tx = MathUtils.clamp(t.x * 2f - x, 300f, Catalog.WORLD_W - 300f);
+            ty = MathUtils.clamp(t.y * 2f - y, 300f, Catalog.WORLD_H - 300f);
+        } else {
+            if (t.targetPort < 0) t.targetPort = nearestPortTo(t.x, t.y);
+            tx = Catalog.PORT_X[t.targetPort]; ty = Catalog.PORT_Y[t.targetPort];
+            if (Catalog.dist(t.x, t.y, tx, ty) < VoyageGeometry.landRadius(true, t.targetPort) + 130f) {
+                t.targetPort = MathUtils.random(Catalog.PORTS.length - 1);
+                return;
+            }
+        }
+        moveNpc(t, t.ship, tx, ty, 58f * (1f + Catalog.SHIP_SPEED[t.ship] / 100f) * (t.hostile ? 1.6f : 1f), dt);
+    }
+
+    private void updateWarshipRoster(float dt) {
+        warshipSpawnTimer -= dt;
+        if (warshipSpawnTimer <= 0f) {
+            warshipSpawnTimer = 110f + MathUtils.random(70f);
+            if (MathUtils.random() < SPAWN_ROLL_CHANCE) {
+                for (int i = 0; i < warships.length; i++) {
+                    if (warships[i] != null && warships[i].alive) continue;
+                    spawnWarship(i);
+                    break;
+                }
+            }
+        }
+        for (int i = 0; i < warships.length; i++) {
+            WarshipData w = warships[i];
+            if (w == null || !w.alive) continue;
+            if (Catalog.dist(x, y, w.x, w.y) > Catalog.NPC_HORIZON * 1.4f) { warships[i] = null; continue; }
+            updateWarship(w, dt);
+        }
+    }
+
+    private void spawnWarship(int slot) {
+        int type = new int[]{4, 8}[MathUtils.random(1)]; // 战级船体：斗舰/海鹘
+        float[] point = trafficSpawn(type);
+        if (point == null) { warshipSpawnTimer = 20f; return; }
+        WarshipData w = new WarshipData();
+        w.ship = type; w.x = point[0]; w.y = point[1];
+        w.hp = w.hpMax = warshipHull(type);
+        w.anchorX = point[0]; w.anchorY = point[1];
+        w.patrolAngle = MathUtils.random(360f);
+        warships[slot] = w;
+        if (Catalog.dist(x, y, w.x, w.y) <= Catalog.NPC_HORIZON) toast("远处发现战船，交战海域注意规避。");
+    }
+
+    /** 战船 AI：和平期沿岸巡逻；战斗语境（海盗在场/玩家掠夺）下逼近并炮击。
+     * 主动撞船走概率判定（updateShipImpacts 内 roll）。 */
+    private void updateWarship(WarshipData w, float dt) {
+        w.hostile = warshipHostile(w);
+        float tx, ty;
+        if (w.hostile) { tx = x; ty = y; }
+        else {
+            w.patrolAngle += 14f * dt;
+            tx = w.anchorX + MathUtils.cosDeg(w.patrolAngle) * 240f;
+            ty = w.anchorY + MathUtils.sinDeg(w.patrolAngle) * 240f;
+        }
+        moveNpc(w, w.ship, tx, ty, 72f * (1f + Catalog.SHIP_SPEED[w.ship] / 100f) * (w.hostile ? 1.25f : .7f), dt);
+        if (w.hostile && Catalog.dist(x, y, w.x, w.y) <= Catalog.PIRATE_RANGE) {
+            w.fireCd -= dt;
+            if (w.fireCd <= 0f) {
+                w.fireCd = Catalog.PIRATE_FIRE_INTERVAL * 1.6f;
+                fireAt(false, PLAYER, warshipDamage(w.ship), w.x, w.y, x, y);
+            }
+        }
+    }
+
+    /** 共用 NPC 步进移动：避岸避船，到不了就走偏移方向（12 向弧采样）。 */
+    private void moveNpc(Object entity, int shipType, float tx, float ty, float speed, float dt) {
+        TraderData t = entity instanceof TraderData ? (TraderData) entity : null;
+        WarshipData w = entity instanceof WarshipData ? (WarshipData) entity : null;
+        if (t == null && w == null) return;
+        int steps = Math.max(1, (int) Math.ceil(dt * speed / 10f));
+        for (int s = 0; s < steps; s++) {
+            float ex = t != null ? t.x : w.x, ey = t != null ? t.y : w.y;
+            float angle = MathUtils.atan2(ty - ey, tx - ex) * MathUtils.radiansToDegrees;
+            for (int n = 0; n < 12; n++) {
+                float offset = ((n + 1) / 2) * 30 * (n % 2 == 0 ? 1 : -1);
+                float heading = angle + offset;
+                float nx = ex + MathUtils.cosDeg(heading) * speed * dt / steps;
+                float ny = ey + MathUtils.sinDeg(heading) * speed * dt / steps;
+                if (!trafficWaterClear(nx, ny, shipType)) continue;
+                if (Catalog.dist(nx, ny, x, y) < VoyageGeometry.ship(shipType).radius() + VoyageGeometry.ship(ship).radius() + 8) continue;
+                if (pirateAlive && Catalog.dist(nx, ny, pirateX, pirateY) < VoyageGeometry.ship(shipType).radius() + VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius() + 8) continue;
+                if (t != null) { t.x = nx; t.y = ny; t.heading = heading; }
+                else { w.x = nx; w.y = ny; w.heading = heading; }
+                break;
+            }
+        }
+    }
+
+    private void despawnTrader(int slot, boolean withWreck) {
+        TraderData t = slot < traders.length ? traders[slot] : null;
+        if (t == null) return;
+        if (withWreck) addWreck(t.x, t.y, t.heading, t.ship);
+        traders[slot] = null;
+    }
+
+    private void despawnWarship(int slot, boolean withWreck) {
+        WarshipData w = slot < warships.length ? warships[slot] : null;
+        if (w == null) return;
+        if (withWreck) addWreck(w.x, w.y, w.heading, w.ship);
+        warships[slot] = null;
+    }
+
     private void spawnMerchant() {
         if(merchant!=null) return; // Global cap one, even when outside the horizon.
         int type=MathUtils.random(Catalog.SHIPS.length-1);
@@ -1789,14 +2277,20 @@ public class GameState {
         int index=port?m.targetPort:m.targetIsland;
         float tx=port?Catalog.PORT_X[index]:Catalog.ISLAND_X[index];
         float ty=port?Catalog.PORT_Y[index]:Catalog.ISLAND_Y[index];
-        if(Catalog.dist(m.x,m.y,tx,ty)<VoyageGeometry.landRadius(port,index)+110) {
+        // 0.28.22 商船 AI：从不主动撞船；被掠夺时还击（上方已有）并加速逃离。
+        if(m.hostile) {
+            tx=MathUtils.clamp(m.x*2f-x,300f,Catalog.WORLD_W-300f);
+            ty=MathUtils.clamp(m.y*2f-y,300f,Catalog.WORLD_H-300f);
+        }
+        if(!m.hostile && Catalog.dist(m.x,m.y,tx,ty)<VoyageGeometry.landRadius(port,index)+110) {
             m.silver=Math.min(90,m.silver+(port?4:2));
             m.cargo=Math.min(3,m.cargo+1);
             if(port) m.cargoGood=(m.cargoGood+1)%Catalog.GOODS.length;
             m.rest=port?9:15;
             chooseMerchantRoute(m); return;
         }
-        float speed=58*(1+Catalog.SHIP_SPEED[m.ship]/100f);
+        // 0.28.22 被掠夺时逃逸提速（平时原速）。
+        float speed=58*(1+Catalog.SHIP_SPEED[m.ship]/100f)*(m.hostile?1.55f:1f);
         int steps=Math.max(1,(int)Math.ceil(dt*speed/10));
         for(int step=0;step<steps;step++) {
             float angle=MathUtils.atan2(ty-m.y,tx-m.x)*MathUtils.radiansToDegrees;
@@ -1891,7 +2385,7 @@ public class GameState {
             removeBall(i); // Removing a target never changes attribution of other in-flight shots.
             if(target==PIRATE && pirateAlive && generation==pirateGeneration && Catalog.dist(bx,by,pirateX,pirateY)<=100) {
                 pirateHp-=damage;
-                if(pirateHp<=0) { if(player) winCombat(); else clearPirate(); }
+                if(pirateHp<=0) { addWreck(pirateX,pirateY,pirateHeading,VoyageGeometry.PIRATE_SHIP); if(player) winCombat(); else clearPirate(); }
             } else if(target==MERCHANT && merchant!=null && generation==merchantGeneration && Catalog.dist(bx,by,merchant.x,merchant.y)<=100) {
                 merchant.hp-=damage;
                 if(merchant.hp<=0) sinkMerchant(player);
@@ -1927,15 +2421,19 @@ public class GameState {
         silver += loot;
         playCoinSfx();
         String extra = "";
+        String good = ""; int goodCount = 0;
         if (cargoFree() > 0 && MathUtils.randomBoolean()) {
             int g = MathUtils.random(Catalog.GOODS.length - 1);
             trade[g]++;
-            extra = " 缴获 " + Catalog.GOODS[g] + "（当货物卖掉）。";
+            good = Catalog.GOODS[g]; goodCount = 1;
+            extra = "缴获货舱：" + Catalog.GOODS[g] + "×1（当货物卖掉）。";
         } else if (MathUtils.random() < 0.2f) {
-            extra = " 缴获一件船部件（一期当货：额外银两）。";
+            extra = "缴获一件船部件（折算额外 40 两）。";
             silver += 40;
         }
-        toast("打赢海盗，抢得 " + loot + " 两。" + extra + (autoSail ? " 自动航行继续。" : ""));
+        // 0.28.22: 掠夺收益改用弹窗展示（不再只有底部横幅）。
+        pushLootPopup("击沉海盗", loot, good, goodCount, extra);
+        toast("击沉海盗。" + (autoSail ? "自动航行继续。" : ""));
         clearPirate();
     }
 
@@ -1949,11 +2447,16 @@ public class GameState {
 
     private void sinkMerchant(boolean playerKill) {
         if(merchant==null) return;
+        addWreck(merchant.x, merchant.y, merchant.heading, merchant.ship); // 沉船动画，不瞬间消失
         if(playerKill) {
             int cargo=Math.min(cargoFree(),merchant.cargo);
-            silver+=merchant.silver; trade[merchant.cargoGood]+=cargo;
+            int silverGain=merchant.silver;
+            silver+=silverGain; trade[merchant.cargoGood]+=cargo;
             playCoinSfx();
-            toast("击沉商船，自动收取银两"+merchant.silver+"、"+Catalog.GOODS[merchant.cargoGood]+"×"+cargo+"。"+(cargo<merchant.cargo?"货舱不足，余货沉没。":""));
+            // 0.28.22: 掠夺收益改用弹窗展示（不再只有底部横幅）。
+            pushLootPopup("击沉商船", silverGain, Catalog.GOODS[merchant.cargoGood], cargo,
+                    cargo<merchant.cargo?"货舱不足，余货随船沉没。":"");
+            toast("击沉商船。");
         }
         merchant=null; merchantLock=false;
         merchantSpawnTimer=120f+MathUtils.random(80f);

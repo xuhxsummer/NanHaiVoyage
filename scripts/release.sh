@@ -178,13 +178,28 @@ elif [[ "$DRY_RUN" -eq 1 ]]; then
   echo "[dry-run] git push origin $(git branch --show-current)"
 else
   echo ">> git add（排除 APK / bug-*.jpg / assets/saves/ / scratch / howto_* / __pycache__）"
+  # 0.28.22 修复：被忽略的目录（如 assets/saves/）存在于工作区时，带 exclude
+  # pathspec 的 git add 会因 "paths are ignored" 直接退出（set -e 中断发版）。
+  # 先按 glob 排除未忽略文件正常暂存，再对已暂存的被忽略文件做移除（容错）。
   git add -A -- \
     ':(exclude,glob)**/*.apk' \
-    ':(exclude)bug-*.jpg' \
-    ':(exclude)assets/saves/' \
+    ':(exclude,glob)bug-*.jpg' \
+    ':(exclude,glob)assets/saves/**' \
+    ':(exclude,glob)**/scratch/**' \
+    ':(exclude,glob)**/howto_*' \
+    ':(exclude,glob)**/__pycache__/**' 2>/dev/null || true
+  git add -A -- \
+    ':(exclude,glob)**/*.apk' \
+    ':(exclude,glob)bug-*.jpg' \
     ':(exclude,glob)**/scratch/**' \
     ':(exclude,glob)**/howto_*' \
     ':(exclude,glob)**/__pycache__/**'
+  # 防御：任何混进暂存区的被忽略路径（assets/saves 等）移出暂存区。
+  git diff --cached --name-only | while IFS= read -r f; do
+    case "$f" in
+      assets/saves/*) git reset -q -- "$f" 2>/dev/null || true ;;
+    esac
+  done
   if git diff --cached --quiet; then
     echo "警告: 没有待提交的改动，跳过 commit/push" >&2
   else
