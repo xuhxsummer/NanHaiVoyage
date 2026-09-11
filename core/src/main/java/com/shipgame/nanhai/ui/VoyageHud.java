@@ -20,6 +20,7 @@ public final class VoyageHud extends Group implements Disposable {
     private final Table[] questCards=new Table[2];
     private final Array<RotatingGoldBorder> questBorders=new Array<>();
     private final Label[] questTitles=new Label[2],questBodies=new Label[2],questProgress=new Label[2];
+    private final Label[] railLabels=new Label[6];
     private final Image knob,dot,speedNeedle;
     private final VoyageMinimap minimap;
     private final Image captainPortrait;
@@ -47,19 +48,17 @@ public final class VoyageHud extends Group implements Disposable {
         dot=questDot;
         // 0.28.22 顶部右侧栏文字对比度：标题放在半透明深色小底板上，
         // 不再直接叠在亮色天空上（福利等清晰可读）。底板不接收触摸。
-        for(int i=0;i<rail.length;i++){
-            Table plateT=new Table();plateT.setBackground(ui.plate);plateT.setBounds(1012+i*104,952,72,30);plateT.setTouchable(Touchable.disabled);addActor(plateT);
-        }
+        // 0.28.23: rail titles are text-only; day/night color is refreshed below.
         minimap=new VoyageMinimap(ui);minimap.setName("小地图");minimap.setBounds(1632,784,264,264);minimap.addListener(click(world));addActor(minimap);
         Label north=ui.label("北",24,VoyageHudChrome.PAPER);north.setBounds(1748,1008,32,32);north.setTouchable(Touchable.disabled);addActor(north);
         coords=ui.label("",17,VoyageHudChrome.PAPER);coords.setAlignment(Align.center);coords.setBounds(1664,816,192,24);coords.setTouchable(Touchable.disabled);addActor(coords);
         Table worldButton=badge("世界","helm",56,world);worldButton.setBounds(1824,772,72,84);addActor(worldButton);
         Table weather=panel(ui.panel,1664,712,232,48);weather.pad(4);weather.add(icon("sun")).size(36);weather.add(ui.label("今日：晴",24,VoyageHudChrome.PAPER));
         questGroup=new Table();questGroup.setTouchable(Touchable.childrenOnly);questGroup.setBounds(1576,388,320,288);addActor(questGroup);
-        for(int i=0;i<2;i++){final int n=i;Table card=new Table();card.setName(i==0?"任务卡":"下一程任务卡");card.setBackground(i==0?ui.parchment:ui.panel);card.pad(8);
+        for(int i=0;i<2;i++){final int n=i;Table card=new Table();card.setName(i==0?"任务卡":"下一程任务卡");card.setBackground(i==0?ui.parchment:ui.panel);card.pad(8,20,8,8);
             Table head=new Table();head.setBackground(i==0?ui.red:ui.blue);head.pad(4,28,4,24);questTitles[i]=ui.label("",22,VoyageHudChrome.PAPER);questTitles[i].setName("任务标题"+i);questTitles[i].setEllipsis(true);head.add(questTitles[i]).growX();
-            card.add(head).size(304,36).row();questBodies[i]=ui.label("",21,i==0?Color.valueOf("3F3326"):VoyageHudChrome.PAPER);questBodies[i].setWrap(true);card.add(questBodies[i]).width(288).height(56).left().row();
-            questProgress[i]=ui.label("",20,i==0?Color.valueOf("4D3D28"):VoyageHudChrome.GOLD);card.add(questProgress[i]).width(288).height(28).left();card.addListener(click(()->quest.accept(n)));questCards[i]=card;questGroup.add(card).size(320,136).padBottom(i==0?16:0).row();
+            card.add(head).size(304,36).row();questBodies[i]=ui.label("",21,i==0?Color.valueOf("3F3326"):VoyageHudChrome.PAPER);questBodies[i].setWrap(true);card.add(questBodies[i]).width(272).height(56).left().padLeft(16).row();
+            questProgress[i]=ui.label("",20,i==0?Color.valueOf("4D3D28"):VoyageHudChrome.GOLD);card.add(questProgress[i]).width(272).height(28).left().padLeft(16);card.addListener(click(()->quest.accept(n)));questCards[i]=card;questGroup.add(card).size(320,136).padBottom(i==0?16:0).row();
             // Preserve FreeBuff's clockwise gold sweep without consuming card taps.
             RotatingGoldBorder border=new RotatingGoldBorder();
             border.setBounds(0,0,320,136);
@@ -100,7 +99,7 @@ public final class VoyageHud extends Group implements Disposable {
     }
     private Table panel(Drawable bg,float x,float y,float w,float h){Table t=new Table();t.setBackground(bg);t.setBounds(x,y,w,h);t.setTouchable(Touchable.childrenOnly);addActor(t);return t;}
     private Image icon(String name){Image i=new Image(ui.icon(name));i.setScaling(Scaling.fit);return i;}
-    private Table badge(String title,String symbol,float size,Runnable action){Table t=new Table();t.setName(title);Table disc=new Table();disc.setBackground(ui.circle);disc.add(icon(symbol)).size(size*.68f);t.add(disc).size(size).row();if(!title.equals("船长"))t.add(ui.label(title,24,VoyageHudChrome.PAPER)).height(28);t.addListener(click(action));return t;}
+    private Table badge(String title,String symbol,float size,Runnable action){Table t=new Table();t.setName(title);Table disc=new Table();disc.setBackground(ui.circle);disc.add(icon(symbol)).size(size*.68f);t.add(disc).size(size).row();if(!title.equals("船长")){ Label rail=ui.label(title,24,VoyageHudChrome.PAPER); rail.setName("rail:"+title); int ri=java.util.Arrays.asList(new String[]{"货舱","图鉴","商城","任务","活动","福利"}).indexOf(title); if(ri>=0) railLabels[ri]=rail; t.add(rail).height(28); }t.addListener(click(action));return t;}
     private void textLink(String text,Runnable action,float x,float y,float w){TextButton b=ui.button(text,ui.panel,20);b.setName(text);b.setBounds(x,y,w,40);b.addListener(click(action));addActor(b);}
     private TextButton utility(String text,Runnable action,float x){TextButton b=ui.button(text,ui.panel,20);b.setName(text);b.setBounds(x,856,168,48);b.addListener(click(action));addActor(b);return b;}
     private static ClickListener click(Runnable r){return new ClickListener(){@Override public void clicked(InputEvent e,float x,float y){
@@ -111,6 +110,8 @@ public final class VoyageHud extends Group implements Disposable {
     public void quest(int card,String title,String body,String progress){questTitles[card].setText(title);questBodies[card].setText(body);questProgress[card].setText(progress);}
     public void update(GameState g,boolean neutral,boolean ready,float kx,float ky){
         if(shownAvatar!=g.avatarIndex){shownAvatar=g.avatarIndex;captainPortrait.setDrawable(IconLib.avatar(shownAvatar));}
+        Color railColor=(g.dayMin>=360f && g.dayMin<1080f)?Color.valueOf("24313A"):VoyageHudChrome.GOLD;
+        for(Label rail:railLabels) if(rail!=null) rail.setColor(railColor);
         speedNeedle.setY(120+com.badlogic.gdx.math.MathUtils.clamp(g.speed/Catalog.MAX_SPEED,0,1)*216);
         minimap.update(g);coords.setText("X:"+(int)g.x+"  Y:"+(int)g.y);questGroup.setVisible(neutral);dot.setVisible(ready);
         toastBar.setVisible(neutral && g.toastT>0 && !g.toast.isEmpty());toast.setText(g.toastT>0?g.toast:"");toastBar.setHeight(g.toast.length()>38&&g.toastT>0?80:56);

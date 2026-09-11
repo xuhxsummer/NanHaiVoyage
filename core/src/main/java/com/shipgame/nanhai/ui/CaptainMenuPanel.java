@@ -15,8 +15,8 @@ public final class CaptainMenuPanel extends Table implements Disposable {
     private final QuestUi ui;
     private final Skin skin;
     private final Runnable save,load,logout,fill,close,profileChanged;
-    private final Consumer<Boolean> cameraChanged;
-    private boolean godView;
+    private final Consumer<Boolean> cameraChanged, autosaveChanged;
+    private boolean godView, autosaveEnabled;
     private final Table body=new Table(), nav=new Table();
     private final Label message;
     private GameState g;
@@ -24,10 +24,10 @@ public final class CaptainMenuPanel extends Table implements Disposable {
     private TextField nickname;
 
     public CaptainMenuPanel(Skin skin,GameState state,Runnable profileChanged,Runnable save,Runnable load,
-                            Runnable logout,Runnable fill,Runnable close,Consumer<Boolean> cameraChanged,boolean initialGodView) {
+                            Runnable logout,Runnable fill,Runnable close,Consumer<Boolean> cameraChanged,Consumer<Boolean> autosaveChanged,boolean initialGodView,boolean initialAutosave) {
         this.skin=skin; this.g=state; this.profileChanged=profileChanged;
         this.save=save; this.load=load; this.logout=logout; this.fill=fill; this.close=close;
-        this.cameraChanged=cameraChanged; this.godView=initialGodView;
+        this.cameraChanged=cameraChanged; this.autosaveChanged=autosaveChanged; this.godView=initialGodView; this.autosaveEnabled=initialAutosave;
         ui=new QuestUi(skin); setBackground(ui.frame); pad(24); top();
         Table heading=new Table();
         heading.add(ui.label("船长 · 世界暂停",36,QuestUi.PAPER)).expandX().left();
@@ -67,8 +67,11 @@ public final class CaptainMenuPanel extends Table implements Disposable {
             copy("视角：默认为航行追尾视角，战斗自动拉远。\n上帝视角始终用战斗级拉远俯瞰，战斗结束后不回拉。");
             Table modes=new Table(); modes.left();
             modes.add(action("默认视角",!godView,()->{godView=false;cameraChanged.accept(false);rebuild();})).size(240,72).padRight(24);
-            modes.add(action("上帝视角",godView,()->{godView=true;cameraChanged.accept(true);rebuild();})).size(240,72);
+            modes.add(action("上帝视角",godView,()->{godView=true;cameraChanged.accept(true);rebuild();})).size(240,72).row();
+            Table saveModes=new Table(); saveModes.left();
+            saveModes.add(action(autosaveEnabled?"自动存档：开":"自动存档：关",autosaveEnabled,()->{autosaveEnabled=!autosaveEnabled; autosaveChanged.accept(autosaveEnabled); rebuild();})).size(240,72);
             body.add(modes).left().padTop(32).row();
+            body.add(saveModes).left().padTop(18).row();
         }
     }
     private void profile() {

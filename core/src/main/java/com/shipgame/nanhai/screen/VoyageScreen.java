@@ -619,6 +619,15 @@ public class VoyageScreen extends ScreenAdapter {
         game.settings.flush();
     }
 
+    private boolean autosaveEnabled() {
+        return !game.settings.contains("autosave.enabled") || game.settings.getBoolean("autosave.enabled", true);
+    }
+    private void setAutosaveEnabled(boolean enabled) {
+        game.settings.putBoolean("autosave.enabled", enabled);
+        game.settings.flush();
+        g.toast(enabled ? "自动存档已开启。" : "自动存档已关闭；手动保存仍可用。");
+    }
+
     private void applyCameraModeFromPrefs() {
         if (world3d != null) world3d.godView = game.settings.getBoolean("cameraMode.god", false);
     }
@@ -718,7 +727,7 @@ public class VoyageScreen extends ScreenAdapter {
         if (overlay == Overlay.AVATAR) {
             if (captainPanel == null) captainPanel = new CaptainMenuPanel(game.skin,g,this::persist,
                     this::saveNow,this::tryReloadLatestSave,this::logoutToLogin,this::confirmFillAccount,this::closePopup,
-                    this::setCameraMode, world3d != null && world3d.godView);
+                    this::setCameraMode,this::setAutosaveEnabled, world3d != null && world3d.godView, autosaveEnabled());
             else captainPanel.refresh(g);
             showFullscreen(captainPanel,CaptainMenuPanel.WIDTH,CaptainMenuPanel.HEIGHT);
             return;
@@ -799,12 +808,13 @@ public class VoyageScreen extends ScreenAdapter {
         box.pad(8f); box.background(game.skin.getDrawable("panel"));
         if (overlay == Overlay.MARKET) marketTable(box);
         else if (overlay == Overlay.ISLAND) islandTable(box);
+        else if (overlay == Overlay.LOOT) { box.clear(); box.add(lootPage()).width(420).height(230); }
         ScrollPane sp = new ScrollPane(box,game.skin); sp.setFadeScrollBars(false);
-        menuRoot.add(sp).width(overlay == Overlay.MARKET ? PORT_MENU_W+24f : 520f).maxHeight(560);
+        menuRoot.add(sp).width(overlay == Overlay.MARKET ? PORT_MENU_W+24f : (overlay == Overlay.LOOT ? 440f : 520f)).maxHeight(overlay == Overlay.LOOT ? 250 : 560);
     }
 
     private boolean isFullscreenOverlay() {
-        return overlay != Overlay.NONE && overlay != Overlay.MAP && overlay != Overlay.PORT
+        return overlay != Overlay.NONE && overlay != Overlay.LOOT && overlay != Overlay.MAP && overlay != Overlay.PORT
                 && overlay != Overlay.ISLAND && overlay != Overlay.MARKET && overlay != Overlay.DIALOGUE;
     }
 
@@ -2332,11 +2342,11 @@ public class VoyageScreen extends ScreenAdapter {
         readKeyboard();
         g.onManualSteer();
         // Every open page pauses movement, clock, weather and combat.
-        if (!g.worldPaused() && overlay == Overlay.NONE) g.update(delta);
+        if (!g.worldPaused() && (overlay == Overlay.NONE || overlay == Overlay.LOOT)) g.update(delta);
         else if (g.toastT > 0) g.toastT = Math.max(0,g.toastT-delta);
 
         // 0.28.21: 每 15 秒自动覆盖本机账号存档（登录后）。脏签名无变化时跳过写盘。
-        if (game.currentUser != null) {
+        if (game.currentUser != null && autosaveEnabled()) {
             autosaveT += delta;
             if (autosaveT >= AUTOSAVE_INTERVAL) {
                 autosaveT = 0f;
@@ -2494,8 +2504,7 @@ public class VoyageScreen extends ScreenAdapter {
 
     }
 
-    /** 0.28.22 掠夺结算弹窗：玩家亲手击沉海盗/商船后，用居中模态列出银两、
-     * 货物与附加说明（替代旧的底部横幅）。弹窗打开时世界暂停；「收下」关闭。 */
+    /** 0.28.23 compact floating loot card; the world keeps moving while it is shown. */
     private GameState.LootGain lootGain;
 
     private void tickLootPopup(float delta) {
@@ -2510,7 +2519,7 @@ public class VoyageScreen extends ScreenAdapter {
 
     private Table lootPage() {
         Table page = new Table(game.skin);
-        page.pad(32);
+        page.pad(16);
         GameState.LootGain gain = lootGain;
         Label title = new Label(gain == null ? "战利品" : gain.title, game.skin, "gold");
         title.setFontScale(1.5f);

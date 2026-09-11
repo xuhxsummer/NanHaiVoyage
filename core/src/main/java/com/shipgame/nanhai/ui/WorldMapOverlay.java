@@ -153,7 +153,7 @@ public final class WorldMapOverlay implements Disposable {
             // Large visual cross; the whole 104 × 112 area is a close hit target.
             s.setColor(GOLD);
             s.rectLine(1808,976,1848,1016,4); s.rectLine(1808,1016,1848,976,4);
-            s.setColor(.55f,.12f,.09f,.20f); s.circle(mx,my,56,64);
+
             s.end();
             s.begin(ShapeRenderer.ShapeType.Line);
             s.setColor(GOLD); s.rect(32,32,1856,1016);
@@ -164,7 +164,11 @@ public final class WorldMapOverlay implements Disposable {
                         120+MathUtils.cos(angle)*48,976+MathUtils.sin(angle)*48);
             }
             s.setColor(.48f,.36f,.19f,1); s.rect(40,40,1840,1000);
-            s.setColor(RED); s.circle(mx,my,56,64); s.circle(mx,my,60,64);
+            if (state.pirateAlive) {
+                float px=projectX(state.pirateX), py=projectY(state.pirateY);
+                s.setColor(RED); s.circle(px,py,14,24);
+                s.setColor(.95f,.30f,.22f,.55f); s.circle(px,py,22,24);
+            }
             float pulse = (time % 2.4f)/2.4f;
             s.setColor(.85f,.30f,.20f,(1-pulse)*.55f); s.circle(mx,my,64+pulse*24,64);
             s.end();

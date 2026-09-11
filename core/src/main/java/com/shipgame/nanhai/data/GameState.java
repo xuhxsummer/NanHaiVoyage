@@ -1111,9 +1111,26 @@ public class GameState {
         }
     }
 
+    /** Apply a bounded mutual separation impulse to every live NPC hull. */
+    private void separateLiveShips() {
+        if (pirateAlive) ensurePirateSeparation();
+        separatePlayerFrom(merchant == null ? 0f : merchant.x, merchant == null ? 0f : merchant.y,
+                merchant == null ? 0f : VoyageGeometry.ship(merchant.ship).radius());
+        for (TraderData t: traders) if (t != null && t.alive) separatePlayerFrom(t.x,t.y,VoyageGeometry.ship(t.ship).radius());
+        for (WarshipData w: warships) if (w != null && w.alive) separatePlayerFrom(w.x,w.y,VoyageGeometry.ship(w.ship).radius());
+    }
+    private void separatePlayerFrom(float ox,float oy,float otherR) {
+        if (otherR<=0f) return;
+        float dx=x-ox,dy=y-oy,d=(float)Math.sqrt(dx*dx+dy*dy);
+        float limit=VoyageGeometry.ship(ship).radius()+otherR;
+        if(d>=limit || d<.001f) return;
+        float nx=dx/d,ny=dy/d,step=Math.min(6f,limit-d),ps=step*.45f;
+        x=MathUtils.clamp(x+nx*ps,40f,Catalog.WORLD_W-40f); y=MathUtils.clamp(y+ny*ps,40f,Catalog.WORLD_H-40f);
+    }
+
     private void move(float dt) {
         ensureLandClearance();
-        ensurePirateSeparation();
+        separateLiveShips();
         // Bounded travel steps prevent crossing an entire obstacle during a slow frame.
         int steps = Math.max(1, (int)Math.ceil(speed * Math.max(0, dt) / 2f));
         float step = Math.max(0, dt) / steps;
@@ -1122,12 +1139,10 @@ public class GameState {
             y += MathUtils.sinDeg(headingDeg) * speed * step;
             x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
             y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
-            if(pirateAlive) resolveCollision(pirateX,pirateY,VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius()+6f);
-            if (merchant != null) resolveCollision(merchant.x, merchant.y, VoyageGeometry.ship(merchant.ship).radius()+6f);
             ensureLandClearance();
             x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
             y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
-            ensurePirateSeparation();
+            separateLiveShips();
         }
     }
 
@@ -1146,14 +1161,15 @@ public class GameState {
         if(Catalog.dist(x,y,pirateX,pirateY)>=limit-.001f) return;
         float angle=Catalog.dist(x,y,pirateX,pirateY)<.001f ? headingDeg+180
                 : MathUtils.atan2(pirateY-y,pirateX-x)*MathUtils.radiansToDegrees;
-        // Prefer the existing side; near shores/edges choose the closest free water arc.
-        for(int ring=0;ring<4;ring++) for(int i=0;i<32;i++) {
-            float offset=((i+1)/2)*11.25f*(i%2==0?1:-1);
-            float radius=limit+.1f+ring*20;
-            float px=x+MathUtils.cosDeg(angle+offset)*radius,py=y+MathUtils.sinDeg(angle+offset)*radius;
-            if(!pirateWaterClear(px,py)) continue;
-            pirateX=px;pirateY=py;return;
-        }
+        // Continuous mutual hull force: both bodies move apart in small bounded steps.
+        // Never teleport the pirate to a ring; the player is pushed back too.
+        float need=limit-Catalog.dist(x,y,pirateX,pirateY);
+        float step=Math.min(6f,need);
+        float playerShare=step*.45f, pirateShare=step-playerShare;
+        x=MathUtils.clamp(x+MathUtils.cosDeg(angle)*playerShare,40f,Catalog.WORLD_W-40f);
+        y=MathUtils.clamp(y+MathUtils.sinDeg(angle)*playerShare,40f,Catalog.WORLD_H-40f);
+        pirateX=MathUtils.clamp(pirateX-MathUtils.cosDeg(angle)*pirateShare,40f,Catalog.WORLD_W-40f);
+        pirateY=MathUtils.clamp(pirateY-MathUtils.sinDeg(angle)*pirateShare,40f,Catalog.WORLD_H-40f);
     }
     private boolean pirateWaterClear(float px,float py) {
         float r=VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius();
@@ -1359,10 +1375,6 @@ public class GameState {
         fishingOn = false;
         fishTimer = 0f;
         anchored = false;
-        x = Catalog.PORT_X[p] + Catalog.DOCK_RANGE + 12f;
-        y = Catalog.PORT_Y[p] + 10f;
-        headingDeg = 0f;
-        speed = 0f;
         leaveCooldown = 2.2f;
         toast("离港。欠债不挡出航。");
     }
@@ -1371,11 +1383,8 @@ public class GameState {
         if (islandMenu < 0) {
             return;
         }
-        int i = islandMenu;
         islandMenu = -1;
         anchored = false;
-        x = Catalog.ISLAND_X[i] + Catalog.ISLAND_RANGE + 12f;
-        y = Catalog.ISLAND_Y[i];
         leaveCooldown = 2.2f;
         toast("离开岛屿。");
     }
@@ -2003,7 +2012,7 @@ public class GameState {
                 pirateSpawnTimer = 8f; return;
             }
         }
-        float[] point = trafficSpawn(VoyageGeometry.PIRATE_SHIP);
+        float[] point = trafficSpawn(VoyageGeometry.PIRATE_SHIP, 420f, 620f);
         if (point == null) { pirateSpawnTimer = 8f; return; }
         pirateX = point[0]; pirateY = point[1];
         pirateHeading = MathUtils.atan2(y-pirateY,x-pirateX)*MathUtils.radiansToDegrees;
@@ -2016,8 +2025,13 @@ public class GameState {
     }
 
     private float[] trafficSpawn(int hullType) {
+        return trafficSpawn(hullType, Catalog.NPC_SPAWN_MIN, Catalog.NPC_SPAWN_MAX);
+    }
+
+    /** Pirate discovery ships spawn in the combat-visible horizon band; ordinary traffic remains distant. */
+    private float[] trafficSpawn(int hullType, float minRadius, float maxRadius) {
         for (int n=0;n<64;n++) {
-            float angle=MathUtils.random(360f), radius=MathUtils.random(Catalog.NPC_SPAWN_MIN,Catalog.NPC_SPAWN_MAX);
+            float angle=MathUtils.random(360f), radius=MathUtils.random(minRadius,maxRadius);
             float px=x+MathUtils.cosDeg(angle)*radius, py=y+MathUtils.sinDeg(angle)*radius;
             if (trafficWaterClear(px,py,hullType)
                     && (!pirateAlive || Catalog.dist(px,py,pirateX,pirateY)>180)
