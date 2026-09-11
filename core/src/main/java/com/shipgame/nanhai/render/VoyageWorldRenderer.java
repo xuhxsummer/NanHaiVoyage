@@ -32,6 +32,9 @@ public final class VoyageWorldRenderer implements Disposable {
     private final ModelCache sceneryCache = new ModelCache();
     private final ModelInstance[] ships = new ModelInstance[Catalog.SHIPS.length];
     private final ModelInstance[] merchantShips = new ModelInstance[Catalog.SHIPS.length];
+    // 0.28.22 沉船表现：每艘沉船一个独立模型实例（复用船模几何），
+    // 倾侧 + 下沉，动画结束后移除 —— 沉船从不瞬间消失。
+    private final ModelInstance[] wreckInstances = new ModelInstance[GameState.WRECK_SLOTS];
     private final ModelInstance pirate, ocean, ripples, foam, wake, whiteBall, blackBall;
     private final ModelInstance[] idleRings = new ModelInstance[3];
     private final VoyageWater water = new VoyageWater();
@@ -54,6 +57,7 @@ public final class VoyageWorldRenderer implements Disposable {
         light.add(new DirectionalLight().set(1f, .88f, .66f, -.5f, -.85f, -.3f));
         for (int i=0;i<ships.length;i++) ships[i] = new ModelInstance(shipModel(i, false));
         for(int i=0;i<ships.length;i++) merchantShips[i]=new ModelInstance(ships[i].model);
+        for(int i=0;i<wreckInstances.length;i++) wreckInstances[i]=new ModelInstance(ships[i % ships.length].model);
         pirate = new ModelInstance(shipModel(VoyageGeometry.PIRATE_SHIP, true));
         ocean = new ModelInstance(oceanModel());
         ripples = new ModelInstance(waterLines());
@@ -351,6 +355,18 @@ public final class VoyageWorldRenderer implements Disposable {
             ModelInstance trader=merchantShips[g.merchant.ship];
             trader.transform.setToTranslation(g.merchant.x,water.surfaceHeight(g.merchant.x,-g.merchant.y,time,g.windStr,highWaterQuality),-g.merchant.y).rotate(Vector3.Y,g.merchant.heading);
             batch.render(trader,light);
+        }
+        // 0.28.22 沉船：倾侧渐增 + 整体没入水面，2.5 秒后随 alive=false 移除。
+        for (int i=0;i<g.wrecks.length && i<wreckInstances.length;i++) {
+            GameState.Wreck w=g.wrecks[i];
+            if (w==null || !w.alive) continue;
+            ModelInstance wreck=wreckInstances[i];
+            float surface=water.available()?water.surfaceHeight(w.x,-w.y,time,g.windStr,highWaterQuality):MathUtils.sin(time*1.6f)*.45f;
+            wreck.transform.setToTranslation(w.x, surface - w.submerge*14f, -w.y)
+                    .rotate(Vector3.Y, w.headingDeg)
+                    .rotate(1f, 0f, 0f, w.tilt*w.sway>=0f?w.tilt:-w.tilt)
+                    .rotate(Vector3.Y, w.sway*w.submerge);
+            batch.render(wreck,light);
         }
         for (int i=0;i<g.ballCount;i++) {
             ModelInstance ball=g.ballFromPlayer[i]?whiteBall:blackBall;

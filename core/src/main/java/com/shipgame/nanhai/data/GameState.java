@@ -123,7 +123,8 @@ public class GameState {
     private final int[] ballDamage = new int[MAX_BALLS];
 
     // 0.28.22 沉船表现：击沉的船不瞬间消失，先倾侧下沉 ~2.5 秒再移除。
-    public final Wreck[] wrecks = new Wreck[4];
+    public static final int WRECK_SLOTS = 4;
+    public final Wreck[] wrecks = new Wreck[WRECK_SLOTS];
     // 0.28.22 掠夺结算：玩家亲手击沉时记录战利品，由界面弹窗展示（不再只用底部横幅）。
     public final LootGain[] lootPopup = new LootGain[2];
     public float lootPopupT;
