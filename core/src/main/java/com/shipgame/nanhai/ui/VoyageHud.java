@@ -14,9 +14,9 @@ public final class VoyageHud extends Group implements Disposable {
     public final VoyageHudChrome ui;
     public final Label[] stats=new Label[4];
     public final Label status,clock;
-    public final TextButton accel,decel,auto,cancelAuto,lock,cancelLock,anchor;
+    public final TextButton auto,cancelAuto,lock,cancelLock,anchor;
     private final Label coords,toast,place,placeSub;
-    private final Table location,toastBar,questGroup;
+    public final Table location,toastBar,questGroup;
     private final Table[] questCards=new Table[2];
     private final Array<RotatingGoldBorder> questBorders=new Array<>();
     private final Label[] questTitles=new Label[2],questBodies=new Label[2],questProgress=new Label[2];
@@ -60,7 +60,8 @@ public final class VoyageHud extends Group implements Disposable {
             border.setBounds(0,0,320,136);
             card.addActor(border);questBorders.add(border);
         }
-        accel=speed("加速","up",ui.greenCircle,1656,248);decel=speed("减速","down",ui.redCircle,1656,104);
+        // 0.28.21: 移除右侧 加速/减速 按钮 —— 左摇杆（油门+转向）是唯一驾驶方式。
+        // 保留速度刻度指示针。
         Image speedTrack=new Image(ui.goldLine);speedTrack.setBounds(1820,120,2,232);speedTrack.setTouchable(Touchable.disabled);addActor(speedTrack);
         speedNeedle=new Image(ui.goldLine);speedNeedle.setBounds(1804,120,32,8);speedNeedle.setTouchable(Touchable.disabled);addActor(speedNeedle);
         // Compass/rudder base and a ship medallion that follows the existing steering vector.
@@ -70,10 +71,12 @@ public final class VoyageHud extends Group implements Disposable {
         auto=ui.button("自动航行",ui.panel,22);auto.setName("自动航行");auto.setBounds(472,96,168,64);Label autoLabel=auto.getLabel();auto.clearChildren();auto.add(icon("helm")).size(40).padRight(8);auto.add(autoLabel);auto.addListener(click(autoAction));addActor(auto);
         Table time=panel(ui.panel,24,24,360,48);time.pad(4,12,4,12);time.add(icon("sun")).size(32).padRight(8);clock=ui.label("",22,VoyageHudChrome.PAPER);time.add(clock).growX();
         toastBar=panel(ui.panel,600,24,896,56);toastBar.setName("航行消息");toastBar.pad(8,24,8,24);toastBar.add(icon("anchor")).size(32).padRight(12);toast=ui.label("",22,VoyageHudChrome.PAPER);toast.setWrap(true);toastBar.add(toast).growX();toastBar.setTouchable(Touchable.disabled);
+        // 0.28.21: 停靠提示 + 抛锚按钮竖排贴船（位置每帧由 VoyageScreen 投影同步）。
         location=panel(ui.panel,600,696,264,80);location.setTouchable(Touchable.enabled);location.pad(8);place=ui.label("",28,VoyageHudChrome.PAPER);placeSub=ui.label("",20,VoyageHudChrome.GOLD);location.add(place).row();location.add(placeSub);location.addListener(click(port));location.setName("所在地");
         cancelAuto=utility("取消自动",cancel,648);lock=utility("锁定海盗",lockAction,824);cancelLock=utility("取消锁定",unlock,1000);
-        // 0.28.17 抛锚：仅港/岛范围内显示，标签在 抛锚/起锚 间切换。
-        anchor=utility("抛锚",anchorAction,1176);
+        // 0.28.21 抛锚/起锚：贴船按钮 —— 位置每帧由 VoyageScreen 投影同步（船上方），
+        // 仅港/岛范围内（或已抛锚）可见。
+        anchor=ui.button("抛锚",ui.panel,20);anchor.setName("抛锚");anchor.setSize(168,48);anchor.setOrigin(Align.center);anchor.addListener(click(anchorAction));addActor(anchor);
         for(Actor actor:getChildren()) anchors.add(new float[]{actor.getX(),actor.getY()});
     }
     /** Extend the sea-facing space while anchoring controls to the safe edges. */
@@ -92,7 +95,6 @@ public final class VoyageHud extends Group implements Disposable {
     private Image icon(String name){Image i=new Image(ui.icon(name));i.setScaling(Scaling.fit);return i;}
     private Table badge(String title,String symbol,float size,Runnable action){Table t=new Table();t.setName(title);Table disc=new Table();disc.setBackground(ui.circle);disc.add(icon(symbol)).size(size*.68f);t.add(disc).size(size).row();if(!title.equals("船长"))t.add(ui.label(title,24,VoyageHudChrome.PAPER)).height(28);t.addListener(click(action));return t;}
     private void textLink(String text,Runnable action,float x,float y,float w){TextButton b=ui.button(text,ui.panel,20);b.setName(text);b.setBounds(x,y,w,40);b.addListener(click(action));addActor(b);}
-    private TextButton speed(String text,String symbol,Drawable bg,float x,float y){TextButton b=ui.button(text,bg,28);TextButton.TextButtonStyle style=new TextButton.TextButtonStyle(b.getStyle());style.down=ui.circle;b.setStyle(style);Label l=b.getLabel();b.clearChildren();b.pad(12);b.add(icon(symbol)).size(56).row();b.add(l).height(32);b.setName(text);b.setBounds(x,y,120,120);addActor(b);return b;}
     private TextButton utility(String text,Runnable action,float x){TextButton b=ui.button(text,ui.panel,20);b.setName(text);b.setBounds(x,856,168,48);b.addListener(click(action));addActor(b);return b;}
     private static ClickListener click(Runnable r){return new ClickListener(){@Override public void clicked(InputEvent e,float x,float y){
         e.stop();
@@ -107,7 +109,8 @@ public final class VoyageHud extends Group implements Disposable {
         toastBar.setVisible(neutral && g.toastT>0 && !g.toast.isEmpty());toast.setText(g.toastT>0?g.toast:"");toastBar.setHeight(g.toast.length()>38&&g.toastT>0?80:56);
         knob.setPosition(212+kx*88,172+ky*88);Actor ship=findActor("摇杆船徽");ship.setPosition(236+kx*88,196+ky*88);
         int p=g.dockedPort>=0?g.dockedPort:g.nearestPortInRange();int isle=g.islandMenu>=0?g.islandMenu:g.nearestIslandInRange();
-        location.setVisible(neutral&&(p>=0||isle>=0));
+        // 0.28.21: 所在地面板的可见性与位置由 VoyageScreen 贴船同步（与抛锚竖排），
+        // 这里只刷新文字。
         if(p>=0){place.setText(Catalog.PORTS[p]+"港");placeSub.setText(g.dockedPort>=0?"已停泊 · 点击经营":"点击停靠 · 港口经营");}
         else if(isle>=0){place.setText(Catalog.ISLANDS[isle]);placeSub.setText("点击登岛 · 搜采奇珍");}
     }

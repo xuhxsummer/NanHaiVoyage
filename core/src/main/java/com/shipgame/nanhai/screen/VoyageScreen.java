@@ -192,8 +192,6 @@ public class VoyageScreen extends ScreenAdapter {
     private TextButton btnCancelAuto;
     private TextButton btnLockPirate;
     private TextButton btnCancelLock;
-    private TextButton btnAccel;
-    private TextButton btnDecel;
     // Stat-detail popup state (Overlay.STAT): 0=银两 1=补给 2=耐久 3=船员
     private int statDetail;
     private static final String[] STAT_SLUGS = {"silver", "supply", "hull", "crew"};
@@ -206,6 +204,10 @@ public class VoyageScreen extends ScreenAdapter {
     private int lookPointer = -1;
     private float lookX, lookY;
     private boolean accelDown, decelDown;
+    // 0.28.21: 15 秒静默自动存档（登录后），脏签名跳过无变化的写盘。
+    private static final float AUTOSAVE_INTERVAL = 15f;
+    private float autosaveT;
+    private long lastAutosaveSig = Long.MIN_VALUE;
     private boolean loggedFirstFrame;
     private float radarT;   // seconds the full map has been open (radar pulse clock)
     private Pixmap miniChartPm; // 0.26.5 baked minimap chart (promoted to a texture)
@@ -224,8 +226,9 @@ public class VoyageScreen extends ScreenAdapter {
         // instead of being swallowed by a blanket catch.
         Gdx.app.error("VoyageEnter", "show() begin, game.state=" + (game.state == null ? "null" : "ok"));
         try {
-            buildAll();
-            Gdx.app.error("VoyageEnter", "buildAll() completed");
+        buildAll();
+        applyCameraModeFromPrefs();
+        Gdx.app.error("VoyageEnter", "buildAll() completed");
         } catch (Throwable t) {
             // show() runs inside setScreen during the login transition; it must
             // never kill the process. Surface the error on the HUD instead.
@@ -242,6 +245,7 @@ public class VoyageScreen extends ScreenAdapter {
             rebuildMenu();
             g.toast("画面组件加载失败，请退出后重试。");
         }
+        autosaveT = 0; // 0.28.21: 15s quiet autosave cadence resets on entry.
         if (game.state != null) {
             g = game.state;
         }
@@ -251,6 +255,7 @@ public class VoyageScreen extends ScreenAdapter {
     private void buildAll() {
         g = game.state;
         world3d = new VoyageWorldRenderer();
+        world3d.godView = game.settings.getBoolean("cameraMode.god", false); // 0.28.21
         Gdx.app.error("VoyageEnter", "perspective chase renderer created");
         hudVp = new ExtendViewport(HUD_W, HUD_H);
         stage = new Stage(hudVp, game.batch);
@@ -360,11 +365,9 @@ public class VoyageScreen extends ScreenAdapter {
         stage.addActor(voyageHud);
         applyHudScale(); // 0.27.4: scale the 1920×1080 HUD grid over the full viewport
         statVals = voyageHud.stats; hudLine = voyageHud.status; hudClock = voyageHud.clock;
-        btnAccel = voyageHud.accel; btnDecel = voyageHud.decel;
         btnCancelAuto = voyageHud.cancelAuto; btnLockPirate = voyageHud.lock; btnCancelLock = voyageHud.cancelLock;
-        // 0.28.17: 抛锚/起锚 toggle button (visibility is synced every frame in render).
+        // 0.28.21: 抛锚/起锚贴船按钮（位置每帧随船投影同步，可见性也在 render 里刷新）。
         btnAnchor = voyageHud.anchor;
-        hold(btnAccel, true); hold(btnDecel, false);
         menuRoot = new Table(); menuRoot.setFillParent(true);
         menuRoot.setTouchable(Touchable.childrenOnly);
         menuRoot.center().top().padTop(78); stage.addActor(menuRoot);
@@ -596,63 +599,6 @@ public class VoyageScreen extends ScreenAdapter {
         rebuildMenu();
     }
 
-    /** Hold-to-keep listeners for 加速/减速. Press state is tracked directly (not
-     * via the button's isPressed in the render loop) so a long press survives
-     * drag jitter, and the pressed visual always shows — even when the world is
-     * paused at port the button itself still reacts and explains why the ship
-     * does not move yet. */
-    private void hold(TextButton b, boolean accel) {
-        b.addListener(new ClickListener() {
-            @Override
-            public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
-                boolean modal = overlay != Overlay.NONE;
-                if (modal) {
-                    // A popup is open: the world pauses by design. The button still
-                    // reacts (pressed feedback) and explains instead of silently
-                    // doing nothing — never a dead control.
-                    if (overlay == Overlay.AVATAR) {
-                        g.toast("船长菜单开着，世界暂停：先点「关闭」再开船。");
-                    } else if (overlay == Overlay.MARKET) {
-                        g.toast("市场开着：点「返回」回港口菜单，再点「离港」开船。");
-                    } else if (overlay == Overlay.HOWTO) {
-                        g.toast("玩法说明开着：点「开始航行」或「以后不再提示」继续。");
-                    } else {
-                        g.toast("港口/岛屿菜单开着世界暂停：先「离港/离开岛屿」或「关闭」再开船。");
-                    }
-                    return true;
-                }
-                // No popup open: not paused. If the ship is still flagged docked
-                // (docked save whose port menu was closed), undock so the input
-                // actually sails instead of being swallowed by the model pause.
-                undockIfNeeded();
-                if (accel) {
-                    accelDown = true;
-                    g.holdAccel = true;
-                } else {
-                    decelDown = true;
-                    g.holdDecel = true;
-                }
-                return true;
-            }
-
-            @Override
-            public void touchUp(InputEvent event, float x, float y, int pointer, int button) {
-                if (accel) {
-                    accelDown = false;
-                    g.holdAccel = false;
-                } else {
-                    decelDown = false;
-                    g.holdDecel = false;
-                }
-            }
-
-            @Override
-            public void touchDragged(InputEvent event, float x, float y, int pointer) {
-                // keep the hold while the finger stays on the button
-            }
-        });
-    }
-
     /** 0.28.17 抛锚/起锚：仅港/岛范围内可抛锚；抛锚后停稳便于经营。 */
     private void toggleAnchor() {
         if (g.anchored) {
@@ -662,6 +608,17 @@ public class VoyageScreen extends ScreenAdapter {
         }
         persist();
         rebuildMenu();
+    }
+
+    /** 0.28.21: 视角设置（船长菜单·设置页）：立即生效并持久化到本机偏好。 */
+    private void setCameraMode(boolean god) {
+        if (world3d != null) world3d.godView = god;
+        game.settings.putBoolean("cameraMode.god", god);
+        game.settings.flush();
+    }
+
+    private void applyCameraModeFromPrefs() {
+        if (world3d != null) world3d.godView = game.settings.getBoolean("cameraMode.god", false);
     }
 
     /** 0.25.2 docked-save lockup fix: the world pauses only while the port/island
@@ -758,7 +715,8 @@ public class VoyageScreen extends ScreenAdapter {
         }
         if (overlay == Overlay.AVATAR) {
             if (captainPanel == null) captainPanel = new CaptainMenuPanel(game.skin,g,this::persist,
-                    this::saveNow,this::tryReloadLatestSave,this::logoutToLogin,this::confirmFillAccount,this::closePopup);
+                    this::saveNow,this::tryReloadLatestSave,this::logoutToLogin,this::confirmFillAccount,this::closePopup,
+                    this::setCameraMode, world3d != null && world3d.godView);
             else captainPanel.refresh(g);
             showFullscreen(captainPanel,CaptainMenuPanel.WIDTH,CaptainMenuPanel.HEIGHT);
             return;
@@ -2254,9 +2212,50 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void persist() {
+        persist(false);
+    }
+
+    /** 0.28.21: 本机账号存档。toast=false 供 15 秒自动存档静默调用。 */
+    private void persist(boolean toast) {
         if (game.currentUser != null && g != null) {
             game.accounts.save(game.currentUser, g.toSave());
+            if (toast) {
+                g.toast("进度已保存到本机存档。");
+            }
         }
+    }
+
+    /** 自动存档脏检测：覆盖银两/补给/耐久/船员/位置/时间/任务/停靠等常用字段。 */
+    private long saveSignature() {
+        long s = g.silver;
+        s = s * 1000003L + Float.floatToIntBits(g.supply);
+        s = s * 1000003L + Float.floatToIntBits(g.hull);
+        s = s * 1000003L + g.crew;
+        s = s * 1000003L + Float.floatToIntBits(g.x);
+        s = s * 1000003L + Float.floatToIntBits(g.y);
+        s = s * 1000003L + Float.floatToIntBits(g.headingDeg);
+        s = s * 1000003L + Float.floatToIntBits(g.dayMin);
+        s = s * 1000003L + g.gameDay;
+        s = s * 1000003L + g.questSilverPeak;
+        s = s * 1000003L + g.questVisitPorts;
+        s = s * 1000003L + g.questVisitPortSet;
+        s = s * 1000003L + g.questDefeatedPirates;
+        s = s * 1000003L + g.questBeastsFound;
+        s = s * 1000003L + g.questIslandVisits;
+        s = s * 1000003L + g.questRefillCount;
+        s = s * 1000003L + g.questRepairCount;
+        s = s * 1000003L + g.questBuyCount;
+        s = s * 1000003L + g.questBuyTea;
+        s = s * 1000003L + g.questSellPorcelain;
+        s = s * 1000003L + g.questWarehouseUps;
+        s = s * 1000003L + g.questHiredCrew;
+        s = s * 1000003L + (g.questDebtPaid ? 1L : 0L);
+        s = s * 1000003L + (g.questProfitableSell ? 2L : 0L);
+        s = s * 1000003L + (g.questIntelViewed ? 3L : 0L);
+        s = s * 1000003L + (g.questClaimIslandVisit ? 5L : 0L);
+        s = s * 1000003L + g.dockedPort;
+        s = s * 1000003L + g.islandMenu;
+        return s;
     }
 
     private void confirmFillAccount() {
@@ -2333,6 +2332,19 @@ public class VoyageScreen extends ScreenAdapter {
         if (!g.worldPaused() && overlay == Overlay.NONE) g.update(delta);
         else if (g.toastT > 0) g.toastT = Math.max(0,g.toastT-delta);
 
+        // 0.28.21: 每 15 秒自动覆盖本机账号存档（登录后）。脏签名无变化时跳过写盘。
+        if (game.currentUser != null) {
+            autosaveT += delta;
+            if (autosaveT >= AUTOSAVE_INTERVAL) {
+                autosaveT = 0f;
+                long sig = saveSignature();
+                if (sig != lastAutosaveSig) {
+                    lastAutosaveSig = sig;
+                    persist(false);
+                }
+            }
+        }
+
         // 0.26.3: 捕鱼只在停靠扬州时进行（即使世界暂停/菜单开着）。钓上一条就
         // 刷新渔务面板并保存，避免退游戏丢鱼。
         if (g.dockedPort == Catalog.YANGZHOU && (overlay == Overlay.PORT || overlay == Overlay.FISH)) {
@@ -2407,11 +2419,33 @@ public class VoyageScreen extends ScreenAdapter {
         btnCancelAuto.setVisible(g.autoSail && overlay != Overlay.MAP);
         btnLockPirate.setVisible(g.pirateAlive && !g.combatLock && overlay == Overlay.NONE);
         btnCancelLock.setVisible((g.combatLock || g.merchantLock) && overlay == Overlay.NONE);
-        // 0.28.17: 抛锚按钮只在港/岛范围内可见；世界暂停（菜单开着）时隐藏，
-        // 已抛锚仍显示以便起锚。同步状态，避免命中前缀相同的 actor。
+        // 0.28.21: 停靠提示（所在地）+ 抛锚/起锚按钮竖排贴船 —— 跟随船在屏幕上的
+        // 位置，便于拇指直接点按。停靠提示在上，抛锚在下；只在港/岛范围内（或已
+        // 抛锚）显示。菜单开着（世界暂停）或投影失败（船在屏外）时隐藏。
         if (btnAnchor != null) {
             btnAnchor.setText(g.anchored ? "起锚" : "抛锚");
-            btnAnchor.setVisible(overlay == Overlay.NONE && (g.anchored || g.canAnchor()));
+            boolean nearLand = g.dockedPort >= 0 || g.islandMenu >= 0 || g.anchored || g.canAnchor();
+            boolean dockPrompt = overlay == Overlay.NONE && nearLand && worldAnchor(g.x, g.y, 64f);
+            boolean showAnchor = overlay == Overlay.NONE && (g.anchored || g.canAnchor());
+            btnAnchor.setVisible(showAnchor);
+            Table locationPanel = voyageHud.location;
+            if (locationPanel != null) {
+                locationPanel.setVisible(dockPrompt);
+            }
+            if (dockPrompt) {
+                // tmp is in HUD-stage coords; the location panel and anchor button
+                // live inside voyageHud's scaled 1920-design space — convert first.
+                com.badlogic.gdx.math.Vector2 p = voyageHud.stageToLocalCoordinates(
+                        new com.badlogic.gdx.math.Vector2(tmp.x, tmp.y));
+                float bx = p.x, by = p.y;
+                if (locationPanel != null) {
+                    locationPanel.setPosition(bx - locationPanel.getWidth() / 2f, by + 40f);
+                }
+                if (showAnchor) {
+                    btnAnchor.setPosition(bx - btnAnchor.getWidth() / 2f,
+                            by + 40f - btnAnchor.getHeight() - 10f);
+                }
+            }
         }
         Label pageNotice = menuRoot.findActor("pageNotice");
         if (pageNotice != null) pageNotice.setText(g.toastT>0 ? g.toast : "世界暂停 · 关闭后继续航行");
@@ -2484,11 +2518,9 @@ public class VoyageScreen extends ScreenAdapter {
         }
         boolean w = Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.UP);
         boolean s = Gdx.input.isKeyPressed(Input.Keys.S) || Gdx.input.isKeyPressed(Input.Keys.DOWN);
-        // 0.28.17: W/↑ 与摇杆同义 = 油门；S/↓ 轻减速；加减速按钮仍是可选的精调。
+        // 0.28.21: 左摇杆是唯一驾驶方式；键盘 W/↑ 油门、S/↓ 轻减速仍可用。
         if (!stickActive) {
             g.thrustInput = w ? 1f : (s ? -0.55f : 0f);
-            g.holdAccel = accelDown;
-            g.holdDecel = decelDown;
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
             overlay = overlay == Overlay.MAP ? Overlay.NONE : Overlay.MAP;

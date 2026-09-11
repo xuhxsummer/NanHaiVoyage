@@ -80,8 +80,8 @@ public final class QuestDialogueSmokeLauncher {
                 require(text("dialogueSpeaker").equals("老掌柜"), "dimmer tap advances exactly one line");
                 tap("dialogueBody"); voyage.render(0);
                 require(text("dialogueSpeaker").equals("你"), "panel tap advances exactly one line");
-                tap("加速"); voyage.render(0); // Covered HUD control: should advance dialogue only.
-                require(!state.holdAccel && !state.holdDecel && state.steerInput == 0, "covered controls cannot steer or accelerate");
+                tap("自动航行"); voyage.render(0); // Covered HUD control: should advance dialogue only.
+                require(state.autoSail && !state.holdAccel && state.steerInput == 0, "covered controls cannot steer or accelerate");
                 require(((TextButton) actor("dialogueAction")).getText().toString().equals("前往"), "navigation on final page");
                 capture("objective"); tap("dialogueAction"); voyage.render(.1f);
                 require(!isDialogue() && state.autoSailIsle == 0 && (state.x != x || state.y != y), "navigation resumes sailing");

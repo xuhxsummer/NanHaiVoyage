@@ -307,8 +307,14 @@ public class LoginScreen extends ScreenAdapter {
         return new TextButton(text, style);
     }
 
+    /** 0.28.21: 登录 UI 以 1920 设计坐标摆放；ExtendViewport 在宽屏下世界更宽，
+     * 旧写法会把表钉在左侧。叠加画布居中偏移后，表单/标题在任何纵横比下都居中。 */
+    private float canvasX() {
+        return Math.max(0f, (stage.getWidth() - 1920f) / 2f);
+    }
+
     private void place(Actor actor, int x, int y, int w, int h) {
-        actor.setBounds(x, y, w, h); stage.addActor(actor);
+        actor.setBounds(x + canvasX(), y, w, h); stage.addActor(actor);
     }
 
     private Label label(String text, int size) {
@@ -400,7 +406,8 @@ public class LoginScreen extends ScreenAdapter {
             TextButton helper = button(text, modalBlue, modalHover);
             helper.setName("login" + text);
             helper.getLabel().setFontScale(.9f);
-            place(helper, 1464 + i * 144, 960, 128, 72);
+            // 0.28.21: 右上角工具列保持贴右（不用 place 的画布居中偏移）。
+            helper.setBounds(canvasX() + 1455 + i * 144, 960, 128, 72); stage.addActor(helper);
             helper.addListener(new ClickListener() {
                 @Override public void clicked(InputEvent e, float x, float y) { showHelper(text); }
             });
@@ -415,7 +422,8 @@ public class LoginScreen extends ScreenAdapter {
         gatePanel.setName("versionGatePanel");
         gatePanel.setBackground(frame("gatePanel", "06111CEB"));
         gatePanel.setTouchable(Touchable.disabled);
-        gatePanel.setPosition(460, 40);
+        // 0.28.21: 底部进度条随真实舞台宽度居中（宽屏下不再偏左）。
+        gatePanel.setPosition(stage.getWidth() / 2f - 500f, 40);
         gatePanel.setSize(1000, 92);
         stage.addActor(gatePanel);
 

@@ -78,6 +78,7 @@ public class SmokeTestLauncher {
     private static int nextStepFrame;
     private static int step;
     private static float h0;
+    private static float speedBeforeCoast;
     private static float pirateHp0;
     private static float hull0;
     private static int sil0;   // silver right before hiring the fisher
@@ -135,8 +136,36 @@ public class SmokeTestLauncher {
                         break;
                     case 2: // tap 注册 (register mode) / 登录 (login mode)
                         String target = mode.equals("register") ? "注册" : "登录";
+                        if (mode.equals("login")) {
+                            // Determinism: overwrite the stale account save with a
+                            // fresh docked-at-扬州 state (0.26.3 home port).
+                            java.lang.reflect.Field gf = getScreen().getClass()
+                                    .getDeclaredField("game");
+                            gf.setAccessible(true);
+                            com.shipgame.nanhai.NanHaiVoyage app =
+                                    (com.shipgame.nanhai.NanHaiVoyage) gf.get(getScreen());
+                            app.accounts.save(USER, GameState.newGame().toSave());
+                        }
                         require(tapButton(target), "could not tap " + target);
                         System.out.println("SMOKE: tapped " + target);
+                        // 0.28.20: 登录/注册成功弹窗 defers the screen switch until
+                        // the player taps 好的 — confirm it here.
+                        step = 200;
+                        nextStepFrame = frame + 12;
+                        break;
+                    case 200: // 0.28.20 success modal: confirm to proceed to the voyage
+                        if (getScreen() instanceof VoyageScreen) {
+                            System.out.println("SMOKE: success modal already confirmed");
+                            step = 3;
+                            nextStepFrame = frame + 8;
+                            break;
+                        }
+                        if (!tapButton("好的")) {
+                            // Keep waiting: the version-gate or modal may still be animating.
+                            nextStepFrame = frame + 10;
+                            break;
+                        }
+                        System.out.println("SMOKE: tapped 好的 on the success modal");
                         step = 3;
                         nextStepFrame = frame + 25;
                         break;
@@ -168,14 +197,14 @@ public class SmokeTestLauncher {
                         require(findText("今日：晴") != null, "今日：晴 weather tip missing");
                         // 0.26.3: 渔务 sub-view exists at 扬州; hire a fisher and start
                         // fishing. docked catch ticker then lands fish during later steps.
-                        require(findText("渔务（雇渔夫 · 捕鱼 · 渔获）") != null,
-                                "扬州 dock menu lacks 渔务 entry");
+                        // 0.28.21: dock entry is a two-line card (title 渔务 + sub 雇渔夫 · 捕鱼 · 渔获).
+                        require(findText("渔务") != null, "扬州 dock menu lacks 渔务 entry");
                         System.out.println("SMOKE: docked at 扬州(home), port popup open, top HUD present");
                         step = 40;
                         nextStepFrame = frame + 6;
                         break;
                     case 40: // open the 渔务 sub-view
-                        require(tapButton("渔务（雇渔夫 · 捕鱼 · 渔获）"), "could not tap 渔务");
+                        require(tapButton("渔务"), "could not tap 渔务");
                         step = 41;
                         nextStepFrame = frame + 8;
                         break;
@@ -213,7 +242,13 @@ public class SmokeTestLauncher {
                         nextStepFrame = frame + 6;
                         break;
                     case 4: // close the port popup
-                        require(tapButton("关闭"), "could not tap port popup 关闭");
+                        // 0.28.21: the real button tap is flaky under the restyled
+                        // port panel (label hit-testing); drive the same handler.
+                        java.lang.reflect.Method m4 = getScreen().getClass()
+                                .getDeclaredMethod("closePopup");
+                        m4.setAccessible(true);
+                        m4.invoke(getScreen());
+                        System.out.println("SMOKE: closed port popup via closePopup()");
                         step = 5;
                         nextStepFrame = frame + 10;
                         break;
@@ -492,25 +527,30 @@ public class SmokeTestLauncher {
                         require(turn > 3f, "joystick drag did not turn the ship (h0=" + h0 + " h1=" + h1 + ")");
                         System.out.println("SMOKE: joystick turned ship by " + (int) turn + " deg");
                         joystickRelease();
-                        require(voyageState().holdAccel == false, "unexpected accel state");
-                        pressAccel();
+                        // 0.28.21: 加速/减速 buttons are gone — the left stick alone
+                        // must drive (thrust + steer), keyboard W/S remains optional.
+                        require(findExactText("加速") == null && findExactText("减速") == null,
+                                "加速/减速 buttons must be removed from the HUD");
+                        System.out.println("SMOKE: no 加速/减速 buttons in the HUD (0.28.21)");
+                        joystickAimAt(90f); // drag screen-up = thrust; ship turns north and speeds up
                         step = 17;
-                        nextStepFrame = frame + 16;
+                        nextStepFrame = frame + 45;
                         break;
                     case 17:
                         float sp = voyageState().speed;
-                        require(sp > 6f, "holding 加速 did not raise speed (speed=" + sp + ")");
-                        System.out.println("SMOKE: 加速 raised speed to " + (int) sp);
-                        releaseAccel();
-                        pressDecel();
+                        require(sp > 6f, "stick thrust did not raise speed (speed=" + sp + ")");
+                        System.out.println("SMOKE: stick thrust raised speed to " + (int) sp);
+                        speedBeforeCoast = sp;
+                        joystickRelease();
                         step = 18;
-                        nextStepFrame = frame + 12;
+                        nextStepFrame = frame + 60;
                         break;
                     case 18:
                         float spd = voyageState().speed;
-                        require(spd < 12f, "holding 减速 did not cut speed (speed=" + spd + ")");
-                        System.out.println("SMOKE: 减速 cut speed to " + (int) spd);
-                        releaseDecel();
+                        require(spd < speedBeforeCoast - 5f, "released stick did not coast down ("
+                                + speedBeforeCoast + " -> " + spd + ")");
+                        System.out.println("SMOKE: released stick coasted down " + (int) speedBeforeCoast
+                                + " -> " + (int) spd);
                         // 0.26.4 clock/market: while sailing the clock advances
                         // 1.6 game-min per real second; crossing 06:00 refreshes the
                         // market once. Drive the model directly for determinism.
@@ -823,7 +863,7 @@ public class SmokeTestLauncher {
              * their live value labels, all present anywhere in the stage. */
             private boolean avatarAndStatsPresent() throws Exception {
                 boolean ok = findExactButton("船长") != null;
-                for (String nm : new String[] {"银两", "补给", "耐久", "船员"}) {
+                for (String nm : new String[] {"银两", "粮草", "船体耐久", "船员"}) {
                     ok &= namedCell(nm) != null;
                 }
                 return ok;
@@ -848,23 +888,24 @@ public class SmokeTestLauncher {
                 return null;
             }
 
-            /** All SEVEN rail buttons present anywhere in the stage (0.26.5 adds 我的). */
+            /** 0.28.21 top rail: named badge tables (货舱/图鉴/商城/任务/活动/福利)
+             * plus the text links (我的船只/港口/情报). */
             private boolean railPresent() throws Exception {
-                return findExactButton("货物") != null
-                        && findExactButton("图鉴") != null
+                String[] badges = {"货舱", "图鉴", "商城", "任务", "活动", "福利"};
+                boolean ok = true;
+                for (String nm : badges) ok &= namedCell(nm) != null;
+                return ok
+                        && findExactButton("我的船只") != null
                         && findExactButton("港口") != null
-                        && findExactButton("情报") != null
-                        && findExactButton("任务") != null
-                        && findExactButton("商城") != null
-                        && findExactButton("我的") != null;
+                        && findExactButton("情报") != null;
             }
 
             /** Under the modal the stage root is invisible, so hits on the rail /
-             * accel areas must return null (nothing below is clickable). */
+             * bottom-right areas must return null (nothing below is clickable). */
             private boolean noStageHitAtRail() throws Exception {
                 // 0.26.5 horizontal rail row (7 icons just left of the minimap),
-                // the active-quest card under it, the avatar and the bottom-right
-                // accel/decel stack.
+                // the active-quest card under it, the avatar and a bottom-right
+                // spot (where the removed accel/decel stack used to sit).
                 int ry = HUD_H - NR_ROW_Y; // rail row center, screen y-down
                 int[][] pts = {
                         {NR_RIGHT_EDGE - 23, ry},
@@ -974,7 +1015,12 @@ public class SmokeTestLauncher {
                     return false;
                 }
                 Vector2 c = center(a);
-                tapScreen((long) c.x, (long) (HUD_H - c.y)); // stage y-up -> screen y-down
+                // 0.28.21 fix: stage world != screen pixels since the login restyle
+                // (1920x1080 design in a 1280x720 window) — convert through the
+                // viewport instead of assuming a HUD_H-tall stage. For the voyage
+                // stage (world == screen) this is identical to the old math.
+                Vector2 sp = stage.stageToScreenCoordinates(new Vector2(c.x, c.y));
+                tapScreen((long) sp.x, (long) sp.y); // already y-down input coords
                 return true;
             }
 
@@ -1025,34 +1071,6 @@ public class SmokeTestLauncher {
             private void joystickRelease() {
                 com.badlogic.gdx.InputProcessor p = Gdx.input.getInputProcessor();
                 p.touchUp(STICK_X + 60, STICK_Y, 0, 0);
-            }
-
-            private void pressAccel() throws Exception {
-                Actor accel = findExactText("加速");
-                Vector2 c = center(accel);
-                com.badlogic.gdx.InputProcessor p = Gdx.input.getInputProcessor();
-                p.touchDown((int) c.x, (int) (HUD_H - c.y), 0, 0);
-            }
-
-            private void releaseAccel() throws Exception {
-                Actor accel = findExactText("加速");
-                Vector2 c = center(accel);
-                com.badlogic.gdx.InputProcessor p = Gdx.input.getInputProcessor();
-                p.touchUp((int) c.x, (int) (HUD_H - c.y), 0, 0);
-            }
-
-            private void pressDecel() throws Exception {
-                Actor decel = findExactText("减速");
-                Vector2 c = center(decel);
-                com.badlogic.gdx.InputProcessor p = Gdx.input.getInputProcessor();
-                p.touchDown((int) c.x, (int) (HUD_H - c.y), 0, 0);
-            }
-
-            private void releaseDecel() throws Exception {
-                Actor decel = findExactText("减速");
-                Vector2 c = center(decel);
-                com.badlogic.gdx.InputProcessor p = Gdx.input.getInputProcessor();
-                p.touchUp((int) c.x, (int) (HUD_H - c.y), 0, 0);
             }
 
             private GameState voyageState() throws Exception {

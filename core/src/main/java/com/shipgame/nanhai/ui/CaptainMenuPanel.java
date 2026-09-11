@@ -6,14 +6,17 @@ import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.Disposable;
 import com.shipgame.nanhai.data.GameState;
+import java.util.function.Consumer;
 
 /** Fullscreen captain profile and account actions; persistence stays in VoyageScreen. */
 public final class CaptainMenuPanel extends Table implements Disposable {
     public static final float WIDTH=1296, HEIGHT=800;
-    private static final String[] NAV={"个人信息","存档","调试","账号"};
+    private static final String[] NAV={"个人信息","存档","调试","账号","设置"};
     private final QuestUi ui;
     private final Skin skin;
     private final Runnable save,load,logout,fill,close,profileChanged;
+    private final Consumer<Boolean> cameraChanged;
+    private boolean godView;
     private final Table body=new Table(), nav=new Table();
     private final Label message;
     private GameState g;
@@ -21,9 +24,10 @@ public final class CaptainMenuPanel extends Table implements Disposable {
     private TextField nickname;
 
     public CaptainMenuPanel(Skin skin,GameState state,Runnable profileChanged,Runnable save,Runnable load,
-                            Runnable logout,Runnable fill,Runnable close) {
+                            Runnable logout,Runnable fill,Runnable close,Consumer<Boolean> cameraChanged,boolean initialGodView) {
         this.skin=skin; this.g=state; this.profileChanged=profileChanged;
         this.save=save; this.load=load; this.logout=logout; this.fill=fill; this.close=close;
+        this.cameraChanged=cameraChanged; this.godView=initialGodView;
         ui=new QuestUi(skin); setBackground(ui.frame); pad(24); top();
         Table heading=new Table();
         heading.add(ui.label("船长 · 世界暂停",36,QuestUi.PAPER)).expandX().left();
@@ -54,9 +58,17 @@ public final class CaptainMenuPanel extends Table implements Disposable {
         } else if(selection==2) {
             copy("满级账号：解锁全部船只、异兽与草药，并补满资源。\n会覆盖当前账号的本机存档。");
             body.add(action("满级账号",true,fill)).size(480,72).left().padTop(32).row();
-        } else {
+        } else if(selection==3) {
             copy("退出登录前会保存当前进度。\n再次登录这个账号即可继续航程。");
             body.add(action("退出登录",true,logout)).size(480,72).left().padTop(32).row();
+        } else {
+            // 0.28.21: 视角设置 —— 默认为航行追尾（战斗自动拉远），上帝视角恒用
+            // 战斗级拉远；立即生效并写入本机偏好。
+            copy("视角：默认为航行追尾视角，战斗自动拉远。\n上帝视角始终用战斗级拉远俯瞰，战斗结束后不回拉。");
+            Table modes=new Table(); modes.left();
+            modes.add(action("默认视角",!godView,()->{godView=false;cameraChanged.accept(false);rebuild();})).size(240,72).padRight(24);
+            modes.add(action("上帝视角",godView,()->{godView=true;cameraChanged.accept(true);rebuild();})).size(240,72);
+            body.add(modes).left().padTop(32).row();
         }
     }
     private void profile() {

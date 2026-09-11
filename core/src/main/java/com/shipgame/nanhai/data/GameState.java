@@ -669,6 +669,8 @@ public class GameState {
         updateAnchor();
         applySteerAndSpeed(dt);
         move(dt);
+        // 0.28.21: 未抛锚且停在港/岛范围内时，海流缓慢把船推离岸边。
+        applyCoastalDrift(dt);
         drain(dt);
         if (supply <= 0f) {
             fail("补给耗尽");
@@ -759,6 +761,31 @@ public class GameState {
         }
         return 0f;
     }
+
+    /** 0.28.21 近岸漂流：不抛锚的船在港/岛范围内会被海流持续推离（约几秒内
+     * 明显滑出交互范围），抛锚则完全停稳。方向固定为离最近陆地中心向外，
+ * 与陆地碰撞解算同向，不会把船推进岸里；公海不受影响。 */
+    private void applyCoastalDrift(float dt) {
+        if (anchored || autoSail || dockedPort >= 0 || islandMenu >= 0) return;
+        if (nearestPortInRange() < 0 && nearestIslandInRange() < 0) return;
+        float dx = 1f, dy = 0f, best = Float.MAX_VALUE;
+        for (int i = 0; i < Catalog.PORTS.length; i++) {
+            float d = Catalog.dist(x, y, Catalog.PORT_X[i], Catalog.PORT_Y[i]);
+            if (d < best) { best = d; dx = x - Catalog.PORT_X[i]; dy = y - Catalog.PORT_Y[i]; }
+        }
+        for (int i = 0; i < Catalog.ISLANDS.length; i++) {
+            float d = Catalog.dist(x, y, Catalog.ISLAND_X[i], Catalog.ISLAND_Y[i]);
+            if (d < best) { best = d; dx = x - Catalog.ISLAND_X[i]; dy = y - Catalog.ISLAND_Y[i]; }
+        }
+        float len = (float) Math.sqrt(dx * dx + dy * dy);
+        if (len < 0.001f) { dx = 1f; dy = 0f; len = 1f; }
+        float push = COASTAL_DRIFT_SPEED * dt / len;
+        x = MathUtils.clamp(x + dx * push, 40f, Catalog.WORLD_W - 40f);
+        y = MathUtils.clamp(y + dy * push, 40f, Catalog.WORLD_H - 40f);
+    }
+
+    /** 近岸漂流速度（单位/秒）：DOCK_RANGE 218，几秒内能明显滑出范围。 */
+    private static final float COASTAL_DRIFT_SPEED = 20f;
 
     private void move(float dt) {
         ensureLandClearance();

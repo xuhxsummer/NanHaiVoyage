@@ -22,6 +22,8 @@ import com.shipgame.nanhai.data.VoyageGeometry;
 public final class VoyageWorldRenderer implements Disposable {
     public static final float SAIL_DISTANCE = 185f;
     public static final float COMBAT_DISTANCE = 600f;
+    /** 0.28.21 上帝视角：true 时恒用 COMBAT_DISTANCE（设置页可切换，存 prefs）。 */
+    public boolean godView = false;
     public final PerspectiveCamera camera = new PerspectiveCamera(58f, 1280, 720);
     private final ModelBatch batch = new ModelBatch();
     private final Environment light = new Environment();
@@ -278,7 +280,9 @@ public final class VoyageWorldRenderer implements Disposable {
         ModelInstance ship=ships[VoyageGeometry.shipIndex(g.ship)];
         dt=MathUtils.clamp(dt,0,.1f); time+=dt;
         float alpha=1f-(float)Math.exp(-3f*dt);
-        float wanted=(g.pirateAlive || g.merchantLock) && !g.failed ? COMBAT_DISTANCE:SAIL_DISTANCE;
+        // 0.28.21: 上帝视角始终用战斗级拉远，不受战斗结束回拉影响。
+        float wanted=godView || ((g.pirateAlive || g.merchantLock) && !g.failed)
+                ? COMBAT_DISTANCE:SAIL_DISTANCE;
         if (!initialized) { heading=g.headingDeg; distance=wanted; }
         distance=MathUtils.lerp(distance,wanted,alpha);
         heading=MathUtils.lerpAngleDeg(heading,g.headingDeg,1f-(float)Math.exp(-5f*dt));

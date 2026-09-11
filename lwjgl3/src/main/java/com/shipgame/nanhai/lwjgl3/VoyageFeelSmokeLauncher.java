@@ -108,12 +108,12 @@ public final class VoyageFeelSmokeLauncher {
                 down(620,400,1);drag(3000,4000,1);voyage.render(.02f);
                 require(renderer.camera.position.y>=9 && Float.isFinite(renderer.camera.direction.y),"pitch remains above sea");
                 snap("look-water");up(3000,4000,1);
-                // A drag starting on acceleration stays with that HUD control.
-                overlay("NONE");voyage.render(0);Vector2 point=point(actor("加速"));
+                // A drag starting on a HUD control stays with that control (no look capture).
+                overlay("NONE");voyage.render(0);Vector2 point=point(actor("自动航行"));
                 down((int)point.x,(int)point.y,4);drag(620,400,4);voyage.render(.02f);
-                require(field("lookPointer").getInt(voyage)<0 && state.holdAccel,"HUD drag ownership");
+                require(field("lookPointer").getInt(voyage)<0 && !state.autoSail,"HUD drag ownership");
                 up(620,400,4);voyage.pause();
-                require(!state.holdAccel && field("lookPointer").getInt(voyage)<0,"pause releases input");
+                require(!state.autoSail && field("lookPointer").getInt(voyage)<0,"pause releases input");
             }
             private void sceneSnapshots() throws Exception {
                 for(int location:new int[]{20,7,14,15,19,23,27,31}) {

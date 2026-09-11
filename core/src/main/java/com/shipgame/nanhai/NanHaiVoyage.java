@@ -26,6 +26,8 @@ public class NanHaiVoyage extends Game {
     public GameState state;
     /** Backend-provided update checker (Android: GitHub Releases). Null on desktop. */
     public UpdateChecker updateChecker;
+    /** 0.28.21: shared local preferences (e.g. cameraMode.god). */
+    public com.badlogic.gdx.Preferences settings;
     private final com.badlogic.gdx.utils.Array<FreeTypeFontGenerator> fontGenerators=new com.badlogic.gdx.utils.Array<>();
 
     @Override
@@ -36,6 +38,7 @@ public class NanHaiVoyage extends Game {
         fontSmall = loadFont(16);
         skin = UiFactory.create(font, fontSmall);
         accounts = new AccountStore();
+        settings = Gdx.app.getPreferences("nanhai-settings");
         setScreen(new LoginScreen(this));
     }
 

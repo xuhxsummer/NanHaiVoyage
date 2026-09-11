@@ -85,7 +85,24 @@ public final class GeometryRegression {
             for(int step=0;step<36000&&g.autoSail;step++)g.update(1f/30);
             require(!g.autoSail && g.speed==0,"long route from Yangzhou to "+(port?Catalog.PORTS[id]:Catalog.ISLANDS[id]));
         }
-        System.out.println("GEOMETRY PASS: "+impacts+" high-speed impacts; every ship/land docking, auto arrival, legacy recovery; helm/profile; 34 long routes from Yangzhou");
+        // 0.28.21 coastal drift: unanchored ship inside port range slides OUT of
+        // interact range within seconds (drift stops once clear of land range);
+        // anchored ship stays exactly put; open sea has no drift.
+        GameState drift=GameState.newGame(); drift.undockInPlace(); drift.pirateSpawnTimer=100000; drift.supply=100000;
+        drift.x=Catalog.PORT_X[0]+Catalog.DOCK_RANGE-40; drift.y=Catalog.PORT_Y[0];
+        for(int i=0;i<300;i++) drift.update(1f/60); // 5s unanchored
+        float moved=Catalog.dist(drift.x,drift.y,Catalog.PORT_X[0]+Catalog.DOCK_RANGE-40,Catalog.PORT_Y[0]);
+        require(moved>=35f && drift.nearestPortInRange()<0,"unanchored ship drifts out of interact range (moved="+moved+")");
+        drift.x=Catalog.PORT_X[0]+Catalog.DOCK_RANGE-20; drift.y=Catalog.PORT_Y[0]; drift.dropAnchor();
+        float bx=drift.x,by=drift.y;
+        for(int i=0;i<300;i++) drift.update(1f/60);
+        require(drift.anchored && Catalog.dist(bx,by,drift.x,drift.y)<0.01f,"anchored ship stays put");
+        // Open sea (out of every port/island range) must not drift.
+        drift.weighAnchor(); drift.x=Catalog.WORLD_W/2; drift.y=Catalog.WORLD_H/2;
+        float sx=drift.x,sy=drift.y;
+        for(int i=0;i<300;i++) drift.update(1f/60);
+        require(drift.x==sx && drift.y==sy,"open sea has no drift");
+        System.out.println("GEOMETRY PASS: "+impacts+" high-speed impacts; every ship/land docking, auto arrival, legacy recovery; helm/profile; 34 long routes from Yangzhou; coastal drift/anchor hold");
     }
     private static void require(boolean ok,String message) { if(!ok) throw new AssertionError(message); }
 }
