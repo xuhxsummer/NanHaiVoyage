@@ -14,7 +14,7 @@ import com.shipgame.nanhai.ui.*;
 import java.lang.reflect.*;
 import java.nio.file.Path;
 
-/** Real-input, isolated-account checks for each of the eleven 0.28.27 requirements. */
+/** Real-input, isolated-account checks for each of the thirteen 0.28.27 requirements. */
 public final class HudMapDialogueIslandSmokeLauncher {
     private static int result=1;
     public static void main(String[] args)throws Exception {
@@ -45,7 +45,7 @@ public final class HudMapDialogueIslandSmokeLauncher {
                 try {
                     if(frame++==0){checks("1280");Gdx.graphics.setWindowedMode(1600,720);}
                     else {voyage.resize(1600,720);checks("1600");result=0;
-                        System.out.println("HUD MAP DIALOGUE ISLAND PASS: all eleven items at 1280/1600, real intel/map/autosail taps, measured title, silver retained in port, text-only auto, narrow centered tap dialogue, centered parchment notices, explore/anchor/resume and port actions; weather removal, ordinal day/night clock and rollover, status cleanup, live lower-right telemetry");Gdx.app.exit();}
+                        System.out.println("HUD MAP DIALOGUE ISLAND PASS: all thirteen items at 1280/1600, real intel/map/autosail taps, measured title, silver retained in port, text-only auto, narrow centered tap dialogue, centered parchment notices, explore/anchor/resume and port actions; weather removal, ordinal day/night clock and rollover, status cleanup, live lower-right telemetry");Gdx.app.exit();}
                 }catch(Throwable t){fail(t);}
             }
             private void checks(String width)throws Exception {
@@ -98,8 +98,16 @@ public final class HudMapDialogueIslandSmokeLauncher {
                 require(allText(stage.getRoot()).contains("银两 "+state.silver),"3 port still shows silver");capture(width+"-port-silver");invoke("closePopup");voyage.render(0);
                 for(int card=0;card<2;card++) {
                     Table quest=(Table)actor(card==0?"任务卡":"下一程任务卡"),header=(Table)actor("任务标题栏"+card);
-                    require(header.getX()==0 && header.getWidth()==quest.getWidth(),"merged polish: quest header flush with body");
-                    require(quest.getBackground()==(card==0?hud.ui.questPaper:hud.ui.questPanel),"merged polish: undecorated body, triangles retained on header only");
+                    require(header.getBackground()==(card==0?hud.ui.questRedHeader:hud.ui.questBlueHeader),"12 undecorated header background");
+                    Image left=(Image)actor("questMarkerLeft"+card),right=(Image)actor("questMarkerRight"+card);
+                    require(header.getChildren().size==3 && left.getParent()==header && right.getParent()==header && left.getDrawable()==hud.ui.questMarker && right.getDrawable()==hud.ui.questMarker,"12 exactly two explicit header triangles");
+                    require(left.getX()<actor("任务标题"+card).getX() && right.getX()>actor("任务标题"+card).getX()+actor("任务标题"+card).getWidth(),"12 markers flank title");
+                    assertNoCornerMarkers(quest.getBackground());assertNoCornerMarkers(header.getBackground());
+                    com.badlogic.gdx.graphics.g2d.NinePatch cardPatch=((com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable)quest.getBackground()).getPatch();
+                    com.badlogic.gdx.graphics.g2d.NinePatch headPatch=((com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable)header.getBackground()).getPatch();
+                    require(cardPatch.getLeftWidth()==headPatch.getLeftWidth() && cardPatch.getRightWidth()==headPatch.getRightWidth(),"13 matching background edge insets");
+                    require(header.getX()==0 && header.getWidth()==quest.getWidth(),"13 quest header flush with body");
+                    require(quest.getBackground()==(card==0?hud.ui.questPaper:hud.ui.questPanel),"12 undecorated quest body");
                 }
                 // 8–11. Weather belongs in the ordinal clock; navigation telemetry has its own safe corner.
                 require(!allText(hud).contains("今日："),"8 weather plate and caption removed");
@@ -127,7 +135,17 @@ public final class HudMapDialogueIslandSmokeLauncher {
                 Method advance=GameState.class.getDeclaredMethod("advanceClock",float.class);advance.setAccessible(true);advance.invoke(state,.1f);voyage.render(0);
                 require(state.gameDay==10 && hud.clock.getText().toString().startsWith("第十天 00:00 夜晚 晴"),"9 midnight rollover");
                 state.gameDay=1;state.dayMin=360;state.speed=0;
-                System.out.println("Verified all eleven items at "+width);
+                System.out.println("Verified all thirteen items at "+width);
+            }
+            private void assertNoCornerMarkers(com.badlogic.gdx.scenes.scene2d.utils.Drawable background) {
+                com.badlogic.gdx.graphics.glutils.FrameBuffer target=new com.badlogic.gdx.graphics.glutils.FrameBuffer(Pixmap.Format.RGBA8888,96,96,false);
+                com.badlogic.gdx.math.Matrix4 previous=new com.badlogic.gdx.math.Matrix4(batch.getProjectionMatrix());
+                target.begin();Gdx.gl.glClearColor(0,0,0,0);Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+                batch.setProjectionMatrix(new com.badlogic.gdx.math.Matrix4().setToOrtho2D(0,0,96,96));batch.begin();background.draw(batch,0,0,96,96);batch.end();
+                Pixmap pixels=Pixmap.createFromFrameBuffer(0,0,96,96);int white=0;
+                for(int y=0;y<96;y++)for(int x=0;x<96;x++) { int rgba=pixels.getPixel(x,y);if((rgba>>>24)>230 && ((rgba>>>16)&255)>208 && ((rgba>>>8)&255)>158)white++; }
+                pixels.dispose();target.end();target.dispose();batch.setProjectionMatrix(previous);
+                require(white==0,"12 background renders without white corner triangles");
             }
             private String overlay()throws Exception{return get(voyage,"overlay").toString();}
             private Object get(Object owner,String name)throws Exception{Field f=owner.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(owner);}

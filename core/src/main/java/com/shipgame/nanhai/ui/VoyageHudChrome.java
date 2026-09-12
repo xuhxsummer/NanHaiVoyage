@@ -14,7 +14,7 @@ public final class VoyageHudChrome implements Disposable {
     public static final Color GOLD=Color.valueOf("D8B579"), PAPER=Color.valueOf("F4DEB0"), MUTED=Color.valueOf("B8C5C3");
     public final Drawable goldLine, panel, parchment, red, blue, jade, circle, greenCircle, redCircle, ring, compass;
     /** 0.28.22 半透明深色底板：放在亮色天空上的文字标签后面，保证可读。 */
-    public final Drawable plate, questPaper, questPanel;
+    public final Drawable plate, questPaper, questPanel, questRedHeader, questBlueHeader, questMarker;
     private final java.util.List<Texture> owned=new ArrayList<>();
     private final Map<String,Drawable> icons=new HashMap<>();
     private final Skin skin;
@@ -32,6 +32,10 @@ public final class VoyageHudChrome implements Disposable {
         Pixmap line=new Pixmap(1,1,Pixmap.Format.RGBA8888);line.setColor(GOLD);line.fill();goldLine=new TextureRegionDrawable(texture(line));
         panel=patch("102631"); parchment=patch("CAB184"); red=patch("622C25"); blue=patch("163A47"); jade=patch("264C42");
         questPaper=patch("CAB184",false);questPanel=patch("102631",false);
+        questRedHeader=patch("622C25",false);questBlueHeader=patch("163A47",false);
+        Pixmap marker=new Pixmap(12,12,Pixmap.Format.RGBA8888);marker.setColor(PAPER);
+        marker.drawLine(1,10,6,1);marker.drawLine(6,1,11,10);marker.drawLine(11,10,1,10);
+        questMarker=new TextureRegionDrawable(texture(marker));
         circle=disc("112A36",true,false); greenCircle=disc("315C44",true,false); redCircle=disc("733329",true,false);
         ring=disc("112A36",false,false); compass=disc("142F39",true,true);
         Pixmap platePixmap=new Pixmap(8,8,Pixmap.Format.RGBA8888);

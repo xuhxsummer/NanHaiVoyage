@@ -57,7 +57,9 @@ public final class VoyageHud extends Group implements Disposable {
         Table intelButton=badge("情报","book",56,intel);intelButton.setBounds(1632,772,72,84);addActor(intelButton);
         questGroup=new Table();questGroup.setTouchable(Touchable.childrenOnly);questGroup.setBounds(1576,388,320,288);addActor(questGroup);
         for(int i=0;i<2;i++){final int n=i;Table card=new Table();card.setName(i==0?"任务卡":"下一程任务卡");card.setBackground(i==0?ui.questPaper:ui.questPanel);card.pad(8,0,8,0);
-            Table head=new Table();head.setName("任务标题栏"+i);head.setBackground(i==0?ui.red:ui.blue);head.pad(4,28,4,24);questTitles[i]=ui.label("",22,VoyageHudChrome.PAPER);questTitles[i].setName("任务标题"+i);questTitles[i].setEllipsis(true);head.add(questTitles[i]).growX();
+            Table head=new Table();head.setName("任务标题栏"+i);head.setBackground(i==0?ui.questRedHeader:ui.questBlueHeader);head.pad(4,8,4,8);questTitles[i]=ui.label("",22,VoyageHudChrome.PAPER);questTitles[i].setName("任务标题"+i);questTitles[i].setEllipsis(true);Image leftMarker=new Image(ui.questMarker);leftMarker.setName("questMarkerLeft"+i);leftMarker.setTouchable(Touchable.disabled);
+            Image rightMarker=new Image(ui.questMarker);rightMarker.setName("questMarkerRight"+i);rightMarker.setTouchable(Touchable.disabled);
+            head.add(leftMarker).size(10).padRight(6);head.add(questTitles[i]).growX();head.add(rightMarker).size(10).padLeft(6);
             card.add(head).size(320,36).row();questBodies[i]=ui.label("",21,i==0?Color.valueOf("3F3326"):VoyageHudChrome.PAPER);questBodies[i].setWrap(true);card.add(questBodies[i]).width(272).height(56).left().padLeft(16).row();
             questProgress[i]=ui.label("",20,i==0?Color.valueOf("4D3D28"):VoyageHudChrome.GOLD);card.add(questProgress[i]).width(272).height(28).left().padLeft(16);card.addListener(click(()->quest.accept(n)));questCards[i]=card;questGroup.add(card).size(320,136).padBottom(i==0?16:0).row();
             // Preserve FreeBuff's clockwise gold sweep without consuming card taps.
