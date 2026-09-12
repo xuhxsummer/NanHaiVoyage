@@ -7,9 +7,11 @@ import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.NinePatch;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
+import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
 import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
 import com.badlogic.gdx.utils.Array;
@@ -24,6 +26,20 @@ public final class QuestUi implements Disposable {
     private final Skin skin;
     private final Array<Texture> textures = new Array<>();
     private BitmapFont dialogueFont;
+
+    /** 0.28.26 按钮按压回�馈：按下缩小到 0.94，松开弹回，让点击有"按下去"的感觉。 */
+    public static void attachPressScale(TextButton button) {
+        button.addListener(new ChangeListener() {
+            @Override public void changed(ChangeEvent event, Actor actor) {
+                if (!(actor instanceof TextButton)) return;
+                TextButton b = (TextButton) actor;
+                b.setTransform(true);
+                b.setOrigin(b.getWidth() / 2f, b.getHeight() / 2f);
+                float target = b.isPressed() ? 0.94f : 1f;
+                b.addAction(com.badlogic.gdx.scenes.scene2d.actions.Actions.scaleTo(target, target, 0.06f));
+            }
+        });
+    }
 
     public QuestUi(Skin skin) {
         this.skin = skin;
@@ -73,7 +89,9 @@ public final class QuestUi implements Disposable {
         style.up=primary?red:blue; style.down=selected; style.over=selected;
         style.fontColor=PAPER; style.disabledFontColor=Color.valueOf("A49981");
         style.disabled=inset;
-        return new TextButton(text,style);
+        TextButton button=new TextButton(text,style);
+        attachPressScale(button); // 0.28.26 按压缩放反馈
+        return button;
     }
 
     /** Dark ink on parchment needs unoutlined glyphs; bake once for this screen's conversations. */

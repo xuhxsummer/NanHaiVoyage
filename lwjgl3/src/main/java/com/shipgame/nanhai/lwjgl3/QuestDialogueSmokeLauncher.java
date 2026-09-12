@@ -46,10 +46,10 @@ public final class QuestDialogueSmokeLauncher {
                         Gdx.graphics.setWindowedMode(1600, 720);
                         frame++;
                     } else {
-                        voyage.resize(Gdx.graphics.getWidth(), Gdx.graphics.getHeight()); voyage.render(0);
+                        voyage.resize(1600, 720); voyage.render(0);
                         Actor panel = actor("dialoguePanel");
-                        require(panel.getWidth() > 1400 && panel.getHeight() >= 220 && panel.getHeight() <= 280,
-                                "wide-screen bottom panel fills width and preserves readable height");
+                        require(panel.getWidth() > 1400 && panel.getHeight() >= 300 && panel.getHeight() <= 420,
+                                "wide-screen bottom panel fills width and preserves readable height (with busts)");
                         capture("wide");
                         tap("dialogueClose"); voyage.render(0);
                         accounts.register("dialogue-b", "other-password"); currentUser = "dialogue-b";
@@ -65,8 +65,8 @@ public final class QuestDialogueSmokeLauncher {
             }
             private void interactions() throws Exception {
                 voyage.render(0);
-                require(!isDialogue() && state.questDialogueSeen == 0, "tutorial defers autoplay");
-                invoke("dismissHowto"); voyage.render(0);
+                // 0.28.25: HOWTO 自动弹窗已被情境引导取代，开场即自动播放第一章。
+                require(isDialogue() && state.questDialogueSeen == 1, "first active quest auto-opens once");
                 require(isDialogue() && state.questDialogueSeen == 1, "first active quest auto-opens once");
                 require(text("dialogueBody").contains("武则天"), "Wu Zhou dialogue starts at first line");
                 require(accounts.load(currentUser).questDialogueSeen == 1, "seen marker saved immediately");
@@ -89,7 +89,9 @@ public final class QuestDialogueSmokeLauncher {
                 require(isDialogue() && text("dialogueSpeaker").equals("旁白"), "HUD card manually reopens first line");
                 tap("dialogueClose"); voyage.render(0); require(!isDialogue(), "skip does not auto-reopen");
                 tap("下一程任务卡"); voyage.render(0);
-                require(text("dialogueBody").contains("尚未开启") && state.questDialogueSeen == 1, "locked preview cannot consume next autoplay");
+                // 0.28.25: locked preview now previews the concrete objective instead of a dry unlock wait.
+                require(text("dialogueBody").contains("完成上一程并领奖后开启") && state.questDialogueSeen == 1,
+                        "locked preview cannot consume next autoplay");
                 capture("locked-next"); tap("dialogueClose"); voyage.render(0);
 
                 state.questIslandVisits = 1;
@@ -112,11 +114,12 @@ public final class QuestDialogueSmokeLauncher {
                 state.questRefillCount = 1;
                 tap("任务卡"); voyage.render(0);
                 for (int i = 0; i < 3; i++) { tap("dialogueBody"); voyage.render(0); }
-                require(((TextButton)actor("dialogueAction")).getText().toString().equals("领奖"), "completed dialogue offers reward");
+                // 0.28.25: reward action previews the next chapter title.
+                require(((TextButton)actor("dialogueAction")).getText().toString().startsWith("领奖"), "completed dialogue offers reward");
                 TextButton oldAction = (TextButton)actor("dialogueAction");
                 silver = state.silver; tapActor(oldAction); voyage.render(0);
                 require(state.questClaimRefill && state.silver == silver + 20 && isDialogue() && state.questDialogueSeen == 7,
-                        "dialogue reward advances to next chapter once");
+                        "dialogue reward advances to next chapter once (immediate 0.28.25 flow)");
                 // A queued callback from a removed page must neither pay twice nor close the next chapter.
                 for (EventListener listener : oldAction.getListeners()) if (listener instanceof com.badlogic.gdx.scenes.scene2d.utils.ClickListener)
                     ((com.badlogic.gdx.scenes.scene2d.utils.ClickListener)listener).clicked(new InputEvent(), 1, 1);

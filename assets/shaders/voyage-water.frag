@@ -4,7 +4,7 @@ precision highp float;
 uniform sampler2D u_chop,u_swell,u_foam;
 uniform vec3 u_camera;
 uniform vec2 u_ship,u_forward,u_hull;
-uniform float u_speed,u_time,u_wind;
+uniform float u_speed,u_time,u_wind,u_night;
 varying vec3 v_surface,v_normal;
 varying vec2 v_uv,v_breaking;
 varying float v_shore;
@@ -95,5 +95,8 @@ void main() {
     vec3 horizon=environment(normalize(vec3(-view.x,0.015,-view.z)));
     float fog=1.0-exp(-pow(distanceToEye/4300.0,1.6));
     color=mix(color,horizon,fog);
-    gl_FragColor=vec4(pow(max(color,vec3(0.0)),vec3(0.454545)),1.0);
+    vec3 lit=pow(max(color,vec3(0.0)),vec3(0.454545));
+    vec3 night=vec3(0.09,0.14,0.22);
+    // 0.28.26 夜晚海面压暗（与天空同步，无硬切）。
+    gl_FragColor=vec4(mix(lit,night,u_night*0.72),1.0);
 }

@@ -41,6 +41,8 @@ import com.shipgame.nanhai.data.SaveData;
 import com.shipgame.nanhai.ui.IconLib;
 import com.shipgame.nanhai.ui.FullscreenPage;
 import com.shipgame.nanhai.data.VoyageGeometry;
+import com.shipgame.nanhai.ui.ContextualTips;
+import com.shipgame.nanhai.ui.ContextualTips.Tip;
 import com.shipgame.nanhai.ui.QuestUi;
 import com.shipgame.nanhai.ui.QuestDialogue;
 import com.shipgame.nanhai.ui.IntelPanel;
@@ -210,6 +212,12 @@ public class VoyageScreen extends ScreenAdapter {
     private static final float AUTOSAVE_INTERVAL = 15f;
     private float autosaveT;
     private long lastAutosaveSig = Long.MIN_VALUE;
+    private final ContextualTips contextualTips = new ContextualTips();
+    private Table tipBubble;
+    private Label tipCopy;
+    private int tipLastPort, tipLastIsland;
+    private boolean tipLastAnchor;
+    private long tipTradeBaseline;
     private boolean loggedFirstFrame;
     private float radarT;   // seconds the full map has been open (radar pulse clock)
     private Pixmap miniChartPm; // 0.26.5 baked minimap chart (promoted to a texture)
@@ -247,6 +255,8 @@ public class VoyageScreen extends ScreenAdapter {
             rebuildMenu();
             g.toast("画面组件加载失败，请退出后重试。");
         }
+        tipLastPort=g.dockedPort; tipLastIsland=g.islandMenu; tipLastAnchor=g.anchored;
+        tipTradeBaseline=tipTradeCount();
         autosaveT = 0; // 0.28.21: 15s quiet autosave cadence resets on entry.
         if (game.state != null) {
             g = game.state;
@@ -280,24 +290,11 @@ public class VoyageScreen extends ScreenAdapter {
             overlay = Overlay.ISLAND;
         }
         rebuildMenu();
-        maybeShowHowto();
+
         Gdx.app.error("VoyageEnter", "hud + menu built, overlay=" + overlay);
     }
 
-    /** 0.26.0 first-run tutorial: the 玩法说明 popup appears once per install
-     * after the first successful login (VoyageScreen only exists post-login).
-     * The persistent flag lives in libGDX Preferences under key howto_shown;
-     * both closing buttons record it, so the popup never nags again. */
-    private void maybeShowHowto() {
-        try {
-            if (!Gdx.app.getPreferences("nanhai-voyage").getBoolean("howto_shown", false)) {
-                overlay = Overlay.HOWTO;
-                rebuildMenu();
-            }
-        } catch (Throwable ignored) {
-            // Preferences failure must never block the voyage screen.
-        }
-    }
+    // Contextual prompts replace automatic HOWTO; the optional help page remains accessible.
 
     private void disposeMiniChart() {
         try {
@@ -363,7 +360,10 @@ public class VoyageScreen extends ScreenAdapter {
                 world, this::toggleMine, this::openIntel, this::contextReopen,
                 () -> { if (g.autoSail) { g.cancelAutoSail(); rebuildMenu(); } else world.run(); },
                 () -> { g.cancelAutoSail(); rebuildMenu(); }, () -> g.lockPirate(), () -> g.cancelLock(),
-                this::toggleAnchor, this::openQuestDialogue);
+                this::toggleAnchor, card -> {
+                    if(overlay==Overlay.NONE) contextualTips.complete(Tip.QUEST_CARD);
+                    openQuestDialogue(card);
+                });
         stage.addActor(voyageHud);
         applyHudScale(); // 0.27.4: scale the 1920×1080 HUD grid over the full viewport
         statVals = voyageHud.stats; hudLine = voyageHud.status; hudClock = voyageHud.clock;
@@ -373,6 +373,16 @@ public class VoyageScreen extends ScreenAdapter {
         menuRoot = new Table(); menuRoot.setFillParent(true);
         menuRoot.setTouchable(Touchable.childrenOnly);
         menuRoot.center().top().padTop(78); stage.addActor(menuRoot);
+        tipBubble=new Table(); tipBubble.setName("contextualTip");
+        tipBubble.setBackground(voyageHud.ui.panel); tipBubble.pad(10,18,10,12);
+        tipCopy=voyageHud.ui.label("",26,QuestUi.PAPER); tipCopy.setName("contextualTipCopy");
+        tipBubble.add(tipCopy).growX().padRight(12);
+        TextButton dismiss=voyageHud.ui.button("知道了",voyageHud.ui.blue,22);
+        dismiss.setName("contextualTipDismiss"); dismiss.addListener(click(() -> {
+            contextualTips.dismiss(); tipBubble.setVisible(false);
+        }));
+        tipBubble.add(dismiss).size(100,44);
+        tipBubble.setVisible(false);stage.addActor(tipBubble);
     }
 
     /** Keep the full HUD visible and steering hit areas aligned on wide devices. */
@@ -527,6 +537,7 @@ public class VoyageScreen extends ScreenAdapter {
 
     private void buildQuestDialogue() {
         if (questUi == null) questUi = new QuestUi(game.skin);
+        QuestDialogue.setAvatarSupplier(() -> g.avatarIndex); // 0.28.25 右侧「我」随头像
         if (dialogueQuest < 0) {
             menuRoot.add(new QuestDialogue(game.skin, questUi, "南海见闻录 · 续卷",
                     new String[][]{{"旁白", getActiveQuestIndex() < 0
@@ -550,22 +561,29 @@ public class VoyageScreen extends ScreenAdapter {
         boolean unlocked = q.unlockAfter < 0 || isQuestClaimed(g, QUESTS[q.unlockAfter]);
         if (dialoguePreview && !unlocked) {
             menuRoot.add(new QuestDialogue(game.skin, questUi, "下一程 · " + q.title,
-                    new String[][]{{"旁白", "「" + q.title + "」尚未开启。请先完成「"
-                            + QUESTS[q.unlockAfter].title + "」并领取奖励。"}},
-                    "前序领奖后，这一程的故事会自动开启。", "知道了", this::closePopup, this::closePopup)).grow();
+                    new String[][]{{"旁白", "「" + q.title + "」还差一步：完成上一程并领奖后开启。先把手头这一程做完，"
+                            + "领了奖励，新故事马上出发。"}},
+                    "完成上一程并领奖后开启。这一程的目标：" + q.description, "知道了", this::closePopup, this::closePopup)).grow();
             return;
         }
         boolean claim = unlocked && isQuestComplete(g, q) && !isQuestClaimed(g, q);
         boolean navigate = !claim && !g.worldPaused() && (q.targetPort >= 0 || q.targetIsland >= 0);
-        String action = claim ? "领奖" : navigate ? "前往" : "知道了";
         menuRoot.add(new QuestDialogue(game.skin, questUi, "主线 · " + q.title,
-                q.dialogue, q.description, action, () -> {
+                q.dialogue, q.description,
+                // 0.28.25: 领奖前预览下一步，领奖后随奖励文案变化（玩家不必拆页也能看懂）。
+                speakerName -> {
+                    if (!claim) return navigate ? "前往" : "知道了";
+                    if (speakerName == null || "此程所托".equals(speakerName)) return "领奖 · 开启下一程";
+                    QuestDef next = q.id + 1 < MAIN_QUEST_COUNT ? QUESTS[q.id + 1] : null;
+                    return next != null ? "领奖 · 下一步：" + next.title : "领奖";
+                }, () -> {
                     if (overlay != Overlay.DIALOGUE || dialogueQuest != q.id) return;
                     if (claim) {
                         if (isQuestComplete(g, q) && !isQuestClaimed(g, q)
                                 && (q.unlockAfter < 0 || isQuestClaimed(g, QUESTS[q.unlockAfter]))) {
-                            g.toast(claimQuest(g, q));
+                            String rewardMsg = claimQuest(g, q);
                             persist();
+                            announceNextQuest(q, rewardMsg); // 0.28.25 领奖即开下一程
                         }
                     } else if (navigate && !g.worldPaused()) {
                         if (q.targetPort >= 0) g.startAutoSail(q.targetPort);
@@ -573,6 +591,28 @@ public class VoyageScreen extends ScreenAdapter {
                     }
                     closePopup();
                 }, this::closePopup)).grow();
+    }
+
+    /** 0.28.25 D: 领奖后立即开下一程对话（否则给一条明确的「下一程已开启」提示），
+     * 并把 HUD 任务卡与任务日志刷新到新的当前目标。 */
+    private void announceNextQuest(QuestDef claimed, String rewardMsg) {
+        QuestDef next = claimed.id + 1 < MAIN_QUEST_COUNT ? QUESTS[claimed.id + 1] : null;
+        boolean nextUnlocked = next != null && (next.unlockAfter < 0 || isQuestClaimed(g, QUESTS[next.unlockAfter]));
+        if (next != null && nextUnlocked && !isQuestClaimed(g, next)) {
+            g.toast(rewardMsg + " 下一程已开启：" + next.title);
+            if (overlay == Overlay.DIALOGUE) {
+                dialogueQuest = next.id;
+                dialoguePreview = false;
+                // closePopup() 后由 caller 的 rebuildMenu 直接重建为下一程对话。
+            } else {
+                dialogueQuest = next.id;
+                dialoguePreview = false;
+                overlay = Overlay.DIALOGUE;
+            }
+        } else {
+            g.toast(rewardMsg);
+        }
+        updateQuestButtonLabel();
     }
 
     /** 0.26.5 我的：当前船 + 已拥有船只（随时免费换乘）+ 资源/货物汇总。 */
@@ -1802,6 +1842,8 @@ public class VoyageScreen extends ScreenAdapter {
             String sub;
             if (claimed) {
                 sub = "已完成 · 已领奖";
+            } else if (!done) {
+                sub = q.description;
             } else if (done) {
                 sub = "完成！点开领取奖励";
             } else if (q.progressType == 4) { // 还债任务显示当前欠款
@@ -2203,7 +2245,7 @@ public class VoyageScreen extends ScreenAdapter {
             int progress = getQuestProgress(g, q.progressType);
             String count = q.targetAmount <= 0 ? "欠款 " + progress + " 两" : "进度 " + Math.min(progress, q.targetAmount) + "/" + q.targetAmount;
             voyageHud.quest(card, (card == 0 ? "主线 · " : "下一程 · ") + q.title,
-                    q.description, card == 1 ? "待前序领奖解锁" : isQuestComplete(g, q) ? "已完成 · 对话后领奖" : count + " · 点击对话");
+                    q.description, card == 1 ? "完成上一程并领奖后开启" : isQuestComplete(g, q) ? "已完成 · 对话后领奖" : count + " · 点击对话");
         }
     }
 
@@ -2347,6 +2389,8 @@ public class VoyageScreen extends ScreenAdapter {
         // Every open page pauses movement, clock, weather and combat.
         if (!g.worldPaused() && (overlay == Overlay.NONE || overlay == Overlay.LOOT)) g.update(delta);
         else if (g.toastT > 0) g.toastT = Math.max(0,g.toastT-delta);
+        if(overlay==Overlay.NONE || overlay==Overlay.LOOT || g.playerSinking()) g.updateFeedback(delta);
+        if(g.playerSinking() && overlay!=Overlay.NONE) { overlay=Overlay.NONE; rebuildMenu(); }
 
         // 0.28.21: 每 15 秒自动覆盖本机账号存档（登录后）。脏签名无变化时跳过写盘。
         if (game.currentUser != null && autosaveEnabled()) {
@@ -2385,40 +2429,11 @@ public class VoyageScreen extends ScreenAdapter {
                 || overlay == Overlay.AVATAR || overlay == Overlay.HOWTO
                 || overlay == Overlay.INTEL || overlay == Overlay.QUESTS
                 || overlay == Overlay.FISH || overlay == Overlay.SHOP || overlay == Overlay.MINE;
-        if (overlay != Overlay.MAP && !dockSub && g.failed && !dismissedFail && overlay != Overlay.FAIL) {
+        if (overlay != Overlay.MAP && !dockSub && g.failed && !g.playerSinking() && !dismissedFail && overlay != Overlay.FAIL) {
             overlay = Overlay.FAIL;
             persist();
             rebuildMenu();
         }
-        // 0.27.2: proximity only nudges (toast once per port/island), never opens.
-        if (overlay == Overlay.NONE && !g.worldPaused() && !g.autoSail) {
-            int np = g.nearestPortInRange();
-            if (np >= 0 && np != hintPort) {
-                hintPort = np;
-                g.toast("已靠近「" + Catalog.PORTS[np] + "」：点击港口图标可停靠。");
-            } else if (np < 0) {
-                hintPort = -1;
-            }
-            int ni = g.nearestIslandInRange();
-            if (ni >= 0 && ni != hintIsland) {
-                hintIsland = ni;
-                g.toast("已靠近「" + Catalog.ISLANDS[ni] + "」：点击岛屿图标可搜采。");
-            } else if (ni < 0) {
-                hintIsland = -1;
-            }
-            // 0.28.17: 未抛锚船在漂 — 提醒抛锚停稳后再经营（每次进入范围只提示一次，
-            // 且不打断刚弹出的靠近提示）。
-            boolean inLandRange = np >= 0 || ni >= 0;
-            if (inLandRange && !g.anchored && g.speed <= 1f && g.toastT <= 0.1f) {
-                if (!driftHintShown) {
-                    driftHintShown = true;
-                    g.toast("未抛锚，船会随海流漂移：可点「抛锚」停稳后再经营。");
-                }
-            } else if (!inLandRange) {
-                driftHintShown = false;
-            }
-        }
-
         // 0.28.18: BGM scene sync — battle > port/island UI or anchored > sailing.
         // On combat end this restores sail (or port when still docked).
         VoyageAudio voyageAudio = VoyageAudio.get();
@@ -2474,7 +2489,7 @@ public class VoyageScreen extends ScreenAdapter {
         voyageHud.update(g, overlay == Overlay.NONE,
                 activeQuest >= 0 && isQuestComplete(g, QUESTS[activeQuest]), stickKX, stickKY);
 
-        if (world3d != null) world3d.render(g, overlay == Overlay.NONE ? delta : 0f);
+        if (world3d != null) world3d.render(g, overlay == Overlay.NONE || overlay == Overlay.LOOT || g.playerSinking() ? delta : 0f);
         else ScreenUtils.clear(WATER);
 
         // 0.28.22: 沉船音量/BGM 压低计时（无音也幂等）。
@@ -2499,6 +2514,7 @@ public class VoyageScreen extends ScreenAdapter {
             radarT += delta;   // freezes while the map is closed, resumes on reopen
             drawFullMap();
         }
+        updateContextualTips(delta);
         stage.getRoot().setVisible(!mapOpen);
         stage.act(delta);
         if (!mapOpen) {
@@ -2507,11 +2523,44 @@ public class VoyageScreen extends ScreenAdapter {
 
     }
 
+    private long tipTradeCount() {
+        long count=(long)g.questBuyCount+g.questRefillCount+g.questRepairCount;
+        for(int n:g.questGoodsSold) count+=n;
+        return count;
+    }
+
+    private void updateContextualTips(float dt) {
+        if(g.combatLock) contextualTips.complete(Tip.PIRATE_LOCK);
+        if((g.dockedPort>=0 && g.dockedPort!=tipLastPort)
+                || (g.islandMenu>=0 && g.islandMenu!=tipLastIsland) || (g.anchored && !tipLastAnchor))
+            contextualTips.complete(Tip.DOCK);
+        tipLastPort=g.dockedPort; tipLastIsland=g.islandMenu; tipLastAnchor=g.anchored;
+        if(tipTradeCount()>tipTradeBaseline) contextualTips.complete(Tip.PORT_TRADE);
+        int eligible=0;
+        if(!g.failed) {
+            if(overlay==Overlay.NONE) {
+                if(!stickActive && g.steerInput==0 && g.thrustInput==0) eligible|=Tip.STICK.bit();
+                if(btnAnchor.isVisible() || voyageHud.location.isVisible()) eligible|=Tip.DOCK.bit();
+                if(g.pirateAlive && btnLockPirate.isVisible()) eligible|=Tip.PIRATE_LOCK.bit();
+                if(voyageHud.questGroup.isVisible()) eligible|=Tip.QUEST_CARD.bit();
+            } else if(overlay==Overlay.PORT && g.dockedPort>=0) eligible|=Tip.PORT_TRADE.bit();
+        }
+        contextualTips.update(dt,eligible);
+        Tip active=contextualTips.active();
+        tipBubble.setVisible(active!=null);
+        if(active!=null) {
+            tipCopy.setText(active.copy);
+            float width=Math.min(820,hudVp.getWorldWidth()-32);
+            tipBubble.setBounds((hudVp.getWorldWidth()-width)/2,hudVp.getWorldHeight()-210,width,68);
+            tipBubble.toFront();
+        }
+    }
+
     /** 0.28.23 compact floating loot card; the world keeps moving while it is shown. */
     private GameState.LootGain lootGain;
 
     private void tickLootPopup(float delta) {
-        if (overlay != Overlay.NONE) return; // 有菜单开着：等关闭后再结算
+        if (overlay != Overlay.NONE || g.failed) return; // Keep defeat and delayed loot separate.
         GameState.LootGain gain = g.pollLootPopup();
         if (gain != null) {
             lootGain = gain;
@@ -2571,6 +2620,7 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void readKeyboard() {
+        if(g.playerSinking()) return;
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) && overlay != Overlay.NONE) {
             if (overlay == Overlay.HOWTO) dismissHowto();
             else closePopup();
@@ -2658,6 +2708,7 @@ public class VoyageScreen extends ScreenAdapter {
     private class WorldInput extends InputAdapter {
         @Override
         public boolean touchDown(int screenX, int screenY, int pointer, int button) {
+            if(g.playerSinking()) return true;
             hudVp.unproject(tmp.set(screenX, screenY, 0));
             float hx = tmp.x, hy = tmp.y;
 
@@ -2778,6 +2829,7 @@ public class VoyageScreen extends ScreenAdapter {
         // 不再需要按住 加速/减速 才能开船。
         g.releaseHeading();
         g.steerInput = Math.abs(dx) >= 10f ? stickKX : 0f;
+        if(len>10) contextualTips.complete(Tip.STICK);
         g.thrustInput = stickKY > 0.12f ? Math.min(1f, stickKY) : (stickKY < -0.3f ? -0.55f : 0f);
     }
 

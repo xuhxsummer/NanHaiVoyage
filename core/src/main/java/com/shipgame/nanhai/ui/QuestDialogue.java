@@ -1,30 +1,57 @@
 package com.shipgame.nanhai.ui;
 
 import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Touchable;
+import com.badlogic.gdx.scenes.scene2d.ui.Image;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Align;
 
-/** A bottom speaker box; the full-screen dimmer catches taps before the sailing HUD. */
+/** A bottom speaker box; the full-screen dimmer catches taps before the sailing HUD.
+ * 0.28.25: paper-cutout half-body busts — mapped NPC on the left, player 我
+ * (avatarIndex) on the right; the active speaker is brighter and slightly scaled. */
 public final class QuestDialogue extends Table {
     private final String[][] lines;
     private final String objective;
     private final Runnable dismiss;
+    private final java.util.function.UnaryOperator<String> actionText;
     private final Label speaker, body, hint;
     private final TextButton primary;
+    private final Image leftBust, rightBust;
+    private final Table leftSlot, rightSlot;
     private int line;
+
+    /** Paper-cutout busts by dialogue speaker; generic 老者/水手 fallback for unknown names. */
+    public static String bustSlug(String speaker) {
+        if (speaker == null) return "npc_laoren";
+        switch (speaker) {
+            case "老掌柜": case "掌柜": case "商客": return "npc_zhanggui";
+            case "船医": return "npc_yi";
+            case "画师": return "npc_huashi";
+            case "老者": case "水手": return "npc_laoren";
+            default: return "npc_laoren";
+        }
+    }
 
     public QuestDialogue(Skin skin, QuestUi ui, String title, String[][] lines, String objective,
                          String actionText, Runnable action, Runnable dismiss) {
+        this(skin, ui, title, lines, objective, s -> actionText, action, dismiss);
+    }
+
+    public QuestDialogue(Skin skin, QuestUi ui, String title, String[][] lines, String objective,
+                         java.util.function.UnaryOperator<String> actionText, Runnable action, Runnable dismiss) {
         this.lines = lines;
         this.objective = objective;
         this.dismiss = dismiss;
+        this.actionText = actionText;
         setName("questDialogue");
         setTouchable(Touchable.enabled);
         setBackground(skin.newDrawable("white", new Color(.01f, .02f, .03f, .5f)));
@@ -44,19 +71,23 @@ public final class QuestDialogue extends Table {
         header.add(close).size(112, 44).padLeft(16);
         panel.add(header).growX().height(44).padBottom(12).row();
 
-        Table paper = new Table(); paper.setBackground(ui.parchment); paper.pad(10, 20, 10, 20);
+        Table paper = new Table(); paper.setName("dialoguePaper"); paper.setBackground(ui.parchment); paper.pad(10, 20, 10, 20);
+        leftBust = bustImage(ui, null); leftSlot = bustSlot(leftBust, "dialogueBustNpc");
+        rightBust = bustImage(ui, null); rightSlot = bustSlot(rightBust, "dialogueBustPlayer");
         body = ui.dialogueLine(""); body.setName("dialogueBody");
-        body.setWrap(true); body.setAlignment(Align.left);
+        body.setFontScale(1f); body.setWrap(true); body.setAlignment(Align.left);
+        paper.add(leftSlot).size(132, 150);
         paper.add(body).grow();
-        panel.add(paper).growX().height(112).padBottom(10).row();
+        paper.add(rightSlot).size(132, 150);
+        panel.add(paper).growX().height(210).padBottom(10).row();
         Table footer = new Table();
         hint = ui.label("", 21, QuestUi.PAPER); hint.setName("dialogueHint");
         footer.add(hint).growX().left();
-        primary = ui.button(actionText, true); primary.setName("dialogueAction");
+        primary = ui.button(actionText.apply(null), true); primary.setName("dialogueAction");
         primary.addListener(action(action));
         footer.add(primary).size(160, 44).padLeft(16);
         panel.add(footer).growX().height(44);
-        add(panel).growX().height(264);
+        add(panel).growX().height(352);
         addListener(new ClickListener() {
             @Override public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
                 // Buttons have their own touch focus. Their release must never also advance a line.
@@ -73,12 +104,70 @@ public final class QuestDialogue extends Table {
         refresh();
     }
 
+    private static Image bustImage(QuestUi ui, TextureRegion region) {
+        Image image = new Image();
+        image.setScaling(com.badlogic.gdx.utils.Scaling.fit);
+        if (region != null) image.setDrawable(new TextureRegionDrawable(region));
+        return image;
+    }
+
+    private static Table bustSlot(Image image, String name) {
+        Table slot = new Table(); slot.setName(name);
+        slot.setTransform(true);
+        slot.add(image).grow();
+        return slot;
+    }
+
+    private void setBust(Image image, String slug) {
+        TextureRegionDrawable art = slug == null ? null : IconLib.bust(slug);
+        if (art != null) {
+            image.setDrawable(art);
+            image.setColor(1, 1, 1, 1);
+        } else {
+            // Missing art: keep the slot but hide the image; text-only fallback stays readable.
+            image.setDrawable((Drawable) null);
+        }
+        image.setVisible(art != null);
+    }
+
     private void refresh() {
         boolean ending = line >= lines.length;
-        speaker.setText(ending ? "此程所托" : lines[line][0]);
+        String speakerName = ending ? "此程所托" : lines[line][0];
+        speaker.setText(speakerName);
         body.setText(ending ? objective : lines[line][1]);
         hint.setText(ending ? "点击空白收起 · 也可选择右侧按钮" : "点击继续  ·  " + (line + 1) + "/" + lines.length);
+        primary.setText(actionText.apply(speakerName));
+        boolean playerSpeaking = !ending && "你".equals(speakerName);
+        // Left: NPC mapped by speaker (fallback 老者); right: player「我」.
+        setBust(leftBust, ending ? null : bustSlug(speakerName));
+        setBust(rightBust, "player_" + playerAvatarIndex());
+        boolean npcActive = !playerSpeaking;
+        leftSlot.setColor(npcActive ? Color.WHITE : DIM);
+        rightSlot.setColor(playerSpeaking ? Color.WHITE : DIM);
+        leftSlot.setScale(npcActive ? ACTIVE_SCALE : 1f);
+        rightSlot.setScale(playerSpeaking ? ACTIVE_SCALE : 1f);
         primary.setVisible(ending);
+    }
+
+    private static final Color DIM = new Color(.55f, .55f, .55f, .75f);
+    private static final float ACTIVE_SCALE = 1.06f;
+
+    /** Same identity source as the HUD portrait and captain menu (set via reflection-free hook). */
+    private static volatile java.util.function.IntSupplier avatarSupplier;
+
+    /** VoyageScreen injects g.avatarIndex so the right bust matches the captain. */
+    public static void setAvatarSupplier(java.util.function.IntSupplier supplier) {
+        avatarSupplier = supplier;
+    }
+
+    private static int playerAvatarIndex() {
+        java.util.function.IntSupplier supplier = avatarSupplier;
+        if (supplier == null) return 0;
+        try {
+            return supplier.getAsInt();
+        } catch (Throwable t) {
+            return 0;
+        }
     }
 
     private static ClickListener action(Runnable action) {

@@ -2,6 +2,7 @@ package com.shipgame.nanhai.data;
 
 /** 0.28.22 海面船队：一艘战船（战级船体）。不存档（运行时海上交通）。 */
 public class WarshipData {
+    public final CombatHelm helm = new CombatHelm();
     public int ship;
     public float x, y, heading, hp, hpMax;
     public float fireCd;

@@ -35,7 +35,13 @@ public final class VoyageWorldRenderer implements Disposable {
     // 0.28.22 沉船表现：每艘沉船一个独立模型实例（复用船模几何），
     // 倾侧 + 下沉，动画结束后移除 —— 沉船从不瞬间消失。
     private final ModelInstance[] wreckInstances = new ModelInstance[GameState.WRECK_SLOTS];
-    private final ModelInstance pirate, ocean, ripples, foam, wake, whiteBall, blackBall;
+    private final ModelInstance pirate, ocean, ripples, foam, wake, whiteBall, blackBall, spray;
+    private ModelInstance star, moon; // 0.28.26 夜空
+    private final ModelInstance[][] traderInstances=new ModelInstance[2][Catalog.SHIPS.length];
+    private final ModelInstance[][] warshipInstances=new ModelInstance[2][Catalog.SHIPS.length];
+    private final int[] wreckTypes=new int[GameState.WRECK_SLOTS];
+    private final boolean[] wreckPirates=new boolean[GameState.WRECK_SLOTS];
+    private final Vector3 focusOffset=new Vector3();
     private final ModelInstance[] idleRings = new ModelInstance[3];
     private final VoyageWater water = new VoyageWater();
     private final Vector3 target = new Vector3(), desired = new Vector3(), point = new Vector3();
@@ -48,8 +54,30 @@ public final class VoyageWorldRenderer implements Disposable {
     private boolean highWaterQuality = true;
     private static final long ATTR = Usage.Position | Usage.Normal;
     private static final Color SKY = new Color(.48f, .70f, .80f, 1);
+    // 0.28.26 昼夜天空：按游戏时钟在白昼/黄昏/夜晚配色间平滑过渡（无硬切换）。
+    private static final Color DAY_SKY = new Color(.48f, .70f, .80f, 1);
+    private static final Color DUSK_SKY = new Color(.80f, .55f, .38f, 1);
+    private static final Color NIGHT_SKY = new Color(.07f, .10f, .18f, 1);
+    private static final Color DAY_SEA = new Color(.29f, .55f, .62f, 1);
+    private static final Color NIGHT_SEA = new Color(.13f, .21f, .29f, 1);
+    private final Color skyNow = new Color(DAY_SKY);
+    private final Color seaTintNow = new Color(DAY_SEA);
+    private final Color lightColorNow = new Color(1f, .88f, .66f, 1);
+    private float nightAmount; // 0=白天 1=深夜
+    private final Color ambientDay = new Color(.66f, .70f, .74f, 1);
+    private final Color ambientNight = new Color(.30f, .34f, .44f, 1);
+    private static final int STAR_COUNT = 42;
+    private final float[] starAz = new float[STAR_COUNT];
+    private final float[] starEl = new float[STAR_COUNT];
+    private final float[] starSize = new float[STAR_COUNT];
 
     public VoyageWorldRenderer() {
+        java.util.Random starRandom = new java.util.Random(20260912L);
+        for (int i = 0; i < STAR_COUNT; i++) {
+            starAz[i] = starRandom.nextFloat() * 360f;
+            starEl[i] = 14f + starRandom.nextFloat() * 54f;
+            starSize[i] = 1.2f + starRandom.nextFloat() * 2.1f;
+        }
         camera.near = 2f;
         camera.far = 6500f;
         light.set(new ColorAttribute(ColorAttribute.AmbientLight, .66f, .70f, .74f, 1));
@@ -57,7 +85,13 @@ public final class VoyageWorldRenderer implements Disposable {
         light.add(new DirectionalLight().set(1f, .88f, .66f, -.5f, -.85f, -.3f));
         for (int i=0;i<ships.length;i++) ships[i] = new ModelInstance(shipModel(i, false));
         for(int i=0;i<ships.length;i++) merchantShips[i]=new ModelInstance(ships[i].model);
-        for(int i=0;i<wreckInstances.length;i++) wreckInstances[i]=new ModelInstance(ships[i % ships.length].model);
+        java.util.Arrays.fill(wreckTypes,-1);
+        for(int slot=0;slot<2;slot++) for(int type=0;type<ships.length;type++) {
+            traderInstances[slot][type]=new ModelInstance(ships[type].model);
+            warshipInstances[slot][type]=new ModelInstance(ships[type].model);
+        }
+        spray=new ModelInstance(keep(new ModelBuilder().createSphere(3,3,3,6,4,
+                new Material(ColorAttribute.createDiffuse(.8f,.95f,1f,1f),new BlendingAttribute(true,.8f)),ATTR)));
         pirate = new ModelInstance(shipModel(VoyageGeometry.PIRATE_SHIP, true));
         ocean = new ModelInstance(oceanModel());
         ripples = new ModelInstance(waterLines());
@@ -69,6 +103,13 @@ public final class VoyageWorldRenderer implements Disposable {
                 material(.98f, .92f, .70f), ATTR)));
         blackBall = new ModelInstance(keep(new ModelBuilder().createSphere(5, 5, 5, 8, 6,
                 material(.10f, .08f, .06f), ATTR)));
+        // 0.28.26 夜空星星与月亮（无深度写入的 blending 白球，只在夜幕下渲染）。
+        star = new ModelInstance(keep(new ModelBuilder().createSphere(4, 4, 4, 6, 5,
+                new Material(ColorAttribute.createDiffuse(1f, 1f, .92f, 1f),
+                        new BlendingAttribute(true, 0f)), ATTR)));
+        moon = new ModelInstance(keep(new ModelBuilder().createSphere(46, 46, 46, 12, 10,
+                new Material(ColorAttribute.createDiffuse(.93f, .93f, .85f, 1f),
+                        new BlendingAttribute(true, 0f)), ATTR)));
         for (int i = 0; i < Catalog.PORTS.length; i++) {
             ModelInstance instance = new ModelInstance(keep(VoyageLandModels.create(true, i)));
             instance.transform.setToTranslation(Catalog.PORT_X[i], 0, -Catalog.PORT_Y[i]);
@@ -285,7 +326,8 @@ public final class VoyageWorldRenderer implements Disposable {
         dt=MathUtils.clamp(dt,0,.1f); time+=dt;
         float alpha=1f-(float)Math.exp(-3f*dt);
         // 0.28.21: 上帝视角始终用战斗级拉远，不受战斗结束回拉影响。
-        float wanted=godView || ((g.pirateAlive || g.merchantLock) && !g.failed)
+        boolean sinkBeat=g.sinkFocus!=null && g.sinkFocus.alive;
+        float wanted=godView || sinkBeat || ((g.pirateAlive || g.merchantLock) && !g.failed)
                 ? COMBAT_DISTANCE:SAIL_DISTANCE;
         if (!initialized) { heading=g.headingDeg; distance=wanted; }
         distance=MathUtils.lerp(distance,wanted,alpha);
@@ -295,6 +337,15 @@ public final class VoyageWorldRenderer implements Disposable {
         // Aim above the hull to put the visible ship in the lower middle, with a horizon.
         target.set(g.x+fx*22,36,-g.y+fz*22);
         desired.set(g.x-fx*distance,85+combat*255,-g.y-fz*distance);
+        float focus=0;
+        if(sinkBeat && !looking) {
+            float p=1-g.sinkFocus.timer/g.sinkFocus.duration;
+            focus=MathUtils.sin(MathUtils.PI*p)*(g.sinkFocus.player?1f:.28f);
+        }
+        point.set(sinkBeat?(g.sinkFocus.x-g.x)*focus:0,sinkBeat?-24*g.sinkFocus.submerge*focus:0,
+                sinkBeat?-(g.sinkFocus.y-g.y)*focus:0);
+        focusOffset.lerp(point,1f-(float)Math.exp(-5f*dt));
+        target.add(focusOffset); desired.add(focusOffset.x*.4f,focusOffset.y*.2f,focusOffset.z*.4f);
         if (!initialized || chasePosition.dst2(desired)>1600f*1600f) chasePosition.set(desired);
         else chasePosition.lerp(desired,1f-(float)Math.exp(-8f*dt));
         if (!looking && returnTime < LOOK_RETURN_SECONDS) {
@@ -314,8 +365,41 @@ public final class VoyageWorldRenderer implements Disposable {
         camera.position.y = Math.max(9f,camera.position.y);
         initialized=true;
         camera.up.set(Vector3.Y); camera.lookAt(target); camera.update();
+        // 0.28.26 镜头节奏：开炮小后坐、抛锚/起锚短促下沉、战斗回拉更顺滑。
+        if (g.cannonKick > 0f) {
+            float kick = g.cannonKick * g.cannonKick;
+            camera.position.add(fx * kick * 2.2f, -kick * 1.4f, fz * kick * 2.2f);
+        }
+        if (g.anchorBeat > 0f) {
+            float beat = MathUtils.sin(MathUtils.PI * MathUtils.clamp(g.anchorBeat, 0f, 1f));
+            camera.position.y -= beat * 10f;
+        }
+        camera.up.set(Vector3.Y); camera.lookAt(target); camera.update();
         Gdx.gl.glViewport(0,0,Gdx.graphics.getWidth(),Gdx.graphics.getHeight());
-        Gdx.gl.glClearColor(SKY.r,SKY.g,SKY.b,1);
+        // 0.28.26 昼夜天空 + 海面亮度（游戏时钟 06:00-18:00 白昼，平滑过渡，无硬切）。
+        float clock = g.dayMin; // 0..1439
+        float dayness;
+        if (clock >= 300f && clock <= 1020f) dayness = 1f;            // 05:00-17:00 白昼
+        else if (clock > 1020f && clock < 1140f) dayness = 1f - (clock - 1020f) / 120f; // 17:00-19:00 入夜（黄昏中段）
+        else if (clock >= 1260f || clock < 240f) dayness = 0f;        // 21:00-04:00 深夜
+        else if (clock >= 240f && clock < 300f) dayness = (clock - 240f) / 60f;         // 04:00-05:00 黎明
+        else dayness = 1f - (1140f - clock) / 120f;                    // 19:00-21:00 余晖
+        dayness = MathUtils.clamp(dayness, 0f, 1f);
+        // 黄昏暖色权重：日出日落前后各约 1 小时，呈三角峰。
+        float duskMix = 0f;
+        if (clock >= 240f && clock <= 420f) duskMix = 1f - Math.abs(clock - 330f) / 90f;
+        else if (clock >= 990f && clock <= 1170f) duskMix = 1f - Math.abs(clock - 1080f) / 90f;
+        duskMix = MathUtils.clamp(duskMix, 0f, 1f) * (1f - Math.abs(dayness - 0.5f) * 0.6f);
+        skyNow.set(DAY_SKY).lerp(NIGHT_SKY, 1f - dayness).lerp(DUSK_SKY, duskMix * .85f);
+        seaTintNow.set(DAY_SEA).lerp(NIGHT_SEA, 1f - dayness);
+        lightColorNow.set(1f, .88f, .66f, 1).lerp(new Color(.55f, .62f, .82f, 1), 1f - dayness);
+        nightAmount = 1f - dayness;
+        // 0.28.26 夜里调暗环境光与月光色方向光，让模型船也跟着天色变暗。
+        light.set(new ColorAttribute(ColorAttribute.AmbientLight,
+                ambientDay.r + (ambientNight.r - ambientDay.r) * nightAmount,
+                ambientDay.g + (ambientNight.g - ambientDay.g) * nightAmount,
+                ambientDay.b + (ambientNight.b - ambientDay.b) * nightAmount, 1));
+        Gdx.gl.glClearColor(skyNow.r,skyNow.g,skyNow.b,1);
         Gdx.gl.glDepthMask(true);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT|GL20.GL_DEPTH_BUFFER_BIT);
         ocean.transform.setToTranslation(g.x,-.2f,-g.y);
@@ -326,14 +410,16 @@ public final class VoyageWorldRenderer implements Disposable {
         float shipFloat=water.available()?water.surfaceHeight(g.x,-g.y,time,g.windStr,highWaterQuality):MathUtils.sin(time*1.6f)*.45f;
         ship.transform.setToTranslation(g.x,shipFloat,-g.y).rotate(Vector3.Y,g.headingDeg);
         pirate.transform.setToTranslation(g.pirateX,water.surfaceHeight(g.pirateX,-g.pirateY,time,g.windStr,highWaterQuality),-g.pirateY).rotate(Vector3.Y,g.pirateHeading);
-        boolean customWater = water.render(camera,g,time,highWaterQuality,SKY);
+        boolean customWater = water.render(camera,g,time,highWaterQuality,skyNow);
+        water.setNightDim(nightAmount); // applied to the next frame's water/sky uniforms
+        light.set(new ColorAttribute(ColorAttribute.Fog, skyNow));
         batch.begin(camera);
         if (!customWater) {
             batch.render(ocean,light); batch.render(ripples,light);
             if (highWaterQuality) batch.render(foam,light);
         }
         batch.render(sceneryCache,light);
-        if (!customWater && g.speed<22) {
+        if (!customWater && !g.playerSunk() && g.speed<22) {
             VoyageGeometry.Ship hull=VoyageGeometry.ship(g.ship);
             for (int i=0;i<idleRings.length;i++) {
                 float phase=(time*.24f+i/(float)idleRings.length)%1f;
@@ -345,28 +431,55 @@ public final class VoyageWorldRenderer implements Disposable {
                 batch.render(ring,light);
             }
         }
-        if (!customWater && g.speed>1) {
+        if (!customWater && !g.playerSunk() && g.speed>1) {
             wake.transform.setToTranslation(g.x,.25f,-g.y).rotate(Vector3.Y,g.headingDeg).scale(MathUtils.clamp(g.speed/90,.2f,1.3f),1,1);
             batch.render(wake,light);
         }
-        batch.render(ship,light);
-        if (g.pirateAlive) batch.render(pirate,light);
+        if(!g.playerSunk()) { damageFeedback(ship,g,0); batch.render(ship,light); }
+        if (g.pirateAlive) { damageFeedback(pirate,g,1); batch.render(pirate,light); }
         if (g.merchantVisible()) {
             ModelInstance trader=merchantShips[g.merchant.ship];
             trader.transform.setToTranslation(g.merchant.x,water.surfaceHeight(g.merchant.x,-g.merchant.y,time,g.windStr,highWaterQuality),-g.merchant.y).rotate(Vector3.Y,g.merchant.heading);
-            batch.render(trader,light);
+            damageFeedback(trader,g,2); batch.render(trader,light);
         }
-        // 0.28.22 沉船：倾侧渐增 + 整体没入水面，2.5 秒后随 alive=false 移除。
-        for (int i=0;i<g.wrecks.length && i<wreckInstances.length;i++) {
+        for(int i=0;i<g.traders.length;i++) {
+            com.shipgame.nanhai.data.TraderData t=g.traders[i];
+            if(t!=null && t.alive && Catalog.dist(g.x,g.y,t.x,t.y)<=Catalog.NPC_HORIZON)
+                renderNpc(traderInstances[i][t.ship],g,t.x,t.y,t.heading,3+i);
+        }
+        for(int i=0;i<g.warships.length;i++) {
+            com.shipgame.nanhai.data.WarshipData w=g.warships[i];
+            if(w!=null && w.alive && Catalog.dist(g.x,g.y,w.x,w.y)<=Catalog.NPC_HORIZON)
+                renderNpc(warshipInstances[i][w.ship],g,w.x,w.y,w.heading,5+i);
+        }
+        for (int i=0;i<g.wrecks.length;i++) {
             GameState.Wreck w=g.wrecks[i];
-            if (w==null || !w.alive) continue;
+            if(w==null || !w.alive) continue;
+            if(wreckTypes[i]!=w.ship || wreckPirates[i]!=w.pirate) {
+                wreckInstances[i]=new ModelInstance(w.pirate?pirate.model:ships[w.ship].model);
+                wreckTypes[i]=w.ship; wreckPirates[i]=w.pirate;
+            }
             ModelInstance wreck=wreckInstances[i];
-            float surface=water.available()?water.surfaceHeight(w.x,-w.y,time,g.windStr,highWaterQuality):MathUtils.sin(time*1.6f)*.45f;
-            wreck.transform.setToTranslation(w.x, surface - w.submerge*14f, -w.y)
-                    .rotate(Vector3.Y, w.headingDeg)
-                    .rotate(1f, 0f, 0f, w.tilt*w.sway>=0f?w.tilt:-w.tilt)
-                    .rotate(Vector3.Y, w.sway*w.submerge);
+            float surface=water.available()?water.surfaceHeight(w.x,-w.y,time,g.windStr,highWaterQuality):0;
+            wreck.transform.setToTranslation(w.x,surface-w.submerge*90f,-w.y)
+                    .rotate(Vector3.Y,w.headingDeg).rotate(Vector3.X,w.sway>=0?w.tilt:-w.tilt)
+                    .rotate(Vector3.Y,w.sway*w.submerge);
             batch.render(wreck,light);
+            float progress=1-w.timer/w.duration;
+            for(int n=0;n<10;n++) {
+                float phase=(progress*2+n*.1f)%1,angle=n*137.5f;
+                float bubbleRadius=12+phase*30;
+                particle(w.x+MathUtils.cosDeg(angle)*bubbleRadius,surface+1+MathUtils.sin(phase*MathUtils.PI)*8,
+                        -w.y+MathUtils.sinDeg(angle)*bubbleRadius,1+phase,.7f*(1-phase));
+            }
+        }
+        for(GameState.Splash splash:g.impactSplashes) if(splash!=null && splash.remaining>0) {
+            float p=1-splash.remaining/.45f;
+            for(int n=0;n<10;n++) {
+                float angle=n*36f, splashRadius=5+p*30;
+                particle(splash.x+MathUtils.cosDeg(angle)*splashRadius,2+MathUtils.sin(p*MathUtils.PI)*(10+n%3*3),
+                        -splash.y+MathUtils.sinDeg(angle)*splashRadius,1.2f-p*.5f,.85f*(1-p));
+            }
         }
         for (int i=0;i<g.ballCount;i++) {
             ModelInstance ball=g.ballFromPlayer[i]?whiteBall:blackBall;
@@ -374,11 +487,69 @@ public final class VoyageWorldRenderer implements Disposable {
             // Flush because the same instance is reused for subsequent shots.
             batch.render(ball,light); batch.flush();
         }
+        // 0.28.26 开炮炮口闪：船首前方一朵短命的暖色光球。
+        if (g.muzzleFlash > 0f && !g.playerSunk()) {
+            float flash = g.muzzleFlash;
+            spray.transform.setToTranslation(
+                    g.x + MathUtils.cosDeg(g.headingDeg) * 34f,
+                    16f + 5f * flash,
+                    -g.y - MathUtils.sinDeg(g.headingDeg) * 34f)
+                    .scl(1f + 1.6f * flash);
+            ((BlendingAttribute) spray.materials.first().get(BlendingAttribute.Type)).opacity = .9f * flash;
+            batch.render(spray, light);
+        }
         batch.end();
+        // 0.28.26 星星与月亮：夜空下用无深度写入的 blending 球体贴在天空球面上。
+        if (nightAmount > .02f) {
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            Gdx.gl.glDepthMask(false);
+            batch.begin(camera);
+            float starAlpha = nightAmount * (.55f + .3f * MathUtils.sin(time * .8f));
+            for (int i = 0; i < STAR_COUNT; i++) {
+                float az = starAz[i] + time * .6f, el = starEl[i];
+                float sr = 2400f;
+                star.transform.setToTranslation(
+                        camera.position.x + MathUtils.cosDeg(az) * MathUtils.cosDeg(el) * sr,
+                        600f + MathUtils.sinDeg(el) * sr,
+                        camera.position.z + MathUtils.sinDeg(az) * MathUtils.cosDeg(el) * sr)
+                        .scl(starSize[i]);
+                ((BlendingAttribute) star.materials.first().get(BlendingAttribute.Type)).opacity = starAlpha;
+                batch.render(star, light);
+            }
+            moon.transform.setToTranslation(
+                    camera.position.x + MathUtils.cosDeg(28f + time * .5f) * 2100f,
+                    1400f,
+                    camera.position.z + MathUtils.sinDeg(28f + time * .5f) * 2100f)
+                    .scl(1f);
+            ((BlendingAttribute) moon.materials.first().get(BlendingAttribute.Type)).opacity = .85f * nightAmount;
+            batch.render(moon, light);
+            batch.end();
+            Gdx.gl.glDepthMask(true);
+        }
         // Scene2D and ShapeRenderer must never inherit depth/culling state.
         Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
         Gdx.gl.glDisable(GL20.GL_CULL_FACE);
         Gdx.gl.glDepthMask(true);
+    }
+
+    private void damageFeedback(ModelInstance instance,GameState g,int slot) {
+        instance.transform.rotate(Vector3.X,g.hitRock(slot));
+        float flash=g.hitFlash(slot);
+        for(Material material:instance.materials) {
+            if(flash>0) material.set(ColorAttribute.createEmissive(.7f*flash,.035f*flash,.01f*flash,1));
+            else material.remove(ColorAttribute.Emissive);
+        }
+    }
+    private void renderNpc(ModelInstance instance,GameState g,float x,float y,float heading,int slot) {
+        instance.transform.setToTranslation(x,water.surfaceHeight(x,-y,time,g.windStr,highWaterQuality),-y).rotate(Vector3.Y,heading);
+        damageFeedback(instance,g,slot);batch.render(instance,light);
+    }
+    private void particle(float x,float y,float z,float size,float opacity) {
+        // Flush before mutating the reused particle instance/material.
+        batch.flush();
+        spray.transform.setToTranslation(x,y,z).scale(size,size,size);
+        ((BlendingAttribute)spray.materials.first().get(BlendingAttribute.Type)).opacity=opacity;
+        batch.render(spray,light);batch.flush();
     }
 
     /** Project a world anchor to screen pixels (bottom-left origin), rejecting points behind the eye. */

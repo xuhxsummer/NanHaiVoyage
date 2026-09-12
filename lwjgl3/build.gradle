@@ -142,3 +142,31 @@ tasks.register('sideTrafficSmoke', JavaExec) {
     mainClass.set('com.shipgame.nanhai.lwjgl3.SideTrafficSmokeLauncher')
     workingDir = rootProject.file('assets').path
 }
+
+tasks.register('combatAiRegression', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.CombatAiRegression')
+}
+
+tasks.register('combatFeedbackRegression', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.CombatFeedbackRegression')
+}
+
+tasks.register('aiTipsFeedbackSmoke', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.AiTipsFeedbackSmokeLauncher')
+    workingDir = rootProject.file('assets').path
+}
+
+// Export the four existing captain identities before generating matching dialogue busts.
+tasks.register('avatarReferences', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.AiTipsFeedbackSmokeLauncher')
+    args 'portraits'
+    workingDir = rootProject.file('assets').path
+}

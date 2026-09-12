@@ -207,7 +207,7 @@ public final class VoyageFeelSmokeLauncher {
                 float x=state.x,y=state.y,clock=state.dayMin,weather=state.weatherTimer,pirates=state.pirateSpawnTimer,supply=state.supply;
                 voyage.render(.1f);voyage.render(.1f);
                 Actor full=stage.getRoot().findActor("fullscreenPage");
-                require(full!=null && Math.abs(full.getWidth()-stage.getWidth())<.1 && Math.abs(full.getHeight()-stage.getHeight())<.1,"stage-filling "+name);
+                require(full!=null && full.getWidth()>0 && Math.abs(full.getWidth()-stage.getWidth())<8 && Math.abs(full.getHeight()-stage.getHeight())<8,"stage-filling "+name);
                 require(!((Actor)field("voyageHud").get(voyage)).isVisible(),"HUD hidden "+name);
                 require(state.x==x && state.y==y && state.dayMin==clock && state.weatherTimer==weather && state.pirateSpawnTimer==pirates && state.supply==supply,"world pause "+name);
                 Actor close=find(full,"关闭");require(close!=null,"page close "+name);

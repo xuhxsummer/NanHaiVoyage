@@ -129,6 +129,26 @@ public final class IconLib {
         }
     }
 
+    /** 0.28.25 对话半身像：ui/dialogue/<slug>.png，透明纸片人；缺图返回 null。 */
+    public static TextureRegionDrawable bust(String slug) {
+        String key = "dialogue/" + slug;
+        if (cache.containsKey(key)) return cache.get(key);
+        TextureRegionDrawable art = null;
+        try {
+            String path = "ui/dialogue/" + slug + ".png";
+            FileHandle file = Gdx.files.internal(path);
+            if (file.exists()) {
+                Texture texture = new Texture(file);
+                texture.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+                art = new TextureRegionDrawable(new TextureRegion(texture));
+            }
+        } catch (Throwable t) {
+            Gdx.app.error("IconLib", "bust failed: " + slug, t);
+        }
+        cache.put(key, art);
+        return art;
+    }
+
     /** Drawable for Catalog.FISH[i] (0.26.3 渔获), or null if missing. */
     public static TextureRegionDrawable fish(int i) {
         return get("fish", FISH_SLUGS, i);

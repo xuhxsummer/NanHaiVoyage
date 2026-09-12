@@ -102,6 +102,7 @@ public class GameState {
     public boolean pirateAlive;
     public float pirateX, pirateY, pirateHeading, pirateHp, pirateHpMax;
     public boolean pirateChase;
+    private final CombatHelm pirateHelm = new CombatHelm();
     public boolean combatLock;
     public float playerFireCd, pirateFireCd;
     public float pirateSpawnTimer = 12f;
@@ -123,11 +124,42 @@ public class GameState {
     private final int[] ballDamage = new int[MAX_BALLS];
 
     // 0.28.22 沉船表现：击沉的船不瞬间消失，先倾侧下沉 ~2.5 秒再移除。
-    public static final int WRECK_SLOTS = 4;
+    public static final int WRECK_SLOTS = 8;
     public final Wreck[] wrecks = new Wreck[WRECK_SLOTS];
     // 0.28.22 掠夺结算：玩家亲手击沉时记录战利品，由界面弹窗展示（不再只用底部横幅）。
     public final LootGain[] lootPopup = new LootGain[2];
     public float lootPopupT;
+    public float lootDelay;
+    public Wreck sinkFocus;
+    public float playerSinkRemaining;
+    // Visual slots: player, pirate, merchant, trader 0/1, warship 0/1. Runtime only.
+    public final float[] hurtTime = new float[7], rockTime = new float[7];
+    public final Splash[] impactSplashes = new Splash[8];
+    public static final class Splash { public float x,y,remaining; }
+    public boolean playerSinking() { return playerSinkRemaining>0; }
+    public boolean playerSunk() { return failed && "船沉".equals(failReason); }
+    public float hitFlash(int slot) { return MathUtils.clamp(hurtTime[slot]/.3f,0,1); }
+    public float hitRock(int slot) { return MathUtils.sin((.35f-rockTime[slot])*32f)*9f*MathUtils.clamp(rockTime[slot]/.35f,0,1); }
+    private int hitSlot(Victim v) { return v.kind==Victim.PIRATE?1:v.kind==Victim.MERCHANT?2:v.kind==Victim.TRADER?3+v.index:5+v.index; }
+    private void contactFeedback(int a,int b,float ax,float ay,float bx,float by) {
+        hurtTime[a]=hurtTime[b]=.3f; rockTime[a]=rockTime[b]=.35f;
+        int slot=0;
+        for(int i=0;i<impactSplashes.length;i++) if(impactSplashes[i]==null || impactSplashes[i].remaining<=0) { slot=i;break; }
+        Splash splash=impactSplashes[slot];
+        if(splash==null) splash=impactSplashes[slot]=new Splash();
+        splash.x=(ax+bx)*.5f; splash.y=(ay+by)*.5f; splash.remaining=.45f;
+    }
+    /** Presentation clock also runs during player death and the non-pausing loot card. */
+    public void updateFeedback(float dt) {
+        dt=Math.max(0,dt);
+        for(int i=0;i<hurtTime.length;i++) { hurtTime[i]=Math.max(0,hurtTime[i]-dt);rockTime[i]=Math.max(0,rockTime[i]-dt); }
+        for(Splash splash:impactSplashes) if(splash!=null) splash.remaining=Math.max(0,splash.remaining-dt);
+        lootDelay=Math.max(0,lootDelay-dt);
+        playerSinkRemaining=Math.max(0,playerSinkRemaining-dt);
+        anchorBeat=Math.max(0f,anchorBeat-dt/0.4f);
+        updateCannonFeedback(dt);
+        updateWrecks(dt);
+    }
 
     /** One sinking ship: 2.5s tilt+submerge animation, then despawn. */
     public static final class Wreck {
@@ -136,7 +168,7 @@ public class GameState {
         public float timer;      // counts down to 0
         public float duration;   // total sink time (2.5s)
         public float tilt, submerge, sway; // renderer helper values (0..1)
-        public boolean alive;
+        public boolean alive, player, pirate;
     }
 
     /** 0.28.22 玩家掠夺收益（击沉海盗/商船后弹窗展示）。 */
@@ -647,6 +679,7 @@ public class GameState {
         anchored = true;
         stopAutoSail();
         speed = 0f;
+        anchorBeat = 1f; // 0.28.26 抛锚顿挫
         toast("已抛锚，船停稳了，可以安心经营。再点一次起锚。");
     }
 
@@ -656,6 +689,7 @@ public class GameState {
             return;
         }
         anchored = false;
+        anchorBeat = 1f; // 0.28.26 起锚顿挫
         toast("起锚，恢复航行。");
     }
 
@@ -700,7 +734,9 @@ public class GameState {
         // 0.28.17: 抛锚时每帧停稳；被推出锚地则自动起锚。
         updateAnchor();
         applySteerAndSpeed(dt);
+        applyDockAssist(dt); // 0.28.26 近港对位磁吸
         move(dt);
+        if(failed) return;
         // 0.28.21: 未抛锚且停在港/岛范围内时，海流缓慢把船推离岸边。
         applyCoastalDrift(dt);
         drain(dt);
@@ -727,7 +763,6 @@ public class GameState {
         updatePlayerFire(dt);
         updateBalls(dt);
         updateShipImpacts(dt);
-        updateWrecks(dt);
         if (failed) return;
         // 0.27.2: 靠近港口/岛屿不再自动靠泊/登岛（tryApproach 已移除）——
         // 玩家必须在范围内点击港口/岛屿图标才会打开对应菜单。自动航行
@@ -779,13 +814,16 @@ public class GameState {
             speed -= Catalog.ACCEL * 1.2f * dt;
         } else {
             // 0.28.17 摇杆油门：默认好开 —— 杆量即目标航速，柔和趋近；
-            // 松杆渐渐滑行减速（无硬刹），向后拉杆只轻带减速，不倒船。
+            // 0.28.26 松杆：滑行减速曲线 —— 高速自然带阻尼滑行，低速缓慢停下，
+            // 不到 2 单位/秒直接停稳，既不瞬间急停也不拖泥带水。
             float target = thrustTarget(max);
             if (speed < target) {
                 speed = Math.min(target, speed + Catalog.ACCEL * dt);
             } else {
-                float rate = thrustInput < -0.3f ? Catalog.COAST * 2.2f : Catalog.COAST;
-                speed = Math.max(target, speed - rate * dt);
+                float pull = thrustInput < -0.3f ? Catalog.COAST * 2.2f : Catalog.COAST;
+                float natural = pull + speed * 0.12f; // speed-proportional damping
+                speed = Math.max(target, speed - natural * dt);
+                if (target <= 0.01f && speed < 2f) speed = 0f;
             }
         }
         speed = MathUtils.clamp(speed, 0f, max);
@@ -821,23 +859,62 @@ public class GameState {
         y = MathUtils.clamp(y + dy * push, 40f, Catalog.WORLD_H - 40f);
     }
 
+    /** 0.28.26 近港对位磁吸：低速时轻微拉向停靠圈中心，靠泊不再来回打转。
+     * 只在松杆、距离已近且朝向大致对准陆地时生效；力度很小，永不瞬移。 */
+    private static final float DOCK_ASSIST_RANGE = 300f;   // 仅在停靠圈外圈内生效
+    private static final float DOCK_ASSIST_SPEED = 14f;    // 单位/秒，轻微
+    private void applyDockAssist(float dt) {
+        if (anchored || autoSail || dockedPort >= 0 || islandMenu >= 0 || failed) return;
+        if (speed > 45f) return;
+        if (holdAccel || Math.abs(steerInput) > 0.25f || thrustInput > 0.25f) return;
+        int p = nearestPortInRange(), isle = nearestIslandInRange();
+        float tx, ty;
+        if (p >= 0) { tx = Catalog.PORT_X[p]; ty = Catalog.PORT_Y[p]; }
+        else if (isle >= 0) { tx = Catalog.ISLAND_X[isle]; ty = Catalog.ISLAND_Y[isle]; }
+        else return;
+        float d = Catalog.dist(x, y, tx, ty);
+        if (d > DOCK_ASSIST_RANGE || d < 24f) return;
+        float ux = (tx - x) / d, uy = (ty - y) / d;
+        x += ux * DOCK_ASSIST_SPEED * dt;
+        y += uy * DOCK_ASSIST_SPEED * dt;
+    }
+
     /** 近岸漂流速度（单位/秒）：DOCK_RANGE 218，几秒内能明显滑出范围。 */
     private static final float COASTAL_DRIFT_SPEED = 20f;
 
+    // ================= 0.28.26 炮击轻反馈（开炮小后坐 + 炮口闪） =================
+    /** 玩家开炮时的瞬时反馈时钟（>0 表示反馈进行中）。 */
+    public float cannonKick;    // 后坐/震感强度 0..1（约 0.18s 衰减）
+    public float muzzleFlash;   // 炮口闪强度 0..1（约 0.12s 衰减）
+    /** 0.28.26 抛锚/起锚顿挫：>0 时给镜头一个短促下沉再回弹。 */
+    public float anchorBeat;
+    /** 玩家每开一炮调用一次（真实开炮成功时）。 */
+    private void pokeCannonFeedback() {
+        cannonKick = 1f;
+        muzzleFlash = 1f;
+    }
+    private void updateCannonFeedback(float dt) {
+        if (cannonKick > 0f) cannonKick = Math.max(0f, cannonKick - dt / 0.18f);
+        if (muzzleFlash > 0f) muzzleFlash = Math.max(0f, muzzleFlash - dt / 0.12f);
+    }
+
     // ================= 0.28.22 沉船表现 =================
     /** 沉没动画时长：倾侧 + 下沉，之后移除（从不瞬间消失）。 */
-    private static final float SINK_SECONDS = 2.5f;
+    private static final float SINK_SECONDS = 2.2f;
 
     /** 记录一艘沉船并开始下沉动画（位置保持不变，倾侧渐增，整体没入水中）。 */
     private void addWreck(float wx, float wy, float heading, int shipIndex) {
+        addWreck(wx,wy,heading,shipIndex,false,false);
+    }
+    private void addWreck(float wx,float wy,float heading,int shipIndex,boolean player,boolean pirate) {
         for (int i = 0; i < wrecks.length; i++) {
             if (wrecks[i] != null && wrecks[i].alive) continue;
             Wreck w = wrecks[i] == null ? new Wreck() : wrecks[i];
             w.x = wx; w.y = wy; w.headingDeg = heading; w.ship = shipIndex;
             w.duration = SINK_SECONDS; w.timer = SINK_SECONDS;
             w.tilt = 0f; w.submerge = 0f; w.sway = MathUtils.random(-14f, 14f);
-            w.alive = true;
-            wrecks[i] = w;
+            w.alive = true; w.player=player; w.pirate=pirate;
+            wrecks[i] = w; sinkFocus=w;
             playSinkSfx();
             return;
         }
@@ -849,8 +926,8 @@ public class GameState {
             if (w == null || !w.alive) continue;
             w.timer = Math.max(0f, w.timer - dt);
             float p = 1f - w.timer / w.duration; // 0..1
-            w.tilt = Math.min(72f, p * 86f);                  // 越沉越倾侧
-            w.submerge = p * p;                                // 后半段沉得更快
+            w.tilt = Math.min(72f, p * 115f);                  // 越沉越倾侧
+            w.submerge = MathUtils.clamp((p-.16f)/.84f,0,1); w.submerge *= w.submerge;                                // 后半段沉得更快
             if (w.timer <= 0f) w.alive = false;
         }
     }
@@ -862,8 +939,9 @@ public class GameState {
 
     // ================= 0.28.22 掠夺结算（弹窗数据） =================
     private void pushLootPopup(String title, int silver, String good, int goodCount, String extra) {
-        LootGain gain = lootPopup[0];
-        if (gain == null) { gain = new LootGain(); lootPopup[0] = gain; }
+        int slot=lootPopup[0]==null?0:1;
+        LootGain gain = new LootGain(); lootPopup[slot] = gain;
+        if(slot==0) lootDelay=1.1f;
         gain.title = title; gain.silver = silver; gain.good = good;
         gain.goodCount = goodCount; gain.extra = extra == null ? "" : extra;
         lootPopupT = 6f; // 弹窗未处理时保留一段时间
@@ -871,6 +949,7 @@ public class GameState {
 
     /** 界面每帧调用：取走并清空当前掠夺结算。 */
     public LootGain pollLootPopup() {
+        if(lootDelay>0) return null;
         LootGain gain = lootPopup[0];
         lootPopup[0] = lootPopup[1];
         lootPopup[1] = null;
@@ -961,11 +1040,12 @@ public class GameState {
     /** 伤害入口：扣血，沉船时给残骸 +（玩家火炮击沉时）掠夺结算。 */
     private void damageNpc(Victim v, float dmg) {
         if (dmg <= 0f) return;
+        hurtTime[hitSlot(v)]=.3f;
         switch (v.kind) {
             case Victim.PIRATE:
                 if (!pirateAlive) return;
                 pirateHp -= dmg;
-                if (pirateHp <= 0f) { addWreck(pirateX, pirateY, pirateHeading, VoyageGeometry.PIRATE_SHIP); clearPirate(); }
+                if (pirateHp <= 0f) { addWreck(pirateX, pirateY, pirateHeading, VoyageGeometry.PIRATE_SHIP,false,true); clearPirate(); }
                 return;
             case Victim.MERCHANT:
                 if (merchant == null) return;
@@ -984,7 +1064,7 @@ public class GameState {
                 if (w == null || !w.alive) return;
                 w.provoked = true; // 0.28.24: 被打/被撞后记仇：追击并还击
                 w.hp -= dmg;
-                if (w.hp <= 0f) despawnWarship(v.index, false);
+                if (w.hp <= 0f) despawnWarship(v.index, true);
         }
     }
 
@@ -1007,6 +1087,7 @@ public class GameState {
         if (otherMax <= 0f) return;
         float playerSize = VoyageGeometry.ship(ship).radius();
         float otherSize = VoyageGeometry.ship(npcShipIndex(other)).radius();
+        contactFeedback(0,hitSlot(other),x,y,npcX(other),npcY(other));
         hull = Math.max(0f, hull - ramDamageSelf(hullMax, playerSize, otherSize));
         damageNpc(other, ramDamageSelf(otherMax, otherSize, playerSize));
         playCannonSfx(); // 撞击重响
@@ -1020,6 +1101,7 @@ public class GameState {
         if (aMax <= 0f || bMax <= 0f) return;
         float aSize = VoyageGeometry.ship(npcShipIndex(a)).radius();
         float bSize = VoyageGeometry.ship(npcShipIndex(b)).radius();
+        contactFeedback(hitSlot(a),hitSlot(b),npcX(a),npcY(a),npcX(b),npcY(b));
         damageNpc(a, ramDamageSelf(aMax, aSize, bSize));
         damageNpc(b, ramDamageSelf(bMax, bSize, aSize));
     }
@@ -1067,7 +1149,7 @@ public class GameState {
                     ramPlayerVs(victimWarship(i));
                     ramWarshipCd[i] = RAM_COOLDOWN_SECONDS;
                 }
-            } else if (warshipHostile(w) && d < Catalog.PIRATE_RANGE * 0.45f
+            } else if (warshipHostile(w) && w.hp > w.hpMax * .5f && d < Catalog.PIRATE_RANGE * 0.45f
                     && ramWarshipCd[i] <= 0f) {
                 // 概率性主动撞船：不是每次都撞（修船很贵）。
                 ramWarshipCd[i] = RAM_COOLDOWN_SECONDS;
@@ -1154,6 +1236,8 @@ public class GameState {
 
     private void move(float dt) {
         ensureLandClearance();
+        updateShipImpacts(0);
+        if(failed) return;
         separateLiveShips();
         // Bounded travel steps prevent crossing an entire obstacle during a slow frame.
         int steps = Math.max(1, (int)Math.ceil(speed * Math.max(0, dt) / 2f));
@@ -1166,6 +1250,8 @@ public class GameState {
             ensureLandClearance();
             x = MathUtils.clamp(x, 40f, Catalog.WORLD_W - 40f);
             y = MathUtils.clamp(y, 40f, Catalog.WORLD_H - 40f);
+            updateShipImpacts(0);
+            if(failed) return;
             separateLiveShips();
         }
     }
@@ -1190,10 +1276,10 @@ public class GameState {
         float need=limit-Catalog.dist(x,y,pirateX,pirateY);
         float step=Math.min(6f,need);
         float playerShare=step*.45f, pirateShare=step-playerShare;
-        x=MathUtils.clamp(x+MathUtils.cosDeg(angle)*playerShare,40f,Catalog.WORLD_W-40f);
-        y=MathUtils.clamp(y+MathUtils.sinDeg(angle)*playerShare,40f,Catalog.WORLD_H-40f);
-        pirateX=MathUtils.clamp(pirateX-MathUtils.cosDeg(angle)*pirateShare,40f,Catalog.WORLD_W-40f);
-        pirateY=MathUtils.clamp(pirateY-MathUtils.sinDeg(angle)*pirateShare,40f,Catalog.WORLD_H-40f);
+        x=MathUtils.clamp(x-MathUtils.cosDeg(angle)*playerShare,40f,Catalog.WORLD_W-40f);
+        y=MathUtils.clamp(y-MathUtils.sinDeg(angle)*playerShare,40f,Catalog.WORLD_H-40f);
+        pirateX=MathUtils.clamp(pirateX+MathUtils.cosDeg(angle)*pirateShare,40f,Catalog.WORLD_W-40f);
+        pirateY=MathUtils.clamp(pirateY+MathUtils.sinDeg(angle)*pirateShare,40f,Catalog.WORLD_H-40f);
     }
     private boolean pirateWaterClear(float px,float py) {
         float r=VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius();
@@ -2044,7 +2130,7 @@ public class GameState {
         pirateHp = pirateHpMax = Catalog.PIRATE_HP;
         pirateDamage = MathUtils.random(1,10); // Roll ONCE for this ship's entire life.
         pirateGeneration++;
-        pirateAlive = true; pirateChase = false;
+        pirateAlive = true; pirateChase = false; pirateHelm.reset(); hurtTime[1]=rockTime[1]=0;
         pirateFireCd = .4f;
         toast("外海发现海盗，可绕航避开。进入680范围会遭炮击。" + (autoSail ? "自动航行继续。" : ""));
     }
@@ -2076,32 +2162,87 @@ public class GameState {
         return true;
     }
 
-    /** 0.28.24 海盗巡航/追击/逃离速度（单位/秒）：追击略快于货船，慢于玩家全速。 */
-    private static final float PIRATE_SAIL_SPEED = 84f;
+    // Pirate pressure is faster/closer; warships hold a wider broadside orbit.
+    private static final float PIRATE_SAIL_SPEED = 100f;
 
-    /** 0.28.24 海盗步进移动：避岸避船，12 向弧采样（与货船/战船一致）。 */
-    private void stepPirate(float tx, float ty, float speed, float dt) {
-        int steps = Math.max(1, (int) Math.ceil(dt * speed / 10f));
-        for (int s = 0; s < steps; s++) {
-            float angle = MathUtils.atan2(ty - pirateY, tx - pirateX) * MathUtils.radiansToDegrees;
-            for (int n = 0; n < 12; n++) {
-                float offset = ((n + 1) / 2) * 30 * (n % 2 == 0 ? 1 : -1);
-                float heading = angle + offset;
-                float nx = pirateX + MathUtils.cosDeg(heading) * speed * dt / steps;
-                float ny = pirateY + MathUtils.sinDeg(heading) * speed * dt / steps;
-                if (!pirateWaterClear(nx, ny)) continue;
-                if (Catalog.dist(nx, ny, x, y) < VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius() + VoyageGeometry.ship(ship).radius() + 8) continue;
-                pirateX = nx; pirateY = ny; pirateHeading = heading;
-                break;
+    /** Seek a moving flank point, never the player's center. Escape headings are held
+     * for 1.2s and scored against open-water probes, avoiding mirrored-point jitter. */
+    private void maneuver(CombatHelm h, int type, float ex, float ey, float heading,
+                          float preferred, float speed, float dt, boolean retreat) {
+        h.x=ex; h.y=ey; h.heading=heading;
+        if(dt<=0) return;
+        h.sideTime-=dt;
+        if(h.sideTime<=0) { h.side=-h.side; h.sideTime=6f; }
+        if(retreat != h.withdrawing) h.retreatTime=0;
+        h.withdrawing=retreat;
+        h.retreatTime-=dt;
+        int steps=Math.max(1,(int)Math.ceil(speed*dt/8f));
+        float step=speed*dt/steps;
+        for(int n=0;n<steps;n++) {
+            float dx=h.x-x, dy=h.y-y, distance=Math.max(1f,Catalog.dist(x,y,h.x,h.y));
+            float ux=dx/distance, uy=dy/distance;
+            if(distance<=1) { ux=MathUtils.cosDeg(heading); uy=MathUtils.sinDeg(heading); }
+            float wanted;
+            if(retreat) {
+                if(h.retreatTime<=0) {
+                    float away=MathUtils.atan2(uy,ux)*MathUtils.radiansToDegrees;
+                    h.retreatHeading=clearHeading(h,type,away,220f,true);
+                    h.retreatTime=1.2f;
+                }
+                wanted=h.retreatHeading;
+            } else {
+                float tangent=preferred*.38f*h.side;
+                float tx=x+ux*preferred-uy*tangent, ty=y+uy*preferred+ux*tangent;
+                wanted=MathUtils.atan2(ty-h.y,tx-h.x)*MathUtils.radiansToDegrees;
             }
+            float course=clearHeading(h,type,wanted,retreat?100f:60f,retreat);
+            if(Float.isNaN(course)) { h.retreatTime=0; h.sideTime=Math.min(h.sideTime,.5f); break; }
+            float nx=h.x+MathUtils.cosDeg(course)*step, ny=h.y+MathUtils.sinDeg(course)*step;
+            if(!combatWaterClear(h,type,nx,ny)) { h.retreatTime=0; break; }
+            h.x=nx; h.y=ny;
+            // Hull follows the route; firing never snaps a withdrawing bow back toward its pursuer.
+            h.heading=MathUtils.lerpAngleDeg(h.heading,course,Math.min(1f,7f*dt/steps));
         }
     }
 
-    /** 0.28.24 半血逃离：沿「玩家-海盗」连线的镜像点跑，同时保留开火（边打边逃）。 */
-    private void fleePirateFromPlayer(float dt) {
-        float tx = MathUtils.clamp(pirateX * 2f - x, 300f, Catalog.WORLD_W - 300f);
-        float ty = MathUtils.clamp(pirateY * 2f - y, 300f, Catalog.WORLD_H - 300f);
-        stepPirate(tx, ty, PIRATE_SAIL_SPEED * 1.35f, dt);
+    /** Sample forward clearance along the whole probe, with continuity as a tie-breaker. */
+    private float clearHeading(CombatHelm h,int type,float wanted,float reach,boolean retreat) {
+        float best=Float.NaN, score=-Float.MAX_VALUE;
+        if(Float.isNaN(wanted)) wanted=h.heading;
+        float away=MathUtils.atan2(h.y-y,h.x-x)*MathUtils.radiansToDegrees;
+        for(int i=0;i<24;i++) {
+            float offset=((i+1)/2)*15*(i%2==0?1:-1), angle=wanted+offset;
+            boolean clear=true;
+            for(float d=12;d<=reach;d+=12) {
+                if(!combatWaterClear(h,type,h.x+MathUtils.cosDeg(angle)*d,h.y+MathUtils.sinDeg(angle)*d)) { clear=false; break; }
+            }
+            if(!clear) continue;
+            float value=MathUtils.cosDeg(offset)*2f+MathUtils.cosDeg(angle-h.heading)*.18f;
+            if(retreat) value+=MathUtils.cosDeg(angle-away)*1.5f;
+            if(value>score) { score=value; best=angle; }
+        }
+        return best;
+    }
+
+    private boolean combatWaterClear(CombatHelm h,int type,float px,float py) {
+        if(!trafficWaterClear(px,py,type)) return false;
+        float r=VoyageGeometry.ship(type).radius();
+        float playerLimit=r+VoyageGeometry.ship(ship).radius()+12;
+        float d=Catalog.dist(px,py,x,y);
+        // Recover an existing overlap by moving outward; mutual separation remains active too.
+        if(d<playerLimit && d<=Catalog.dist(h.x,h.y,x,y)) return false;
+        if(pirateAlive && h!=pirateHelm && Catalog.dist(px,py,pirateX,pirateY)<r+VoyageGeometry.ship(VoyageGeometry.PIRATE_SHIP).radius()+8) return false;
+        if(merchant!=null && Catalog.dist(px,py,merchant.x,merchant.y)<r+VoyageGeometry.ship(merchant.ship).radius()+8) return false;
+        for(TraderData t:traders) if(t!=null && t.alive && Catalog.dist(px,py,t.x,t.y)<r+VoyageGeometry.ship(t.ship).radius()+8) return false;
+        for(WarshipData w:warships) if(w!=null && w.alive && w.helm!=h && Catalog.dist(px,py,w.x,w.y)<r+VoyageGeometry.ship(w.ship).radius()+8) return false;
+        return true;
+    }
+
+    /** Broadside guns can bear off either side; retreat also allows the stern return volley. */
+    private boolean gunsBear(float heading,float ex,float ey,float tx,float ty,boolean retreat) {
+        if(retreat) return true;
+        float bearing=MathUtils.atan2(ty-ey,tx-ex)*MathUtils.radiansToDegrees;
+        return Math.abs(MathUtils.cosDeg(bearing-heading))<.96f;
     }
 
     private void updateCombat(float dt) {
@@ -2111,21 +2252,23 @@ public class GameState {
             toast(autoSail ? "已驶出海盗海域，自动航行继续。" : "已驶出海盗海域。");
             return;
         }
-        // 0.28.24: 锁定追打 —— 锁定后海盗主动逼近玩家；血量≤50% 改为边打边逃；
-        // 未锁定仍原地炮击（追击需要锁定）。开火逻辑不变。
         boolean lowHp = pirateHp <= pirateHpMax * .5f;
-        pirateChase = combatLock && !lowHp;
-        if (combatLock && lowHp) {
-            fleePirateFromPlayer(dt);
-        } else if (pirateChase) {
-            stepPirate(x, y, PIRATE_SAIL_SPEED, dt);
-            d = Catalog.dist(x, y, pirateX, pirateY);
+        if(combatLock) pirateHelm.grace=2.5f;
+        else pirateHelm.grace=Math.max(0,pirateHelm.grace-dt);
+        boolean engaged=combatLock || pirateHelm.grace>0;
+        pirateChase=engaged && !lowHp;
+        if(engaged || lowHp) {
+            maneuver(pirateHelm,VoyageGeometry.PIRATE_SHIP,pirateX,pirateY,pirateHeading,
+                    Catalog.PIRATE_RANGE*.65f,PIRATE_SAIL_SPEED*(lowHp?1.2f:1f),dt,lowHp);
+            pirateX=pirateHelm.x; pirateY=pirateHelm.y; pirateHeading=pirateHelm.heading;
         }
+        d=Catalog.dist(x,y,pirateX,pirateY);
         float md=merchant==null ? Float.MAX_VALUE : Catalog.dist(pirateX,pirateY,merchant.x,merchant.y);
         if (Math.min(d,md)<=Catalog.PIRATE_RANGE) {
             boolean player=d<=md;
             float tx=player?x:merchant.x, ty=player?y:merchant.y;
-            pirateHeading=MathUtils.atan2(ty-pirateY,tx-pirateX)*MathUtils.radiansToDegrees;
+            if(!engaged && !lowHp) pirateHeading=MathUtils.atan2(ty-pirateY,tx-pirateX)*MathUtils.radiansToDegrees;
+            if((engaged || lowHp) && !gunsBear(pirateHeading,pirateX,pirateY,tx,ty,lowHp)) return;
             pirateFireCd-=dt;
             if(pirateFireCd<=0) {
                 // 0.28.18: slowed 2x so the cannon SFX can finish between volleys.
@@ -2193,7 +2336,7 @@ public class GameState {
         t.ship = type; t.x = point[0]; t.y = point[1];
         t.hp = t.hpMax = traderHull(type);
         t.targetPort = nearestPortTo(t.x, t.y);
-        traders[slot] = t;
+        traders[slot] = t; hurtTime[3+slot]=rockTime[3+slot]=0;
     }
 
     private int nearestPortTo(float px, float py) {
@@ -2259,31 +2402,32 @@ public class GameState {
         w.hp = w.hpMax = warshipHull(type);
         w.anchorX = point[0]; w.anchorY = point[1];
         w.patrolAngle = MathUtils.random(360f);
-        warships[slot] = w;
+        warships[slot] = w; hurtTime[5+slot]=rockTime[5+slot]=0;
         if (Catalog.dist(x, y, w.x, w.y) <= Catalog.NPC_HORIZON) toast("远处发现战船，交战海域注意规避。");
     }
 
-    /** 战船 AI：和平期沿岸巡逻；战斗语境（海盗在场/玩家掠夺/被玩家激怒）下
-     * 逼近并炮击；血量≤50% 改为边打边逃。主动撞船走概率判定（updateShipImpacts 内 roll）。 */
+    /** Standoff flank combat, open-water withdrawal, otherwise the existing patrol route. */
     private void updateWarship(WarshipData w, float dt) {
-        w.hostile = warshipHostile(w);
-        boolean lowHp = w.hp <= w.hpMax * .5f;
-        float tx, ty;
-        if (w.hostile && lowHp) { // 0.28.24: 半血战船边打边逃
-            tx = MathUtils.clamp(w.x * 2f - x, 300f, Catalog.WORLD_W - 300f);
-            ty = MathUtils.clamp(w.y * 2f - y, 300f, Catalog.WORLD_H - 300f);
-        } else if (w.hostile) { tx = x; ty = y; }
-        else {
-            w.patrolAngle += 14f * dt;
-            tx = w.anchorX + MathUtils.cosDeg(w.patrolAngle) * 240f;
-            ty = w.anchorY + MathUtils.sinDeg(w.patrolAngle) * 240f;
+        w.hostile=warshipHostile(w);
+        if(w.hostile) w.helm.grace=2.5f;
+        else w.helm.grace=Math.max(0,w.helm.grace-dt);
+        boolean lowHp=w.hp<=w.hpMax*.5f;
+        boolean engaged=w.hostile || w.helm.grace>0;
+        if(engaged || lowHp) {
+            maneuver(w.helm,w.ship,w.x,w.y,w.heading,Catalog.PIRATE_RANGE*.83f,
+                    78f*(lowHp?1.35f:1f),dt,lowHp);
+            w.x=w.helm.x; w.y=w.helm.y; w.heading=w.helm.heading;
+        } else {
+            w.patrolAngle+=14f*dt;
+            moveNpc(w,w.ship,w.anchorX+MathUtils.cosDeg(w.patrolAngle)*240,
+                    w.anchorY+MathUtils.sinDeg(w.patrolAngle)*240,50f,dt);
         }
-        moveNpc(w, w.ship, tx, ty, 72f * (1f + Catalog.SHIP_SPEED[w.ship] / 100f) * (w.hostile ? (lowHp ? 1.55f : 1.25f) : .7f), dt);
-        if (w.hostile && Catalog.dist(x, y, w.x, w.y) <= Catalog.PIRATE_RANGE) {
-            w.fireCd -= dt;
-            if (w.fireCd <= 0f) {
-                w.fireCd = Catalog.PIRATE_FIRE_INTERVAL * 1.6f;
-                fireAt(false, PLAYER, warshipDamage(w.ship), w.x, w.y, x, y);
+        if((engaged || lowHp) && Catalog.dist(x,y,w.x,w.y)<=Catalog.PIRATE_RANGE
+                && gunsBear(w.heading,w.x,w.y,x,y,lowHp)) {
+            w.fireCd-=dt;
+            if(w.fireCd<=0) {
+                w.fireCd=Catalog.PIRATE_FIRE_INTERVAL*1.6f;
+                fireAt(false,PLAYER,warshipDamage(w.ship),w.x,w.y,x,y);
             }
         }
     }
@@ -2334,7 +2478,7 @@ public class GameState {
         MerchantData m=new MerchantData(); m.ship=type; m.x=point[0]; m.y=point[1];
         m.hp=m.hpMax=merchantHull(type); m.damage=merchantDamage(type);
         m.silver=25+MathUtils.random(20); m.cargoGood=MathUtils.random(Catalog.GOODS.length-1); m.cargo=1;
-        merchant=m; merchantGeneration++;
+        merchant=m; merchantGeneration++; hurtTime[2]=rockTime[2]=0;
         m.targetPort=0;
         for(int i=1;i<Catalog.PORTS.length;i++)
             if(Catalog.dist(m.x,m.y,Catalog.PORT_X[i],Catalog.PORT_Y[i])<Catalog.dist(m.x,m.y,Catalog.PORT_X[m.targetPort],Catalog.PORT_Y[m.targetPort])) m.targetPort=i;
@@ -2414,6 +2558,7 @@ public class GameState {
         if(playerFireCd<=0) {
             playerFireCd=fireInterval(); fireAt(true,target,1,x,y,tx,ty);
             playCannonSfx();
+            pokeCannonFeedback(); // 0.28.26 开炮小后坐 + 炮口闪
         }
     }
 
@@ -2473,12 +2618,15 @@ public class GameState {
             float bx=ballX[i], by=ballY[i];
             removeBall(i); // Removing a target never changes attribution of other in-flight shots.
             if(target==PIRATE && pirateAlive && generation==pirateGeneration && Catalog.dist(bx,by,pirateX,pirateY)<=100) {
+                hurtTime[1]=.3f;
                 pirateHp-=damage;
-                if(pirateHp<=0) { addWreck(pirateX,pirateY,pirateHeading,VoyageGeometry.PIRATE_SHIP); if(player) winCombat(); else clearPirate(); }
+                if(pirateHp<=0) { addWreck(pirateX,pirateY,pirateHeading,VoyageGeometry.PIRATE_SHIP,false,true); if(player) winCombat(); else clearPirate(); }
             } else if(target==MERCHANT && merchant!=null && generation==merchantGeneration && Catalog.dist(bx,by,merchant.x,merchant.y)<=100) {
+                hurtTime[2]=.3f;
                 merchant.hp-=damage;
                 if(merchant.hp<=0) sinkMerchant(player);
             } else if(target==PLAYER && Catalog.dist(bx,by,x,y)<=90) {
+                hurtTime[0]=.3f;
                 hull=Math.max(0,hull-damage);
                 if(hull<=0) { fail("船沉"); return; }
             }
@@ -2530,6 +2678,7 @@ public class GameState {
         pirateAlive = false;
         combatLock = false;
         pirateChase = false;
+        pirateHelm.reset();
         pirateSpawnTimer = Math.max(pirateSpawnTimer, 55f);
         // Shots already fired retain their target and rolled damage until impact.
     }
@@ -2552,6 +2701,11 @@ public class GameState {
     }
 
     public void fail(String reason) {
+        if(failed) return;
+        if("船沉".equals(reason)) {
+            playerSinkRemaining=SINK_SECONDS;
+            addWreck(x,y,headingDeg,ship,true,false);
+        }
         failed = true;
         failReason = reason;
         merchantLock = false; ballCount = 0;

@@ -97,6 +97,12 @@ public final class VoyageWater implements Disposable {
     public boolean supportsHighQuality() { return available() && highShader != null; }
     public boolean supportsLowQuality() { return available() && lowShader != null; }
 
+    /** 0.28.26 昼夜压暗系数：0=白天 1=深夜，作用于天空与海面颜色。 */
+    private float nightDim;
+    public void setNightDim(float amount) {
+        nightDim = MathUtils.clamp(amount, 0f, 1f);
+    }
+
     private void selectShores(float x, float z) {
         java.util.Arrays.fill(nearest, Float.MAX_VALUE);
         for (int i = 0; i < 8; i++) { shores[i * 3] = x + 30000; shores[i * 3 + 1] = z + 30000; shores[i * 3 + 2] = 0; }
@@ -144,6 +150,7 @@ public final class VoyageWater implements Disposable {
         shader.setUniform3fv("u_shores[0]", shores, 0, shores.length);
         shader.setUniform4fv("u_waves[0]",WAVES,0,shader==lowShader?16:32);
         shader.setUniformf("u_ship", state.x - ox, -state.y - oz);
+        shader.setUniformf("u_night", nightDim); // 0.28.26 夜晚海面压暗
         shader.setUniformf("u_forward", MathUtils.cosDeg(state.headingDeg), -MathUtils.sinDeg(state.headingDeg));
         VoyageGeometry.Ship hull = VoyageGeometry.ship(state.ship);
         shader.setUniformf("u_hull", 25f * hull.length, 10f * hull.beam);
@@ -159,6 +166,7 @@ public final class VoyageWater implements Disposable {
         Gdx.gl.glDisable(GL20.GL_BLEND); Gdx.gl.glDisable(GL20.GL_CULL_FACE);
         skyShader.bind(); skyMap.bind(0);
         skyShader.setUniformi("u_skyMap",0); skyShader.setUniformf("u_sun",SUN);
+        skyShader.setUniformf("u_night", nightDim); // 0.28.26 夜晚天空压暗
         float tangent=(float)Math.tan(Math.toRadians(camera.fieldOfView*.5));
         right.set(camera.direction).crs(camera.up).nor();
         up.set(right).crs(camera.direction).nor().scl(tangent);
