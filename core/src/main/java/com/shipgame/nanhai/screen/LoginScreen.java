@@ -201,7 +201,7 @@ public class LoginScreen extends ScreenAdapter {
     private void showHelper(String name) {
         Table content = openModal(name + " · 南海航程", this::closeModal);
         if ("公告".equals(name)) {
-            content.add(modalCopy("版本 0.28.16 · 海路添新篇\n\n"
+            content.add(modalCopy("版本 0.28.28 · 海路添新篇\n\n"
                     + "一、十二条支线故事，从「任务」列表点开对话。\n"
                     + "二、主线任务卡仍跟踪十九段武周故事。\n"
                     + "三、外海可见海盗与商船；海盗进入射程主动开火。\n"
@@ -209,7 +209,7 @@ public class LoginScreen extends ScreenAdapter {
                     .width(760).row();
         } else if ("客服".equals(name)) {
             content.add(modalCopy("本机游戏，反馈请发给开发者。\n"
-                    + "请附上版本号 0.28.16、问题截图和发生前的操作。\n\n"
+                    + "请附上版本号 0.28.28、问题截图和发生前的操作。\n\n"
                     + "账号与存档保存在这台设备上；请记好用户名和密码。"
                     + "卸载或清除应用数据会删除本机存档，更新请直接覆盖安装。\n\n"
                     + "更新下载失败时可稍后重试，或从版本发布页下载完整安装包。"))

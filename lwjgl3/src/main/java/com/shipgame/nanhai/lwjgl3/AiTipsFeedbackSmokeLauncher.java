@@ -12,6 +12,8 @@ import com.shipgame.nanhai.data.*;
 import com.shipgame.nanhai.render.VoyageWorldRenderer;
 import com.shipgame.nanhai.screen.*;
 import com.shipgame.nanhai.ui.ContextualTips;
+import com.shipgame.nanhai.ui.VoyageHud;
+import com.shipgame.nanhai.ui.VoyageHudChrome;
 import java.lang.reflect.*;
 import java.nio.file.Path;
 
@@ -57,7 +59,9 @@ public final class AiTipsFeedbackSmokeLauncher {
                         require(actor("contextualTip").getWidth()<=1600 && actor("contextualTip").getX()>=0,"tip stays on screen");
                         tap("contextualTipDismiss");invoke("closePopup");voyage.render(0);
                         if(stage.getRoot().findActor("questDialogue")==null) { tap("任务卡");voyage.render(0); }
-                        require(actor("dialoguePanel").getWidth()>1400 && actor("dialogueBustNpc").isVisible() && !actor("dialogueBustPlayer").isVisible(),"wide dialogue keeps single bust above frame");capture("wide-dialogue");
+                        // 0.28.27 item 5: dialogue is the centered ~940px column at 1600.
+                        require(actor("dialoguePanel").getWidth()>=700 && actor("dialoguePanel").getWidth()<=940
+                                && actor("dialogueBustNpc").isVisible() && !actor("dialogueBustPlayer").isVisible(),"wide dialogue keeps centered column and single bust above frame");capture("wide-dialogue");
                         result=0;System.out.println("UI 0.28.26 GL PASS: modal pause and input isolation, single-side busts above text with all avatars, activity/welfare merge, intel badge, stacked cancel lock, top marquee; five contextual tips, real actions/dismiss, no repeat, login rearm, no HOWTO auto-wall, NPC rendering/ram flash/splash, typed enemy sink and camera, delayed loot, player sink-before-fail, close-restart, 1280/1600");Gdx.app.exit();
                     }
                 }catch(Throwable t){fail(t);}
@@ -69,6 +73,13 @@ public final class AiTipsFeedbackSmokeLauncher {
             private void tips()throws Exception {
                 voyage.render(0);require(field("overlay").get(voyage).toString().equals("PORT"),"no first-install HOWTO wall");
                 require(tip("在港口"),"port tip on actual port overlay");capture("port-tip");
+                // 0.28.28: the tip modal uses the login-announcement gold chrome.
+                VoyageHud hud=(VoyageHud)field("voyageHud").get(voyage);
+                Table panel=(Table)actor("contextualTipPanel");
+                require(panel.getBackground()==hud.ui.announceFrame,"0.28.28 tip uses gold-rim navy announce frame");
+                require(((TextButton)actor("contextualTipDismiss")).getStyle().up==hud.ui.announceButton,"0.28.28 dismiss uses gold-rim navy button");
+                Label tipTitleLabel=(Label)actor("contextualTipTitle");
+                require(tipTitleLabel.getStyle().fontColor.equals(VoyageHudChrome.ANNOUNCE_TITLE),"0.28.28 title uses announce gold");
                 tap("contextualTipDismiss");tap("补补给");voyage.render(0);require(!actor("contextualTip").isVisible() && state.questRefillCount==1,"successful supply dismisses port tip");
                 tap("离港");state.x=2000;state.y=12000;state.headingDeg=0;voyage.render(.6f);
                 require(tip("摇杆"),"first idle voyage shows stick tip");capture("stick-tip");
@@ -85,7 +96,10 @@ public final class AiTipsFeedbackSmokeLauncher {
                 require(tip("任务卡"),"quest card prompt when visible");tap("contextualTipDismiss");tap("任务卡");voyage.render(0);
                 require(field("overlay").get(voyage).toString().equals("DIALOGUE") && !actor("contextualTip").isVisible(),"card opens story and dismisses tip");
                 tap("dialogueClose");voyage.render(.6f);
-                state.x=Catalog.PORT_X[0]+190;state.y=Catalog.PORT_Y[0];state.speed=0;voyage.render(0);
+                // 0.28.22 贴船按钮需要船在屏内（worldAnchor 投影）；传送后先渲染
+                // 若干真实 dt 帧让相机跟上，再断言 DOCK 提示（与 0.28.27 冒烟同法）。
+                state.x=Catalog.PORT_X[0]+190;state.y=Catalog.PORT_Y[0];state.speed=0;
+                for(int i=0;i<30;i++)voyage.render(.05f);
                 require(tip("抛锚"),"first reachable port enables dock tip");capture("dock-tip");tap("contextualTipDismiss");tap("抛锚");voyage.render(0);
                 require(state.anchored && !actor("contextualTip").isVisible(),"anchor completes contextual action");
                 state.anchored=false;state.x=2000;state.y=12000;

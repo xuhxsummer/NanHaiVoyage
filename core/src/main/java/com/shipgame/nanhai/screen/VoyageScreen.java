@@ -54,6 +54,7 @@ import com.shipgame.nanhai.ui.CodexPanel;
 import com.badlogic.gdx.scenes.scene2d.Group;
 import com.shipgame.nanhai.ui.WorldMapOverlay;
 import com.shipgame.nanhai.ui.VoyageHud;
+import com.shipgame.nanhai.ui.VoyageHudChrome;
 import com.shipgame.nanhai.render.VoyageWorldRenderer;
 
 public class VoyageScreen extends ScreenAdapter {
@@ -374,14 +375,18 @@ public class VoyageScreen extends ScreenAdapter {
         menuRoot.center().top().padTop(78); stage.addActor(menuRoot);
         tipBubble=new Table(); tipBubble.setName("contextualTip"); tipBubble.setFillParent(true);
         tipBubble.setTouchable(Touchable.enabled);
-        tipBubble.setBackground(game.skin.newDrawable("white",new Color(.01f,.02f,.03f,.65f)));
+        // 0.28.28: 公告同款暗蓝遮罩，取代旧的近黑色半透明底。
+        tipBubble.setBackground(game.skin.newDrawable("white",new Color(0.01f,0.02f,0.04f,.72f)));
         Table tipPanel=new Table(); tipPanel.setName("contextualTipPanel");
-        tipPanel.setBackground(voyageHud.ui.panel); tipPanel.pad(32);
-        tipPanel.add(voyageHud.ui.label("航海指引",36,QuestUi.PAPER)).padBottom(28).row();
-        tipCopy=voyageHud.ui.label("",30,QuestUi.PAPER); tipCopy.setName("contextualTipCopy");
+        // 0.28.28 登录公告描金 UI：深蓝底 + 金双描边九宫格（与 LoginScreen.frame 同配方），
+        // 不再使用青绿底纸色字的旧指引面板。
+        tipPanel.setBackground(voyageHud.ui.announceFrame); tipPanel.pad(36);
+        Label tipTitle=voyageHud.ui.label("航海指引",36,VoyageHudChrome.ANNOUNCE_TITLE); tipTitle.setName("contextualTipTitle"); tipTitle.setAlignment(Align.center);
+        tipPanel.add(tipTitle).padBottom(28).growX().row();
+        tipCopy=voyageHud.ui.label("",30,VoyageHudChrome.ANNOUNCE_COPY); tipCopy.setName("contextualTipCopy");
         tipCopy.setWrap(true); tipCopy.setAlignment(Align.center);
         tipPanel.add(tipCopy).width(620).height(100).padBottom(24).row();
-        TextButton dismiss=voyageHud.ui.button("知道了",voyageHud.ui.blue,28);
+        TextButton dismiss=voyageHud.ui.announceButton("知道了",28);
         dismiss.setName("contextualTipDismiss"); dismiss.addListener(click(() -> {
             contextualTips.dismiss(); tipBubble.setVisible(false);
         }));

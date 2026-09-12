@@ -15,6 +15,9 @@ public final class VoyageHudChrome implements Disposable {
     public final Drawable goldLine, panel, parchment, red, blue, jade, circle, greenCircle, redCircle, ring, compass;
     /** 0.28.22 半透明深色底板：放在亮色天空上的文字标签后面，保证可读。 */
     public final Drawable plate, questPaper, questPanel, questRedHeader, questBlueHeader, questMarker;
+    /** 0.28.28 登录公告同款描金弹窗：深蓝底 + 金双描边九宫格，以及配套金边按钮。 */
+    public final Drawable announceFrame, announceButton, announceButtonHover;
+    public static final Color ANNOUNCE_TITLE=Color.valueOf("FFF0BF"), ANNOUNCE_COPY=Color.valueOf("F4E6CB");
     private final java.util.List<Texture> owned=new ArrayList<>();
     private final Map<String,Drawable> icons=new HashMap<>();
     private final Skin skin;
@@ -37,12 +40,32 @@ public final class VoyageHudChrome implements Disposable {
         marker.drawLine(1,10,6,1);marker.drawLine(6,1,11,10);marker.drawLine(11,10,1,10);
         questMarker=new TextureRegionDrawable(texture(marker));
         circle=disc("112A36",true,false); greenCircle=disc("315C44",true,false); redCircle=disc("733329",true,false);
+        announceFrame=goldRimFrame("081522");announceButton=goldRimFrame("235873");announceButtonHover=goldRimFrame("497891");
         ring=disc("112A36",false,false); compass=disc("142F39",true,true);
         Pixmap platePixmap=new Pixmap(8,8,Pixmap.Format.RGBA8888);
         platePixmap.setColor(0.02f,0.055f,0.09f,0.8f);platePixmap.fill();
         plate=new TextureRegionDrawable(texture(platePixmap));
     }
     private Texture texture(Pixmap p) {Texture t=new Texture(p);p.dispose();t.setFilter(Texture.TextureFilter.Linear,Texture.TextureFilter.Linear);owned.add(t);return t;}
+    /** 0.28.28 与 LoginScreen.frame 同配方的厚金边九宫格：外圈 D8AE60、高光 FFF0B5、
+     *  底影 70502C、中央为指定填充色；Nearest 采样保证手机缩放下描边依旧清晰。 */
+    private Drawable goldRimFrame(String fill) {
+        Pixmap p=new Pixmap(48,48,Pixmap.Format.RGBA8888);
+        p.setColor(Color.valueOf("D8AE60"));p.fillRectangle(8,0,32,48);p.fillRectangle(0,8,48,32);
+        p.setColor(Color.valueOf("FFF0B5"));p.fillRectangle(10,0,28,2);
+        p.setColor(Color.valueOf("70502C"));p.fillRectangle(8,44,32,4);
+        p.setBlending(Pixmap.Blending.None);
+        p.setColor(Color.valueOf(fill));p.fillRectangle(6,8,36,32);p.fillRectangle(8,6,32,36);
+        Texture t=new Texture(p);p.dispose();t.setFilter(Texture.TextureFilter.Nearest,Texture.TextureFilter.Nearest);owned.add(t);
+        NinePatch patch=new NinePatch(t,12,12,12,12);patch.setPadding(24,24,8,8);
+        return new NinePatchDrawable(patch);
+    }
+    /** 0.28.28 公告弹窗按钮：深蓝描金底、按下/悬停变亮、金字（同登录 modalButton）。 */
+    public TextButton announceButton(String title,float size) {
+        TextButton.TextButtonStyle s=new TextButton.TextButtonStyle(skin.get(TextButton.TextButtonStyle.class));
+        s.font=font;s.up=announceButton;s.down=announceButtonHover;s.over=announceButtonHover;s.checked=announceButton;s.fontColor=Color.valueOf("FFF4D3");
+        TextButton b=new TextButton(title,s);b.getLabel().setFontScale(size/28f);return b;
+    }
     private Drawable patch(String base) { return patch(base,true); }
     private Drawable patch(String base,boolean corners) {
         Pixmap p=new Pixmap(96,96,Pixmap.Format.RGBA8888); Color c=Color.valueOf(base);
