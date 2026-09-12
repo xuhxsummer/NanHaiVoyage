@@ -8,6 +8,8 @@
 # 示例:
 #   ./scripts/release.sh 0.27.1 "修复港口菜单崩溃"
 #
+# RELEASE_PRESERVE_PATHS 可用换行分隔路径，保留未暂存的外部 WIP，不纳入发版提交。
+#
 # 可选参数:
 #   --dry-run          只打印将执行的步骤，不打包 / 不提交 / 不发版
 #   --skip-commit      跳过 git 提交与推送
@@ -24,7 +26,7 @@
 #   5. 复制 APK 到 Builds/NanHaiVoyage.apk
 #   6. git add（排除 APK / bug-*.jpg / assets/saves/ / scratch / howto_* / __pycache__）
 #      并提交 "vX.Y.Z: <说明>"，推送 origin 当前分支
-#   7. gh release create vX.Y.Z（标题 vX.Y.Z、说明为传入文案，附 Builds/NanHaiVoyage.apk）
+#   7. 创建 Release；若同版本已存在，仅更新该标签并替换 APK（--clobber）。
 #      最后打印 Release URL
 # =============================================================================
 set -euo pipefail
@@ -107,6 +109,14 @@ REPO="$(git config --get remote.origin.url 2>/dev/null \
 [[ -n "$REPO" ]] || REPO="xuhxsummer/NanHaiVoyage"
 echo ">> GitHub 仓库: $REPO"
 
+# Preserve unrelated working files without stashing or changing them. Newline-separated repository paths.
+PRESERVE_EXCLUDES=()
+while IFS= read -r preserved_path; do
+  [[ -n "$preserved_path" ]] || continue
+  git diff --cached --quiet -- "$preserved_path" || fail "待保留文件已暂存: $preserved_path"
+  PRESERVE_EXCLUDES+=(":(exclude,literal)$preserved_path")
+done <<< "${RELEASE_PRESERVE_PATHS:-}"
+
 # ---- 计算 versionCode 并改写 android/build.gradle ------------------------------
 BUILD_FILE="$ROOT/android/build.gradle"
 [[ -f "$BUILD_FILE" ]] || fail "找不到 $BUILD_FILE"
@@ -181,14 +191,14 @@ else
   # 0.28.22 修复：被忽略的目录（如 assets/saves/）存在于工作区时，带 exclude
   # pathspec 的 git add 会因 "paths are ignored" 直接退出（set -e 中断发版）。
   # 先按 glob 排除未忽略文件正常暂存，再对已暂存的被忽略文件做移除（容错）。
-  git add -A -- \
+  git add -A -- "${PRESERVE_EXCLUDES[@]}" \
     ':(exclude,glob)**/*.apk' \
     ':(exclude,glob)bug-*.jpg' \
     ':(exclude,glob)assets/saves/**' \
     ':(exclude,glob)**/scratch/**' \
     ':(exclude,glob)**/howto_*' \
     ':(exclude,glob)**/__pycache__/**' 2>/dev/null || true
-  git add -A -- \
+  git add -A -- "${PRESERVE_EXCLUDES[@]}" \
     ':(exclude,glob)**/*.apk' \
     ':(exclude,glob)bug-*.jpg' \
     ':(exclude,glob)**/scratch/**' \
@@ -223,12 +233,22 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-echo ">> 创建 GitHub Release: v${VERSION}"
-RELEASE_URL="$(gh release create "v${VERSION}" \
-  --repo "$REPO" \
-  --title "v${VERSION}" \
-  --notes "$DESCRIPTION" \
-  "$ROOT/Builds/NanHaiVoyage.apk")"
+if RELEASE_URL="$(gh release view "v${VERSION}" --repo "$REPO" --json url --jq .url 2>/dev/null)"; then
+  echo ">> 刷新 GitHub Release: v${VERSION}"
+  PREVIOUS_TAG="$(git ls-remote origin "refs/tags/v${VERSION}" | cut -f1)"
+  [[ -n "$PREVIOUS_TAG" ]] || fail "现有 Release 标签不存在: v${VERSION}"
+  # Explicit same-version refresh: only this tag moves, guarded against concurrent changes.
+  git push --force-with-lease="refs/tags/v${VERSION}:$PREVIOUS_TAG" origin "HEAD:refs/tags/v${VERSION}"
+  gh release upload "v${VERSION}" --repo "$REPO" --clobber "$ROOT/Builds/NanHaiVoyage.apk"
+  gh release edit "v${VERSION}" --repo "$REPO" --title "v${VERSION}" --notes "$DESCRIPTION"
+else
+  echo ">> 创建 GitHub Release: v${VERSION}"
+  RELEASE_URL="$(gh release create "v${VERSION}" \
+    --repo "$REPO" \
+    --title "v${VERSION}" \
+    --notes "$DESCRIPTION" \
+    "$ROOT/Builds/NanHaiVoyage.apk")"
+fi
 
 echo
 echo "=============================================="

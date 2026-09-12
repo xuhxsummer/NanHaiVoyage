@@ -14,7 +14,7 @@ public final class VoyageHudChrome implements Disposable {
     public static final Color GOLD=Color.valueOf("D8B579"), PAPER=Color.valueOf("F4DEB0"), MUTED=Color.valueOf("B8C5C3");
     public final Drawable goldLine, panel, parchment, red, blue, jade, circle, greenCircle, redCircle, ring, compass;
     /** 0.28.22 半透明深色底板：放在亮色天空上的文字标签后面，保证可读。 */
-    public final Drawable plate;
+    public final Drawable plate, questPaper, questPanel;
     private final java.util.List<Texture> owned=new ArrayList<>();
     private final Map<String,Drawable> icons=new HashMap<>();
     private final Skin skin;
@@ -31,6 +31,7 @@ public final class VoyageHudChrome implements Disposable {
         } finally {generator.dispose();}
         Pixmap line=new Pixmap(1,1,Pixmap.Format.RGBA8888);line.setColor(GOLD);line.fill();goldLine=new TextureRegionDrawable(texture(line));
         panel=patch("102631"); parchment=patch("CAB184"); red=patch("622C25"); blue=patch("163A47"); jade=patch("264C42");
+        questPaper=patch("CAB184",false);questPanel=patch("102631",false);
         circle=disc("112A36",true,false); greenCircle=disc("315C44",true,false); redCircle=disc("733329",true,false);
         ring=disc("112A36",false,false); compass=disc("142F39",true,true);
         Pixmap platePixmap=new Pixmap(8,8,Pixmap.Format.RGBA8888);
@@ -38,13 +39,14 @@ public final class VoyageHudChrome implements Disposable {
         plate=new TextureRegionDrawable(texture(platePixmap));
     }
     private Texture texture(Pixmap p) {Texture t=new Texture(p);p.dispose();t.setFilter(Texture.TextureFilter.Linear,Texture.TextureFilter.Linear);owned.add(t);return t;}
-    private Drawable patch(String base) {
+    private Drawable patch(String base) { return patch(base,true); }
+    private Drawable patch(String base,boolean corners) {
         Pixmap p=new Pixmap(96,96,Pixmap.Format.RGBA8888); Color c=Color.valueOf(base);
         for(int y=4;y<92;y++) for(int x=4;x<92;x++) {float n=(((x*13+y*7)%5)-2)*.001f+(92-y)*.00018f;p.setColor(c.r+n,c.g+n,c.b+n,.97f);p.drawPixel(x,y);}
         p.setColor(Color.valueOf("463A2B"));p.drawRectangle(3,3,90,90);
         p.setColor(GOLD);p.drawRectangle(5,5,86,86);p.setColor(Color.valueOf("806841"));p.drawRectangle(8,8,80,80);
         p.setColor(PAPER);
-        for(int x:new int[]{6,89}) for(int y:new int[]{6,89}) {int sx=x<48?1:-1,sy=y<48?1:-1;
+        if(corners) for(int x:new int[]{6,89}) for(int y:new int[]{6,89}) {int sx=x<48?1:-1,sy=y<48?1:-1;
             p.drawLine(x,y,x+sx*18,y);p.drawLine(x,y,x,y+sy*18);
             p.drawLine(x+sx*5,y+sy*4,x+sx*12,y+sy*11);p.drawLine(x+sx*12,y+sy*11,x+sx*5,y+sy*18);
             p.drawLine(x+sx*5,y+sy*18,x+sx*5,y+sy*4);

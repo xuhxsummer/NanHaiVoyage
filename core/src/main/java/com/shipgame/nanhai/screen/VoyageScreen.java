@@ -178,8 +178,7 @@ public class VoyageScreen extends ScreenAdapter {
     private boolean logoutSwitching;     // 0.26.6 退出登录防重入
     private VoyageHud voyageHud;
     private final int[] trackedQuests = {-1, -1};
-    private Label hudClock;              // 0.26.4 左下 第N日 HH:MM 白天/夜晚
-    private Label sunTip;                // 今日：晴 label under the minimap
+    private Label hudClock;              // 左下 第一天 HH:MM 白天/夜晚 天气
 
     // 0.26.0 市场 pagination: rows per page in each market column, plus the two
     // independent page cursors (buy column pages over goods, sell column pages
@@ -2613,8 +2612,7 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private String statusText() {
-        String s = "欠" + g.debt + " 舱 " + g.cargoUsed() + "/" + g.holdCap()
-                + "   " + g.windLabel() + " 速" + (int) g.speed;
+        String s = "";
         if (g.autoSailPort >= 0) {
             s += " 自动->" + Catalog.PORTS[g.autoSailPort];
         } else if (g.autoSailIsle >= 0) {

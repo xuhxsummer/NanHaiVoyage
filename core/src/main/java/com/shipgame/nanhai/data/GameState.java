@@ -599,14 +599,35 @@ public class GameState {
         return Math.max(1, Math.round(base * (1000 + off) / 1000f));
     }
 
-    /** 游戏时间文案：第N日 HH:MM 白天/夜晚（06:00-18:00 白天）。 */
+    /** 游戏时间：中文序数天数、HH:MM、昼夜、天气（06:00-18:00 白天）。 */
     public String timeLabel() {
         int total = (int) dayMin;
         int hh = (total / 60) % 24;
         int mm = total % 60;
         boolean day = total >= 360 && total < 1080;
-        return String.format("第%d日 %02d:%02d %s", gameDay, hh, mm, day ? "白天" : "夜晚");
+        return String.format(java.util.Locale.ROOT,"第%s天 %02d:%02d %s 晴", chineseDay(Math.max(1,gameDay),true), hh, mm, day ? "白天" : "夜晚");
     }
+
+    /** Chinese numerals across the save's positive int day range, with internal zeroes. */
+    private static String chineseDay(int n,boolean leading) {
+        for(int unit:new int[]{100000000,10000}) if(n>=unit) {
+            int rest=n%unit;
+            return chineseDay(n/unit,leading)+(unit==10000?"万":"亿")
+                    +(rest==0?"":(rest<unit/10?"零":"")+chineseDay(rest,false));
+        }
+        String digits="零一二三四五六七八九",units="千百十";
+        StringBuilder out=new StringBuilder();boolean zero=false;
+        int divisor=1000;
+        for(int i=0;i<4;i++,divisor/=10) {
+            int digit=n/divisor;n%=divisor;
+            if(digit==0) { if(out.length()>0 && n>0) zero=true;continue; }
+            if(zero) { out.append('零');zero=false; }
+            if(!(leading && out.length()==0 && divisor==10 && digit==1)) out.append(digits.charAt(digit));
+            if(i<3) out.append(units.charAt(i));
+        }
+        return out.toString();
+    }
+
 
     /** 每个游戏黎明 06:00 重摇各港各货价格偏移（±5%~±8%，硬上限 ±10%）。 */
     public void refreshMarket() {

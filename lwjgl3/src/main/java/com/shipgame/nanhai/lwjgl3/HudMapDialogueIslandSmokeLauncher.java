@@ -14,7 +14,7 @@ import com.shipgame.nanhai.ui.*;
 import java.lang.reflect.*;
 import java.nio.file.Path;
 
-/** Real-input, isolated-account checks for each of the seven 0.28.27 requirements. */
+/** Real-input, isolated-account checks for each of the eleven 0.28.27 requirements. */
 public final class HudMapDialogueIslandSmokeLauncher {
     private static int result=1;
     public static void main(String[] args)throws Exception {
@@ -45,7 +45,7 @@ public final class HudMapDialogueIslandSmokeLauncher {
                 try {
                     if(frame++==0){checks("1280");Gdx.graphics.setWindowedMode(1600,720);}
                     else {voyage.resize(1600,720);checks("1600");result=0;
-                        System.out.println("HUD MAP DIALOGUE ISLAND PASS: all seven items at 1280/1600, real intel/map/autosail taps, measured title, silver retained in port, text-only auto, narrow centered tap dialogue, centered parchment notices, explore/anchor/resume and port actions");Gdx.app.exit();}
+                        System.out.println("HUD MAP DIALOGUE ISLAND PASS: all eleven items at 1280/1600, real intel/map/autosail taps, measured title, silver retained in port, text-only auto, narrow centered tap dialogue, centered parchment notices, explore/anchor/resume and port actions; weather removal, ordinal day/night clock and rollover, status cleanup, live lower-right telemetry");Gdx.app.exit();}
                 }catch(Throwable t){fail(t);}
             }
             private void checks(String width)throws Exception {
@@ -96,7 +96,38 @@ public final class HudMapDialogueIslandSmokeLauncher {
                 for(int i=0;i<30;i++)voyage.render(.05f);
                 tap("所在地");voyage.render(0);require(overlay().equals("PORT"),"3/7 port flow retained");
                 require(allText(stage.getRoot()).contains("银两 "+state.silver),"3 port still shows silver");capture(width+"-port-silver");invoke("closePopup");voyage.render(0);
-                System.out.println("Verified all seven items at "+width);
+                for(int card=0;card<2;card++) {
+                    Table quest=(Table)actor(card==0?"任务卡":"下一程任务卡"),header=(Table)actor("任务标题栏"+card);
+                    require(header.getX()==0 && header.getWidth()==quest.getWidth(),"merged polish: quest header flush with body");
+                    require(quest.getBackground()==(card==0?hud.ui.questPaper:hud.ui.questPanel),"merged polish: undecorated body, triangles retained on header only");
+                }
+                // 8–11. Weather belongs in the ordinal clock; navigation telemetry has its own safe corner.
+                require(!allText(hud).contains("今日："),"8 weather plate and caption removed");
+                state.gameDay=1;state.dayMin=981;state.speed=87;state.headingDeg=state.windDeg;
+                voyage.render(0);
+                require(hud.clock.getText().toString().equals("第一天 16:21 白天 晴"),"9 exact ordinal/time/day/weather format");
+                Label telemetry=(Label)actor("风向航速文字");
+                require(telemetry.getText().toString().equals("顺风 速87"),"11 live following wind and speed");
+                require(!hud.status.getText().toString().matches(".*(欠|舱|顺风|逆风|侧风|速[0-9]).*"),"10/11 top status cleared of debt/cargo/wind/speed");
+                Actor sailing=actor("航向航速");
+                require(sailing.getX()>hud.getWidth()*.7f && sailing.getY()+sailing.getHeight()<hud.questGroup.getY() && sailing.getX()+sailing.getWidth()<=hud.getWidth(),"11 lower-right safe bounds below quests");
+                require(telemetry.getPrefWidth()<=telemetry.getWidth(),"11 telemetry fits without clipping");
+                capture(width+"-clock-wind-day");
+                state.headingDeg=state.windDeg+180;state.speed=12;state.dayMin=1080;voyage.render(0);
+                require(telemetry.getText().toString().equals("逆风 速12") && hud.clock.getText().toString().endsWith("18:00 夜晚 晴"),"9/11 night and opposing wind refresh");
+                capture(width+"-clock-wind-night");
+                int[] days={2,10,11,20,21,101,1001,1010,10000,10001,10010,100000001,Integer.MAX_VALUE};
+                String[] ordinals={"二","十","十一","二十","二十一","一百零一","一千零一","一千零一十","一万","一万零一","一万零一十","一亿零一","二十一亿四千七百四十八万三千六百四十七"};
+                for(int i=0;i<days.length;i++) {
+                    state.gameDay=days[i];voyage.render(0);
+                    require(hud.clock.getText().toString().startsWith("第"+ordinals[i]+"天 "),"9 Chinese ordinal "+days[i]);
+                    require(hud.clock.getPrefWidth()<=hud.clock.getWidth(),"9 long day count stays readable "+days[i]);
+                }
+                state.gameDay=9;state.dayMin=1439.99f;
+                Method advance=GameState.class.getDeclaredMethod("advanceClock",float.class);advance.setAccessible(true);advance.invoke(state,.1f);voyage.render(0);
+                require(state.gameDay==10 && hud.clock.getText().toString().startsWith("第十天 00:00 夜晚 晴"),"9 midnight rollover");
+                state.gameDay=1;state.dayMin=360;state.speed=0;
+                System.out.println("Verified all eleven items at "+width);
             }
             private String overlay()throws Exception{return get(voyage,"overlay").toString();}
             private Object get(Object owner,String name)throws Exception{Field f=owner.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(owner);}

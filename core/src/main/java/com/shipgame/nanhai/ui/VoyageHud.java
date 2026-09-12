@@ -14,6 +14,8 @@ public final class VoyageHud extends Group implements Disposable {
     public final VoyageHudChrome ui;
     public final Label[] stats=new Label[4];
     public final Label status,clock;
+    private final Label windSpeed;
+    private final Table time;
     public final TextButton auto,cancelAuto,lock,cancelLock,anchor;
     private final Label coords,place,placeSub;
     private final MarqueeNotice toast;
@@ -53,11 +55,10 @@ public final class VoyageHud extends Group implements Disposable {
         Label north=ui.label("北",24,VoyageHudChrome.PAPER);north.setBounds(1748,1008,32,32);north.setTouchable(Touchable.disabled);addActor(north);
         coords=ui.label("",17,VoyageHudChrome.PAPER);coords.setAlignment(Align.center);coords.setBounds(1664,816,192,24);coords.setTouchable(Touchable.disabled);addActor(coords);
         Table intelButton=badge("情报","book",56,intel);intelButton.setBounds(1632,772,72,84);addActor(intelButton);
-        Table weather=panel(ui.panel,1664,712,232,48);weather.pad(4);weather.add(icon("sun")).size(36);weather.add(ui.label("今日：晴",24,VoyageHudChrome.PAPER));
         questGroup=new Table();questGroup.setTouchable(Touchable.childrenOnly);questGroup.setBounds(1576,388,320,288);addActor(questGroup);
-        for(int i=0;i<2;i++){final int n=i;Table card=new Table();card.setName(i==0?"任务卡":"下一程任务卡");card.setBackground(i==0?ui.parchment:ui.panel);card.pad(8,20,8,8);
-            Table head=new Table();head.setBackground(i==0?ui.red:ui.blue);head.pad(4,28,4,24);questTitles[i]=ui.label("",22,VoyageHudChrome.PAPER);questTitles[i].setName("任务标题"+i);questTitles[i].setEllipsis(true);head.add(questTitles[i]).growX();
-            card.add(head).size(304,36).row();questBodies[i]=ui.label("",21,i==0?Color.valueOf("3F3326"):VoyageHudChrome.PAPER);questBodies[i].setWrap(true);card.add(questBodies[i]).width(272).height(56).left().padLeft(16).row();
+        for(int i=0;i<2;i++){final int n=i;Table card=new Table();card.setName(i==0?"任务卡":"下一程任务卡");card.setBackground(i==0?ui.questPaper:ui.questPanel);card.pad(8,0,8,0);
+            Table head=new Table();head.setName("任务标题栏"+i);head.setBackground(i==0?ui.red:ui.blue);head.pad(4,28,4,24);questTitles[i]=ui.label("",22,VoyageHudChrome.PAPER);questTitles[i].setName("任务标题"+i);questTitles[i].setEllipsis(true);head.add(questTitles[i]).growX();
+            card.add(head).size(320,36).row();questBodies[i]=ui.label("",21,i==0?Color.valueOf("3F3326"):VoyageHudChrome.PAPER);questBodies[i].setWrap(true);card.add(questBodies[i]).width(272).height(56).left().padLeft(16).row();
             questProgress[i]=ui.label("",20,i==0?Color.valueOf("4D3D28"):VoyageHudChrome.GOLD);card.add(questProgress[i]).width(272).height(28).left().padLeft(16);card.addListener(click(()->quest.accept(n)));questCards[i]=card;questGroup.add(card).size(320,136).padBottom(i==0?16:0).row();
             // Preserve FreeBuff's clockwise gold sweep without consuming card taps.
             RotatingGoldBorder border=new RotatingGoldBorder();
@@ -73,7 +74,9 @@ public final class VoyageHud extends Group implements Disposable {
         knob=new Image(ui.circle);knob.setTouchable(Touchable.disabled);knob.setBounds(212,172,120,120);addActor(knob);
         Image shipKnob=icon("ship");shipKnob.setName("摇杆船徽");shipKnob.setTouchable(Touchable.disabled);shipKnob.setBounds(236,196,72,72);addActor(shipKnob);
         auto=ui.button("自动航行",ui.panel,22);auto.setName("自动航行");auto.setBounds(472,96,168,64);auto.addListener(click(autoAction));addActor(auto);
-        Table time=panel(ui.panel,24,24,360,48);time.pad(4,12,4,12);time.add(icon("sun")).size(32).padRight(8);clock=ui.label("",22,VoyageHudChrome.PAPER);time.add(clock).growX();
+        time=panel(ui.panel,24,24,440,48);time.setName("航海时钟");time.pad(4,12,4,12);time.add(icon("sun")).size(32).padRight(8);clock=ui.label("",24,VoyageHudChrome.PAPER);clock.setName("航海时间");time.add(clock).growX();
+        Table sailing=panel(ui.panel,1576,24,320,64);sailing.setName("航向航速");sailing.pad(8,16,8,16);
+        windSpeed=ui.label("",26,VoyageHudChrome.PAPER);windSpeed.setName("风向航速文字");sailing.add(windSpeed).center();
         toastBar=panel(ui.parchment,552,816,816,112);toastBar.setName("航行消息");toastBar.pad(8,16,8,16);
         Table noticeHead=new Table(); noticeHead.setName("航行消息标题");noticeHead.setBackground(ui.red);
         noticeHead.add(ui.label("海上见闻",22,VoyageHudChrome.PAPER)).left().padLeft(20).expandX();
@@ -123,6 +126,8 @@ public final class VoyageHud extends Group implements Disposable {
         Color railColor=(g.dayMin>=360f && g.dayMin<1080f)?Color.valueOf("24313A"):VoyageHudChrome.GOLD;
         for(Label rail:railLabels) if(rail!=null) rail.setColor(railColor);
         speedNeedle.setY(120+com.badlogic.gdx.math.MathUtils.clamp(g.speed/Catalog.MAX_SPEED,0,1)*216);
+        time.setWidth(Math.min(getWidth()/2-48,Math.max(440,clock.getPrefWidth()+64)));
+        windSpeed.setText(g.windLabel()+" 速"+(int)g.speed);
         minimap.update(g);coords.setText("X:"+(int)g.x+"  Y:"+(int)g.y);questGroup.setVisible(neutral);dot.setVisible(ready);
         toastBar.setVisible(neutral && g.toastT>0 && !g.toast.isEmpty());toast.setText(g.toastT>0?g.toast:"");
         knob.setPosition(212+kx*88,172+ky*88);Actor ship=findActor("摇杆船徽");ship.setPosition(236+kx*88,196+ky*88);
