@@ -373,15 +373,21 @@ public class VoyageScreen extends ScreenAdapter {
         menuRoot = new Table(); menuRoot.setFillParent(true);
         menuRoot.setTouchable(Touchable.childrenOnly);
         menuRoot.center().top().padTop(78); stage.addActor(menuRoot);
-        tipBubble=new Table(); tipBubble.setName("contextualTip");
-        tipBubble.setBackground(voyageHud.ui.panel); tipBubble.pad(10,18,10,12);
-        tipCopy=voyageHud.ui.label("",26,QuestUi.PAPER); tipCopy.setName("contextualTipCopy");
-        tipBubble.add(tipCopy).growX().padRight(12);
-        TextButton dismiss=voyageHud.ui.button("知道了",voyageHud.ui.blue,22);
+        tipBubble=new Table(); tipBubble.setName("contextualTip"); tipBubble.setFillParent(true);
+        tipBubble.setTouchable(Touchable.enabled);
+        tipBubble.setBackground(game.skin.newDrawable("white",new Color(.01f,.02f,.03f,.65f)));
+        Table tipPanel=new Table(); tipPanel.setName("contextualTipPanel");
+        tipPanel.setBackground(voyageHud.ui.panel); tipPanel.pad(32);
+        tipPanel.add(voyageHud.ui.label("航海指引",36,QuestUi.PAPER)).padBottom(28).row();
+        tipCopy=voyageHud.ui.label("",30,QuestUi.PAPER); tipCopy.setName("contextualTipCopy");
+        tipCopy.setWrap(true); tipCopy.setAlignment(Align.center);
+        tipPanel.add(tipCopy).width(620).height(100).padBottom(24).row();
+        TextButton dismiss=voyageHud.ui.button("知道了",voyageHud.ui.blue,28);
         dismiss.setName("contextualTipDismiss"); dismiss.addListener(click(() -> {
             contextualTips.dismiss(); tipBubble.setVisible(false);
         }));
-        tipBubble.add(dismiss).size(100,44);
+        tipPanel.add(dismiss).size(240,64);
+        tipBubble.add(tipPanel).width(720).height(340);
         tipBubble.setVisible(false);stage.addActor(tipBubble);
     }
 
@@ -521,7 +527,7 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void maybePlayQuestDialogue() {
-        if (overlay != Overlay.NONE || g.failed) return; // Defer until existing menus/tutorial close.
+        if (contextualTips.active()!=null || overlay != Overlay.NONE || g.failed) return; // Defer until existing menus/tutorial close.
         int active = getActiveQuestIndex();
         if (active >= 0 && (g.questDialogueSeen & (1 << QUESTS[active].id)) == 0)
             openQuestDialogue(0);
@@ -711,7 +717,9 @@ public class VoyageScreen extends ScreenAdapter {
         if (overlay == Overlay.DIALOGUE && dialogueQuest >= MAIN_QUEST_COUNT) {
             selectedQuest = dialogueQuest; overlay = Overlay.QUESTS; rebuildMenu(); return;
         }
-        if (overlay == Overlay.REDEEM) Gdx.input.setOnscreenKeyboardVisible(false);
+        if (overlay == Overlay.REDEEM || overlay == Overlay.DAILY) {
+            stage.setKeyboardFocus(null); Gdx.input.setOnscreenKeyboardVisible(false);
+        }
         if (overlay == Overlay.AVATAR && captainPanel != null) captainPanel.commitNickname();
         if (overlay == Overlay.PORT && g.dockedPort >= 0) {
             g.undockInPlace();
@@ -919,11 +927,16 @@ public class VoyageScreen extends ScreenAdapter {
         });
         claim.setName("领取每日奖励"); claim.setDisabled(!g.canClaimDaily());
         content.add(claim).size(360,80).left();
-        return pageFrame("活动 · 每日登录",content,this::closePopup);
+        content.row();
+        content.add(redeemContent()).width(1080).left().padTop(40);
+        return pageFrame("活动 · 每日登录与福利",content,this::closePopup);
     }
 
-    private Table redeemPage() {
+    private Table redeemPage() { return dailyPage(); }
+
+    private Table redeemContent() {
         Table content=new Table(); content.top().left();
+        content.add(pageUi.label("福利 · 兑换码",32,QuestUi.PAPER)).left().padBottom(20).row();
         content.add(pageCopy("输入兑换码领取银两。每个兑换码在当前存档中仅可领取一次。")).width(1080).left().padBottom(32).row();
         TextField.TextFieldStyle style=new TextField.TextFieldStyle(game.skin.get(TextField.TextFieldStyle.class));
         style.background=pageUi.blue; style.fontColor=QuestUi.PAPER;
@@ -936,7 +949,7 @@ public class VoyageScreen extends ScreenAdapter {
             stage.setKeyboardFocus(null); Gdx.input.setOnscreenKeyboardVisible(false);
         })).size(320,72).left().padBottom(28).row();
         content.add(result).width(1080).left();
-        return pageFrame("福利 · 兑换码",content,this::closePopup);
+        return content;
     }
 
     private Table howtoPage() {
@@ -2387,9 +2400,9 @@ public class VoyageScreen extends ScreenAdapter {
         readKeyboard();
         g.onManualSteer();
         // Every open page pauses movement, clock, weather and combat.
-        if (!g.worldPaused() && (overlay == Overlay.NONE || overlay == Overlay.LOOT)) g.update(delta);
+        if (contextualTips.active()==null && !g.worldPaused() && (overlay == Overlay.NONE || overlay == Overlay.LOOT)) g.update(delta);
         else if (g.toastT > 0) g.toastT = Math.max(0,g.toastT-delta);
-        if(overlay==Overlay.NONE || overlay==Overlay.LOOT || g.playerSinking()) g.updateFeedback(delta);
+        if(contextualTips.active()==null && (overlay==Overlay.NONE || overlay==Overlay.LOOT || g.playerSinking())) g.updateFeedback(delta);
         if(g.playerSinking() && overlay!=Overlay.NONE) { overlay=Overlay.NONE; rebuildMenu(); }
 
         // 0.28.21: 每 15 秒自动覆盖本机账号存档（登录后）。脏签名无变化时跳过写盘。
@@ -2407,7 +2420,7 @@ public class VoyageScreen extends ScreenAdapter {
 
         // 0.26.3: 捕鱼只在停靠扬州时进行（即使世界暂停/菜单开着）。钓上一条就
         // 刷新渔务面板并保存，避免退游戏丢鱼。
-        if (g.dockedPort == Catalog.YANGZHOU && (overlay == Overlay.PORT || overlay == Overlay.FISH)) {
+        if (contextualTips.active()==null && g.dockedPort == Catalog.YANGZHOU && (overlay == Overlay.PORT || overlay == Overlay.FISH)) {
             boolean caught = g.tickFishing(delta);
             if (caught) {
                 if (overlay == Overlay.FISH) {
@@ -2489,7 +2502,7 @@ public class VoyageScreen extends ScreenAdapter {
         voyageHud.update(g, overlay == Overlay.NONE,
                 activeQuest >= 0 && isQuestComplete(g, QUESTS[activeQuest]), stickKX, stickKY);
 
-        if (world3d != null) world3d.render(g, overlay == Overlay.NONE || overlay == Overlay.LOOT || g.playerSinking() ? delta : 0f);
+        if (world3d != null) world3d.render(g, contextualTips.active()==null && (overlay == Overlay.NONE || overlay == Overlay.LOOT || g.playerSinking()) ? delta : 0f);
         else ScreenUtils.clear(WATER);
 
         // 0.28.22: 沉船音量/BGM 压低计时（无音也幂等）。
@@ -2545,13 +2558,13 @@ public class VoyageScreen extends ScreenAdapter {
                 if(voyageHud.questGroup.isVisible()) eligible|=Tip.QUEST_CARD.bit();
             } else if(overlay==Overlay.PORT && g.dockedPort>=0) eligible|=Tip.PORT_TRADE.bit();
         }
+        Tip previous=contextualTips.active();
         contextualTips.update(dt,eligible);
         Tip active=contextualTips.active();
         tipBubble.setVisible(active!=null);
         if(active!=null) {
             tipCopy.setText(active.copy);
-            float width=Math.min(820,hudVp.getWorldWidth()-32);
-            tipBubble.setBounds((hudVp.getWorldWidth()-width)/2,hudVp.getWorldHeight()-210,width,68);
+            if(previous==null) { stage.cancelTouchFocus(); releaseWorldControls(); }
             tipBubble.toFront();
         }
     }
@@ -2560,7 +2573,7 @@ public class VoyageScreen extends ScreenAdapter {
     private GameState.LootGain lootGain;
 
     private void tickLootPopup(float delta) {
-        if (overlay != Overlay.NONE || g.failed) return; // Keep defeat and delayed loot separate.
+        if (contextualTips.active()!=null || overlay != Overlay.NONE || g.failed) return; // Keep defeat and delayed loot separate.
         GameState.LootGain gain = g.pollLootPopup();
         if (gain != null) {
             lootGain = gain;
@@ -2620,7 +2633,7 @@ public class VoyageScreen extends ScreenAdapter {
     }
 
     private void readKeyboard() {
-        if(g.playerSinking()) return;
+        if(g.playerSinking() || contextualTips.active()!=null) return;
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) && overlay != Overlay.NONE) {
             if (overlay == Overlay.HOWTO) dismissHowto();
             else closePopup();
@@ -2709,6 +2722,7 @@ public class VoyageScreen extends ScreenAdapter {
         @Override
         public boolean touchDown(int screenX, int screenY, int pointer, int button) {
             if(g.playerSinking()) return true;
+            if(contextualTips.active()!=null) return false;
             hudVp.unproject(tmp.set(screenX, screenY, 0));
             float hx = tmp.x, hy = tmp.y;
 

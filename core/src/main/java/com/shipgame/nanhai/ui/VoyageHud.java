@@ -15,7 +15,8 @@ public final class VoyageHud extends Group implements Disposable {
     public final Label[] stats=new Label[4];
     public final Label status,clock;
     public final TextButton auto,cancelAuto,lock,cancelLock,anchor;
-    private final Label coords,toast,place,placeSub;
+    private final Label coords,place,placeSub;
+    private final MarqueeNotice toast;
     public final Table location,toastBar,questGroup;
     private final Table[] questCards=new Table[2];
     private final Array<RotatingGoldBorder> questBorders=new Array<>();
@@ -40,8 +41,8 @@ public final class VoyageHud extends Group implements Disposable {
         badge.add(captainPortrait).size(112);badge.addListener(click(captain));
         badge.setBounds(24,936,128,128);addActor(badge);
         status=ui.label("",21,VoyageHudChrome.PAPER);status.setEllipsis(true);status.setBounds(168,928,640,32);addActor(status);
-        textLink("我的船只",mine,168,880,136);textLink("港口",port,312,880,80);textLink("情报",intel,400,880,80);
-        String[] rail={"货舱","图鉴","商城","任务","活动","福利"};String[] glyph={"cargo","book","anchor","quest","cargo","gift"};
+        Table intelBadge=badge("情报","book",80,intel); intelBadge.setBounds(1528,952,80,108); addActor(intelBadge);
+        String[] rail={"货舱","图鉴","商城","任务","活动"};String[] glyph={"cargo","book","anchor","quest","gift"};
         Image questDot=null;
         for(int i=0;i<rail.length;i++){Table item=badge(rail[i],glyph[i],80,shortcuts[i]);item.setBounds(1008+i*104,952,80,108);addActor(item);
             if(i==3){questDot=new Image(ui.redCircle);questDot.setBounds(1068+i*104,1032,20,20);questDot.setTouchable(Touchable.disabled);addActor(questDot);}}
@@ -74,14 +75,15 @@ public final class VoyageHud extends Group implements Disposable {
         Image shipKnob=icon("ship");shipKnob.setName("摇杆船徽");shipKnob.setTouchable(Touchable.disabled);shipKnob.setBounds(236,196,72,72);addActor(shipKnob);
         auto=ui.button("自动航行",ui.panel,22);auto.setName("自动航行");auto.setBounds(472,96,168,64);Label autoLabel=auto.getLabel();auto.clearChildren();auto.add(icon("helm")).size(40).padRight(8);auto.add(autoLabel);auto.addListener(click(autoAction));addActor(auto);
         Table time=panel(ui.panel,24,24,360,48);time.pad(4,12,4,12);time.add(icon("sun")).size(32).padRight(8);clock=ui.label("",22,VoyageHudChrome.PAPER);time.add(clock).growX();
-        toastBar=panel(ui.panel,600,24,896,56);toastBar.setName("航行消息");toastBar.pad(8,24,8,24);toastBar.add(icon("anchor")).size(32).padRight(12);toast=ui.label("",22,VoyageHudChrome.PAPER);toast.setWrap(true);toastBar.add(toast).growX();toastBar.setTouchable(Touchable.disabled);
+        toastBar=panel(ui.panel,168,864,816,56);toastBar.setName("航行消息");toastBar.pad(8,24,8,24);toastBar.add(icon("anchor")).size(32).padRight(12);toast=new MarqueeNotice(ui.label("",22,VoyageHudChrome.PAPER));toastBar.add(toast).grow();toastBar.setTouchable(Touchable.disabled);
         // 0.28.21/0.28.22: 停靠提示 + 抛锚按钮贴船水平排列（都在船右侧：
         // 停靠提示左、抛锚右，等宽等高）。位置每帧由 VoyageScreen 投影同步。
         location=panel(ui.panel,600,696,224,64);location.setTouchable(Touchable.enabled);location.pad(6,10,6,10);place=ui.label("",24,VoyageHudChrome.PAPER);placeSub=ui.label("",17,VoyageHudChrome.GOLD);location.add(place).row();location.add(placeSub);location.addListener(click(port));location.setName("所在地");
-        // 0.28.24:「取消锁定」与「自动航行」并排（同一行、同尺寸，紧挨其右）。
-        cancelAuto=utility("取消自动",cancel,648);lock=utility("锁定海盗",lockAction,824);
+        // 取消锁定紧贴自动航行上方，共用左下按钮列。
+        cancelAuto=utility("取消自动",cancel,648); cancelAuto.setBounds(648,96,168,64);
+        lock=utility("锁定海盗",lockAction,472); lock.setBounds(472,168,168,64);
         cancelLock=ui.button("取消锁定",ui.panel,22);cancelLock.setName("取消锁定");
-        cancelLock.setBounds(648,96,168,64);cancelLock.addListener(click(unlock));addActor(cancelLock);
+        cancelLock.setBounds(472,168,168,64);cancelLock.addListener(click(unlock));addActor(cancelLock);
         // 0.28.21 抛锚/起锚：贴船按钮 —— 位置每帧由 VoyageScreen 投影同步
         // （与停靠提示并排在船右侧），仅港/岛范围内（或已抛锚）可见。
         // 0.28.22: 与停靠提示等宽等高（180×64），共享样式。
@@ -102,8 +104,8 @@ public final class VoyageHud extends Group implements Disposable {
     }
     private Table panel(Drawable bg,float x,float y,float w,float h){Table t=new Table();t.setBackground(bg);t.setBounds(x,y,w,h);t.setTouchable(Touchable.childrenOnly);addActor(t);return t;}
     private Image icon(String name){Image i=new Image(ui.icon(name));i.setScaling(Scaling.fit);return i;}
-    private Table badge(String title,String symbol,float size,Runnable action){Table t=new Table();t.setName(title);Table disc=new Table();disc.setBackground(ui.circle);disc.add(icon(symbol)).size(size*.68f);t.add(disc).size(size).row();if(!title.equals("船长")){ Label rail=ui.label(title,24,VoyageHudChrome.PAPER); rail.setName("rail:"+title); int ri=java.util.Arrays.asList(new String[]{"货舱","图鉴","商城","任务","活动","福利"}).indexOf(title); if(ri>=0) railLabels[ri]=rail; t.add(rail).height(28); }t.addListener(click(action));return t;}
-    private void textLink(String text,Runnable action,float x,float y,float w){TextButton b=ui.button(text,ui.panel,20);b.setName(text);b.setBounds(x,y,w,40);b.addListener(click(action));addActor(b);}
+    private Table badge(String title,String symbol,float size,Runnable action){Table t=new Table();t.setName(title);Table disc=new Table();disc.setBackground(ui.circle);disc.add(icon(symbol)).size(size*.68f);t.add(disc).size(size).row();if(!title.equals("船长")){ Label rail=ui.label(title,24,VoyageHudChrome.PAPER); rail.setName("rail:"+title); int ri=java.util.Arrays.asList(new String[]{"货舱","图鉴","商城","任务","活动","情报"}).indexOf(title); if(ri>=0) railLabels[ri]=rail; t.add(rail).height(28); }t.addListener(click(action));return t;}
+
     private TextButton utility(String text,Runnable action,float x){TextButton b=ui.button(text,ui.panel,20);b.setName(text);b.setBounds(x,856,168,48);b.addListener(click(action));addActor(b);return b;}
     private static ClickListener click(Runnable r){return new ClickListener(){@Override public void clicked(InputEvent e,float x,float y){
         e.stop();
@@ -117,7 +119,7 @@ public final class VoyageHud extends Group implements Disposable {
         for(Label rail:railLabels) if(rail!=null) rail.setColor(railColor);
         speedNeedle.setY(120+com.badlogic.gdx.math.MathUtils.clamp(g.speed/Catalog.MAX_SPEED,0,1)*216);
         minimap.update(g);coords.setText("X:"+(int)g.x+"  Y:"+(int)g.y);questGroup.setVisible(neutral);dot.setVisible(ready);
-        toastBar.setVisible(neutral && g.toastT>0 && !g.toast.isEmpty());toast.setText(g.toastT>0?g.toast:"");toastBar.setHeight(g.toast.length()>38&&g.toastT>0?80:56);
+        toastBar.setVisible(neutral && g.toastT>0 && !g.toast.isEmpty());toast.setText(g.toastT>0?g.toast:"");
         knob.setPosition(212+kx*88,172+ky*88);Actor ship=findActor("摇杆船徽");ship.setPosition(236+kx*88,196+ky*88);
         int p=g.dockedPort>=0?g.dockedPort:g.nearestPortInRange();int isle=g.islandMenu>=0?g.islandMenu:g.nearestIslandInRange();
         // 0.28.21: 所在地面板的可见性与位置由 VoyageScreen 贴船同步（与抛锚竖排），

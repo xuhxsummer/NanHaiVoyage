@@ -1,6 +1,6 @@
 package com.shipgame.nanhai.ui;
 
-/** One screen instance = one login cycle. No save/prefs state and no world-pause side effects. */
+/** One screen instance = one login cycle. No save/prefs state; the screen pauses the world while active. */
 public final class ContextualTips {
     public enum Tip {
         STICK("推动左下摇杆，控制船只航行"),
@@ -15,7 +15,7 @@ public final class ContextualTips {
     private static final Tip[] PRIORITY={Tip.PIRATE_LOCK,Tip.PORT_TRADE,Tip.DOCK,Tip.STICK,Tip.QUEST_CARD};
     private int shown;
     private Tip active;
-    private float remaining, gap;
+    private float gap;
     public Tip active() { return active; }
     public boolean shown(Tip tip) { return (shown & tip.bit())!=0; }
     public void complete(Tip tip) {
@@ -25,14 +25,13 @@ public final class ContextualTips {
     public void dismiss() { active=null; gap=.5f; }
     public void update(float dt,int eligible) {
         if(active!=null) {
-            remaining-=Math.max(0,dt);
-            if(remaining<=0 || (eligible & active.bit())==0) dismiss();
+            if((eligible & active.bit())==0) dismiss();
             else return;
         }
         gap=Math.max(0,gap-Math.max(0,dt));
         if(gap>0) return;
         for(Tip tip:PRIORITY) if((eligible & tip.bit())!=0 && !shown(tip)) {
-            active=tip;shown|=tip.bit();remaining=9f;return;
+            active=tip;shown|=tip.bit();return;
         }
     }
 }

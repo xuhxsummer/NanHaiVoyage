@@ -16,8 +16,7 @@ import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Align;
 
 /** A bottom speaker box; the full-screen dimmer catches taps before the sailing HUD.
- * 0.28.25: paper-cutout half-body busts — mapped NPC on the left, player 我
- * (avatarIndex) on the right; the active speaker is brighter and slightly scaled. */
+ * The active speaker alone appears above the frame: NPC left, player 我 right. */
 public final class QuestDialogue extends Table {
     private final String[][] lines;
     private final String objective;
@@ -76,9 +75,7 @@ public final class QuestDialogue extends Table {
         rightBust = bustImage(ui, null); rightSlot = bustSlot(rightBust, "dialogueBustPlayer");
         body = ui.dialogueLine(""); body.setName("dialogueBody");
         body.setFontScale(1f); body.setWrap(true); body.setAlignment(Align.left);
-        paper.add(leftSlot).size(132, 150);
         paper.add(body).grow();
-        paper.add(rightSlot).size(132, 150);
         panel.add(paper).growX().height(210).padBottom(10).row();
         Table footer = new Table();
         hint = ui.label("", 21, QuestUi.PAPER); hint.setName("dialogueHint");
@@ -87,6 +84,11 @@ public final class QuestDialogue extends Table {
         primary.addListener(action(action));
         footer.add(primary).size(160, 44).padLeft(16);
         panel.add(footer).growX().height(44);
+        Table portraits=new Table(); portraits.setTouchable(Touchable.disabled);
+        portraits.add(leftSlot).size(210,240).left().padLeft(24);
+        portraits.add().expandX();
+        portraits.add(rightSlot).size(210,240).right().padRight(24);
+        add(portraits).growX().height(240).row();
         add(panel).growX().height(352);
         addListener(new ClickListener() {
             @Override public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
@@ -133,24 +135,18 @@ public final class QuestDialogue extends Table {
     private void refresh() {
         boolean ending = line >= lines.length;
         String speakerName = ending ? "此程所托" : lines[line][0];
-        speaker.setText(speakerName);
+        speaker.setText("你".equals(speakerName) ? "我" : speakerName);
         body.setText(ending ? objective : lines[line][1]);
         hint.setText(ending ? "点击空白收起 · 也可选择右侧按钮" : "点击继续  ·  " + (line + 1) + "/" + lines.length);
         primary.setText(actionText.apply(speakerName));
-        boolean playerSpeaking = !ending && "你".equals(speakerName);
-        // Left: NPC mapped by speaker (fallback 老者); right: player「我」.
-        setBust(leftBust, ending ? null : bustSlug(speakerName));
-        setBust(rightBust, "player_" + playerAvatarIndex());
-        boolean npcActive = !playerSpeaking;
-        leftSlot.setColor(npcActive ? Color.WHITE : DIM);
-        rightSlot.setColor(playerSpeaking ? Color.WHITE : DIM);
-        leftSlot.setScale(npcActive ? ACTIVE_SCALE : 1f);
-        rightSlot.setScale(playerSpeaking ? ACTIVE_SCALE : 1f);
+        boolean playerSpeaking = !ending && ("你".equals(speakerName) || "我".equals(speakerName));
+        setBust(leftBust, !ending && !playerSpeaking ? bustSlug(speakerName) : null);
+        setBust(rightBust, playerSpeaking ? "player_" + playerAvatarIndex() : null);
+        leftSlot.setVisible(!ending && !playerSpeaking);
+        rightSlot.setVisible(playerSpeaking);
         primary.setVisible(ending);
     }
 
-    private static final Color DIM = new Color(.55f, .55f, .55f, .75f);
-    private static final float ACTIVE_SCALE = 1.06f;
 
     /** Same identity source as the HUD portrait and captain menu (set via reflection-free hook). */
     private static volatile java.util.function.IntSupplier avatarSupplier;

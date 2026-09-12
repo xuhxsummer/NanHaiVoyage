@@ -19,7 +19,7 @@ public final class CombatAiRegression {
                 tick(g,w,.05f);float ex=ex(g,w),ey=ey(g,w),d=Catalog.dist(g.x,g.y,ex,ey);
                 require(d>100,"no bow glue/ram seek");
                 if(i<20)side=Math.max(side,Math.abs((ex-g.x)*cy-(ey-g.y)*cx));
-                if(i>=400) { require(d>Catalog.PIRATE_RANGE*.60f && d<Catalog.PIRATE_RANGE*.90f,"held cannon band: "+war+" "+d); mean+=d/200; }
+                if(i>=400) { require(d>Catalog.PIRATE_RANGE*.35f && d<Catalog.PIRATE_RANGE*.70f,"held cannon band: "+war+" "+d); mean+=d/200; }
                 shots+=g.ballCount;g.ballCount=0;
             }
             require(side>15,"flank component instead of straight seek");require(shots>5,"moving broadside fire");
@@ -38,6 +38,18 @@ public final class CombatAiRegression {
             float before=Catalog.dist(g.x,g.y,ex(g,w),ey(g,w));
             for(int i=0;i<40;i++)tick(g,w,.05f);
             require(Catalog.dist(g.x,g.y,ex(g,w),ey(g,w))<(war?610:before),"healing restores flank band");
+        }
+        // Chase a moving player through repeated heading reversals, including at the horizon edge.
+        for(boolean war:new boolean[]{false,true}) {
+            GameState moving=sea(); WarshipData w=enemy(moving,war,moving.x+950,moving.y);
+            moving.speed=150;
+            for(int i=0;i<160;i++) {
+                moving.headingDeg=(i/40)%2==0?180:0;
+                moving.x+=MathUtils.cosDeg(moving.headingDeg)*moving.speed*.05f;
+                tick(moving,w,.05f);
+                require(war?w.hostile:moving.combatLock && moving.pirateAlive,"turning cannot clear lock or stop chase");
+            }
+            require(Catalog.dist(moving.x,moving.y,ex(moving,w),ey(moving,w))<700,"moving target closes into firing range");
         }
         GameState g=sea();enemy(g,false,g.x+550,g.y);tick(g,null,.1f);g.cancelLock();
         float px=g.pirateX,py=g.pirateY;tick(g,null,.5f);require(Catalog.dist(px,py,g.pirateX,g.pirateY)>30,"unlock grace continues maneuver");
@@ -81,7 +93,7 @@ public final class CombatAiRegression {
             tips.update(1,tip.bit());require(tips.active()==tip,"first relevant context shows "+tip);
             tips.dismiss();tips.update(1,tip.bit());require(tips.active()==null,"same context never repeats "+tip);
         }
-        tips=new ContextualTips();tips.update(0,Tip.PIRATE_LOCK.bit());require(tips.active()==Tip.PIRATE_LOCK,"new login rearms");
+        tips=new ContextualTips();tips.update(0,Tip.PIRATE_LOCK.bit());tips.update(30,Tip.PIRATE_LOCK.bit());require(tips.active()==Tip.PIRATE_LOCK,"new login rearms");
         tips.complete(Tip.PIRATE_LOCK);require(tips.active()==null,"learned action dismisses");
         tips.update(1,Tip.PIRATE_LOCK.bit());require(tips.active()==null,"second pirate does not rearm");
         tips.update(1,Tip.QUEST_CARD.bit());tips.update(.1f,0);require(tips.active()==null,"hidden control hides its prompt");

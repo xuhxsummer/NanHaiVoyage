@@ -662,7 +662,8 @@ public class GameState {
 
     public void toast(String m) {
         toast = m;
-        toastT = 3.2f;
+        // Allow long top announcements to traverse the clipped marquee at least once.
+        toastT = Math.max(3.2f, 2.4f + Math.max(0,m.length()*22f-724f)/70f);
     }
 
     /** 抛锚条件：船在任一港口停靠范围或岛屿搜采范围内。纯查询。 */
@@ -2165,6 +2166,9 @@ public class GameState {
     // Pirate pressure is faster/closer; warships hold a wider broadside orbit.
     private static final float PIRATE_SAIL_SPEED = 100f;
 
+    /** Closing pressure follows actual player speed; heading never changes engagement. */
+    private float chaseSpeed(float cruise) { return Math.max(cruise, Math.abs(speed)+35f); }
+
     /** Seek a moving flank point, never the player's center. Escape headings are held
      * for 1.2s and scored against open-water probes, avoiding mirrored-point jitter. */
     private void maneuver(CombatHelm h, int type, float ex, float ey, float heading,
@@ -2259,7 +2263,7 @@ public class GameState {
         pirateChase=engaged && !lowHp;
         if(engaged || lowHp) {
             maneuver(pirateHelm,VoyageGeometry.PIRATE_SHIP,pirateX,pirateY,pirateHeading,
-                    Catalog.PIRATE_RANGE*.65f,PIRATE_SAIL_SPEED*(lowHp?1.2f:1f),dt,lowHp);
+                    Catalog.PIRATE_RANGE*.40f,(lowHp?PIRATE_SAIL_SPEED*1.2f:chaseSpeed(PIRATE_SAIL_SPEED)),dt,lowHp);
             pirateX=pirateHelm.x; pirateY=pirateHelm.y; pirateHeading=pirateHelm.heading;
         }
         d=Catalog.dist(x,y,pirateX,pirateY);
@@ -2414,8 +2418,8 @@ public class GameState {
         boolean lowHp=w.hp<=w.hpMax*.5f;
         boolean engaged=w.hostile || w.helm.grace>0;
         if(engaged || lowHp) {
-            maneuver(w.helm,w.ship,w.x,w.y,w.heading,Catalog.PIRATE_RANGE*.83f,
-                    78f*(lowHp?1.35f:1f),dt,lowHp);
+            maneuver(w.helm,w.ship,w.x,w.y,w.heading,Catalog.PIRATE_RANGE*.56f,
+                    (lowHp?105.3f:chaseSpeed(90f)),dt,lowHp);
             w.x=w.helm.x; w.y=w.helm.y; w.heading=w.helm.heading;
         } else {
             w.patrolAngle+=14f*dt;
