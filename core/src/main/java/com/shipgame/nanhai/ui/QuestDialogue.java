@@ -88,8 +88,11 @@ public final class QuestDialogue extends Table {
         portraits.add(leftSlot).size(210,240).left().padLeft(24);
         portraits.add().expandX();
         portraits.add(rightSlot).size(210,240).right().padRight(24);
-        add(portraits).growX().height(240).row();
-        add(panel).growX().height(352);
+        com.badlogic.gdx.scenes.scene2d.ui.Value columnWidth=new com.badlogic.gdx.scenes.scene2d.ui.Value() {
+            @Override public float get(Actor context) { return Math.min(940,QuestDialogue.this.getWidth()-80); }
+        };
+        add(portraits).width(columnWidth).height(240).row();
+        add(panel).width(columnWidth).height(352);
         addListener(new ClickListener() {
             @Override public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
                 // Buttons have their own touch focus. Their release must never also advance a line.
@@ -137,7 +140,7 @@ public final class QuestDialogue extends Table {
         String speakerName = ending ? "此程所托" : lines[line][0];
         speaker.setText("你".equals(speakerName) ? "我" : speakerName);
         body.setText(ending ? objective : lines[line][1]);
-        hint.setText(ending ? "点击空白收起 · 也可选择右侧按钮" : "点击继续  ·  " + (line + 1) + "/" + lines.length);
+        hint.setText(""); // Advance on tap without a visible instruction caption.
         primary.setText(actionText.apply(speakerName));
         boolean playerSpeaking = !ending && ("你".equals(speakerName) || "我".equals(speakerName));
         setBust(leftBust, !ending && !playerSpeaking ? bustSlug(speakerName) : null);

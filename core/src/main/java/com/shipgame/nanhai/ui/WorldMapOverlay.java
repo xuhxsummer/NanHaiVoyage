@@ -23,7 +23,8 @@ public final class WorldMapOverlay implements Disposable {
     private static final float ICON_SIZE = 56;
     private static final Rectangle FRAME = new Rectangle(24, 24, 1872, 1032);
     private static final Rectangle CLOSE_BOX = new Rectangle(1776, 928, 104, 112);
-    private static final Rectangle TITLE = new Rectangle(48, 856, 592, 176);
+    private final Rectangle TITLE = new Rectangle(48, 856, 0, 176);
+    private static final String TITLE_TEXT="南海地图", SUBTITLE_TEXT="点港口/岛屿自动驶向";
     private static final Rectangle LEGEND = new Rectangle(96, 64, 312, 144);
     private static final Color GOLD = Color.valueOf("D7B777");
     private static final Color PAPER = Color.valueOf("F4DFAD");
@@ -47,6 +48,7 @@ public final class WorldMapOverlay implements Disposable {
 
     public WorldMapOverlay(NanHaiVoyage game) {
         this.game = game;
+        TITLE.width=Math.max(192+measure(game.font,TITLE_TEXT,2),112+measure(game.fontSmall,SUBTITLE_TEXT,1.5f))-TITLE.x+24;
         background = new Texture(Gdx.files.internal("textures/world-map/sea-chart-hd.png"));
         background.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
         for (int i = 0; i < nodes.length; i++) {
@@ -179,8 +181,8 @@ public final class WorldMapOverlay implements Disposable {
             s.triangle(164,976,120,968,106,976);
             ship(s,mx,my); s.end();
             batch.begin();
-            text(game.font,"南海海图",192,988,2,PAPER);
-            text(game.fontSmall,"点港口/岛屿自动驶向",112,892,1.5f,GOLD);
+            text(game.font,TITLE_TEXT,192,988,2,PAPER);
+            text(game.fontSmall,SUBTITLE_TEXT,112,892,1.5f,GOLD);
             text(game.fontSmall,"关闭",1800,960,1.5f,PAPER);
             text(game.fontSmall,"港口城市",176,172,1.5f,PAPER);
             text(game.fontSmall,"岛屿/礁盘",176,116,1.5f,PAPER);
@@ -195,6 +197,12 @@ public final class WorldMapOverlay implements Disposable {
             batch.setPackedColor(batchColor);
             batch.setProjectionMatrix(oldBatch); s.setProjectionMatrix(oldShapes);
         }
+    }
+
+    private float measure(BitmapFont font,String value,float scale) {
+        float sx=font.getData().scaleX,sy=font.getData().scaleY;
+        font.getData().setScale(scale);glyphs.setText(font,value);
+        float width=glyphs.width;font.getData().setScale(sx,sy);return width;
     }
 
     private void text(BitmapFont font,String value,float x,float y,float scale,Color color) {

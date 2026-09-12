@@ -2272,8 +2272,7 @@ public class VoyageScreen extends ScreenAdapter {
 
     /** Refreshes the four ICON+NUMBER values in the top stat panel. */
     private void updateStatValues() {
-        if (g == null || statVals == null || statVals[0] == null) return;
-        statVals[0].setText(String.valueOf(g.silver));
+        if (g == null || statVals == null || statVals[1] == null) return;
         statVals[1].setText(String.valueOf((int) g.supply));
         statVals[2].setText(String.valueOf((int) g.hull));
         statVals[3].setText(g.crew + "/" + g.crewMax());
@@ -2470,7 +2469,8 @@ public class VoyageScreen extends ScreenAdapter {
             btnAnchor.setText(g.anchored ? "起锚" : "抛锚");
             boolean nearLand = g.dockedPort >= 0 || g.islandMenu >= 0 || g.anchored || g.canAnchor();
             boolean dockPrompt = overlay == Overlay.NONE && nearLand && worldAnchor(g.x, g.y, 64f);
-            boolean showAnchor = overlay == Overlay.NONE && (g.anchored || g.canAnchor());
+            boolean showAnchor = dockPrompt && (g.anchored || g.canAnchor());
+            boolean islandActions = g.nearestPortInRange()<0 && (g.islandMenu>=0 || g.nearestIslandInRange()>=0);
             btnAnchor.setVisible(showAnchor);
             Table locationPanel = voyageHud.location;
             if (locationPanel != null) {
@@ -2485,11 +2485,12 @@ public class VoyageScreen extends ScreenAdapter {
                 if (locationPanel != null) {
                     // 所在地：船右侧垂直居中（左缘贴船屏上位置 + 56）。
                     locationPanel.setSize(180f, 64f);
-                    locationPanel.setPosition(bx + 56f, by - 32f);
+                    locationPanel.setPosition(bx + 56f, islandActions ? by + 4f : by - 32f);
                 }
                 if (showAnchor) {
                     // 抛锚：紧贴所在地右侧，等高等宽 —— 一眼看去是一对按钮。
-                    btnAnchor.setPosition(bx + 56f + 180f + 8f, by - 32f);
+                    btnAnchor.setPosition(islandActions ? bx + 56f : bx + 56f + 180f + 8f,
+                            islandActions ? by - 68f : by - 32f);
                 }
             }
         }

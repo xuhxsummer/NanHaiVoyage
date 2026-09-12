@@ -170,3 +170,10 @@ tasks.register('avatarReferences', JavaExec) {
     args 'portraits'
     workingDir = rootProject.file('assets').path
 }
+
+tasks.register('hudMapDialogueIslandSmoke', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass.set('com.shipgame.nanhai.lwjgl3.HudMapDialogueIslandSmokeLauncher')
+    workingDir = rootProject.file('assets').path
+}
