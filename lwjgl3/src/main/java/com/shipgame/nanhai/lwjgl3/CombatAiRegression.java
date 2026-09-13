@@ -84,8 +84,41 @@ public final class CombatAiRegression {
         g=sea();w=enemy(g,true,g.x+Catalog.PIRATE_RANGE*.4f,g.y);w.hp=w.hpMax*.5f;float hull=g.hull;
         for(int i=0;i<100;i++)method("updateShipImpacts",float.class).invoke(g,2f);
         require(g.hull==hull,"half-HP retreat suppresses optional charge");
+        locksAndSpeeds();
         tips();
         System.out.println("COMBAT AI PASS: "+cases+" flank/range cases, moving fire, closer pirates, half-HP withdrawal/heal, corners/shores, unlock grace, trader flee, mutual separation and tips cycle contracts");
+    }
+    private static void locksAndSpeeds()throws Exception {
+        GameState g=sea();enemy(g,false,g.x+600,g.y);g.cancelLock();
+        MerchantData m=new MerchantData();m.x=g.x+250;m.y=g.y;m.hp=m.hpMax=50;g.merchant=m;
+        require(g.lockTargetKind()==2,"nearest merchant beats farther pirate");g.lockNearest();require(g.merchantLock && !g.combatLock,"merchant button locks");
+        g.clearPirate();g.merchant=null;g.cancelLock();
+        WarshipData first=enemy(g,true,g.x+350,g.y),other=new WarshipData();other.ship=4;other.x=g.x+500;other.y=g.y;other.hp=other.hpMax=100;g.warships[1]=other;
+        g.lockNearest();require(g.warshipLock && first.provoked,"warship button engages");
+        other.x=g.x+120;g.playerFireCd=0;method("updatePlayerFire",float.class).invoke(g,.1f);method("updateBalls",float.class).invoke(g,1f);
+        require(first.hp==99 && other.hp==100,"lock stays on selected warship when another comes closer");
+        g.playerFireCd=0;method("updatePlayerFire",float.class).invoke(g,.1f);
+        WarshipData replacement=new WarshipData();replacement.x=first.x;replacement.y=first.y;replacement.hp=replacement.hpMax=100;replacement.ship=4;g.warships[0]=replacement;
+        method("updateBalls",float.class).invoke(g,1f);require(replacement.hp==100,"old projectile cannot hit replacement in same slot");
+        method("updatePlayerFire",float.class).invoke(g,.1f);require(!g.warshipLock,"removed locked entity clears lock");
+        g.warships[1]=null;replacement.hp=1;g.lockWarship(0);g.playerFireCd=0;int silver=g.silver;
+        method("updatePlayerFire",float.class).invoke(g,.1f);method("updateBalls",float.class).invoke(g,1f);
+        int wrecks=0;for(GameState.Wreck wreck:g.wrecks)if(wreck!=null && wreck.alive)wrecks++;
+        require(g.warships[0]==null && !g.warshipLock && wrecks==1 && g.silver==silver+40,"warship kill pays once and creates one wreck");
+        g=sea();WarshipData w=enemy(g,true,g.x+400,g.y);g.lockWarship();enemy(g,false,g.x+450,g.y);g.lockPirate();require(!g.warshipLock,"pirate tap replaces warship lock");
+        g.pirateX=g.x+Catalog.NPC_HORIZON+1;g.warships[0]=null;require(g.lockTargetKind()==0,"no lock button for out-of-horizon target");
+        float slow=0,fast=0;
+        for(int ship=0;ship<Catalog.SHIPS.length;ship++) {
+            g=sea();TraderData t=new TraderData();t.ship=ship;t.x=g.x+400;t.y=g.y;t.hp=t.hpMax=100;t.targetPort=0;
+            float sx=t.x,sy=t.y;method("updateTrader",TraderData.class,float.class).invoke(g,t,.5f);
+            float cruise=Catalog.dist(sx,sy,t.x,t.y)/.5f;require(cruise<=105.1f,"NPC cruise capped at 70% player max");
+            if(ship==0)slow=cruise;fast=Math.max(fast,cruise);
+            t.x=sx;t.y=sy;t.hostile=true;method("updateTrader",TraderData.class,float.class).invoke(g,t,.5f);
+            require(Catalog.dist(sx,sy,t.x,t.y)/.5f<=126.1f,"flee speed uses modest multiplier");
+        }
+        require(fast>slow,"hull speed differences retained");
+        g=sea();g.speed=150;float chase=(Float)method("chaseSpeed",float.class).invoke(g,75f);require(chase==162,"chase lead is +12");
+        System.out.println("LOCK/SPEED PASS: nearest selection, merchant/warship engagement, stable target, replacement immunity, single sink/reward, exclusive locks, horizon, hull variation and speed caps");
     }
     private static void tips() {
         ContextualTips tips=new ContextualTips();

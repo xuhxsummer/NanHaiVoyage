@@ -22,7 +22,7 @@ public final class AiTipsFeedbackSmokeLauncher {
     private static int result=1;
     public static void main(String[] args)throws Exception {
         Path dir=java.nio.file.Files.createTempDirectory("nanhai-2825-");
-        Path output=Path.of("../Builds/ui2826").toAbsolutePath();
+        Path output=Path.of("../Builds/ui2829").toAbsolutePath();
         Lwjgl3ApplicationConfiguration config=new Lwjgl3ApplicationConfiguration();
         config.setWindowedMode(1280,720);config.disableAudio(true);config.setForegroundFPS(0);
         config.setPreferencesConfig(dir.resolve("prefs").toString(),Files.FileType.Absolute);
@@ -52,7 +52,7 @@ public final class AiTipsFeedbackSmokeLauncher {
             @Override public void render(){
                 if(failed)return;
                 try {
-                    if(frame++==0){tips();uiChanges();feedback();Gdx.graphics.setWindowedMode(1600,720);}
+                    if(frame++==0){tips();uiChanges();version29();feedback();Gdx.graphics.setWindowedMode(1600,720);}
                     else {
                         voyage.resize(1600,720);voyage.render(0);
                         require(tip("在港口"),"new login rearms port tip on wide screen");capture("wide-login-tip");
@@ -156,6 +156,35 @@ public final class AiTipsFeedbackSmokeLauncher {
                 require(marquee.getScrollX()<=marquee.getMaxX(),"marquee clipped to bar");
                 state.toast("继续航行");voyage.render(0);require(marquee.getScrollX()==0,"new short message resets scroll");
             }
+            private Object value(Object owner,String name)throws Exception{Field f=owner.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(owner);}
+            private void version29()throws Exception {
+                state.clearPirate();state.x=2000;state.y=12000;state.speed=0;
+                MerchantData merchant=new MerchantData();merchant.ship=0;merchant.x=state.x+400;merchant.y=state.y;merchant.hp=merchant.hpMax=100;state.merchant=merchant;
+                voyage.render(0);require(actor("锁定").isVisible(),"merchant exposes generic lock button");tap("锁定");voyage.render(0);require(state.merchantLock,"generic button locks merchant");tap("取消锁定");state.merchant=null;
+                WarshipData war=new WarshipData();war.ship=4;war.x=state.x+430;war.y=state.y;war.hp=war.hpMax=100;state.warships[0]=war;
+                voyage.render(0);require(actor("锁定").isVisible(),"warship exposes generic lock button");tap("锁定");voyage.render(0);require(state.warshipLock && war.provoked,"generic button engages warship");capture("warship-lock");tap("取消锁定");state.warships[0]=null;
+                tap("任务");voyage.render(0);
+                for(int i=0;i<31;i++) validateQuestRow(actor("questRow"+i));
+                require(actor("questStory")!=null,"quest detail story retained");capture("quest-titles-only");invoke("closePopup");voyage.render(0);
+                Object water=value(renderer,"water");
+                com.badlogic.gdx.graphics.g3d.environment.DirectionalLight sun=(com.badlogic.gdx.graphics.g3d.environment.DirectionalLight)value(renderer,"sunLight");
+                for(float time:new float[]{300,330,359.9f,360.1f,390,420,1020,1050,1079.9f,1080.1f,1110,1140}) {
+                    state.dayMin=time;voyage.render(0);
+                    float night=(Float)value(renderer,"nightAmount");
+                    require(Math.abs((Float)value(water,"nightDim")-night)<.0001f,"water and sky use this frame's night factor");
+                    require(sun.color.equals((Color)value(renderer,"lightColorNow")),"actual directional light follows shared daylight color");
+                    if(Math.abs(time-360)<1 || Math.abs(time-1080)<1)require(Math.abs(night-.5f)<.002,"no visual hard cut at clock day/night boundary");
+                    if(time==330 || time==1050 || time==1110)capture("blend-"+(int)time);
+                }
+                state.dayMin=360;
+            }
+            private void validateQuestRow(Actor row) {
+                if(row instanceof Label) {
+                    String text=((Label)row).getText().toString();
+                    require(text.startsWith("主线 · ") || text.startsWith("支线 · ") || text.equals("可领奖") || text.equals("已领"),"quest list contains only title and short status");
+                }
+                if(row instanceof Group)for(Actor child:((Group)row).getChildren())validateQuestRow(child);
+            }
             private void feedback()throws Exception {
                 state.x=2000;state.y=12000;state.headingDeg=0;state.speed=0;
                 pirate(5,0);state.pirateHp=48;
@@ -176,7 +205,12 @@ public final class AiTipsFeedbackSmokeLauncher {
                 Field offset=VoyageWorldRenderer.class.getDeclaredField("focusOffset");offset.setAccessible(true);
                 require(((Vector3)offset.get(renderer)).len()>5,"camera lightly follows wreck");
                 for(int i=0;i<6;i++)voyage.render(.1f);
-                require(field("overlay").get(voyage).toString().equals("LOOT"),"loot appears after beat");capture("delayed-loot");
+                require(field("overlay").get(voyage).toString().equals("LOOT"),"loot appears after beat");
+                Table loot=(Table)actor("lootPage");VoyageHud hud=(VoyageHud)field("voyageHud").get(voyage);
+                Vector2 center=loot.localToStageCoordinates(new Vector2(loot.getWidth()/2,loot.getHeight()/2));
+                require(loot.getBackground()==hud.ui.announceFrame && loot.getWidth()==720 && Math.abs(center.x-stage.getWidth()/2)<1 && Math.abs(center.y-stage.getHeight()/2)<1,"loot uses centered announcement chrome");
+                require(((TextButton)actor("收下")).getStyle().up==hud.ui.announceButton,"loot announcement button");
+                float clockBefore=state.dayMin;voyage.render(.1f);require(state.dayMin>clockBefore,"loot overlay preserves unpaused world");capture("delayed-loot");
                 for(int i=0;i<12;i++)voyage.render(.1f);require(!state.sinkFocus.alive,"sink continues beneath loot card");invoke("closePopup");
                 state.hull=0;state.fail("船沉");voyage.render(.1f);
                 require(!field("overlay").get(voyage).toString().equals("FAIL") && state.sinkFocus.player,"player sink precedes failure UI");

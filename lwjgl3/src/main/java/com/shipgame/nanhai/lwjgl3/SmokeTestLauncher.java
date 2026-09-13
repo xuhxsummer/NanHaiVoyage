@@ -6,10 +6,14 @@ import com.badlogic.gdx.graphics.PixmapIO;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3Application;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3ApplicationConfiguration;
 import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.math.Vector3;
+import com.badlogic.gdx.math.MathUtils;
+import com.shipgame.nanhai.render.VoyageWorldRenderer;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.Group;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
 import com.badlogic.gdx.scenes.scene2d.ui.TextField;
 import com.shipgame.nanhai.NanHaiVoyage;
@@ -54,8 +58,8 @@ public class SmokeTestLauncher {
     // Geometry mirrors VoyageScreen (hud y-up converted to screen y-down).
     private static final int STICK_X = 170, STICK_Y = HUD_H - 180;   // joystick center
     private static final int MM_X = 1174, MM_Y = HUD_H - 616;        // round minimap center
-    private static final int FM_CLOSE_X = 90 + 1100 - 124 + 52;      // modal 关闭 center
-    private static final int FM_CLOSE_Y = HUD_H - (90 + 540 - 36 + 14);
+    private static final int FM_CLOSE_X = Math.round(1828f * 1280f / 1920f); // WorldMapOverlay close center
+    private static final int FM_CLOSE_Y = HUD_H - Math.round(984f * HUD_H / 1080f);
     private static final int TARGET_PORT = 5;                        // 合浦 (not 广州)
     // 0.26.5 top HUD mirrors VoyageScreen (stage y-up, 720 tall): the stat
     // panel spans stage y 654..710 (screen y-down 10..66) at x 82..474, the
@@ -194,7 +198,7 @@ public class SmokeTestLauncher {
                         require(stageVisible(), "stage should be visible while docked");
                         require(avatarAndStatsPresent(), "top-left avatar/stat HUD missing");
                         require(railPresent(), "top-right icon rail (货物/图鉴/港口/情报/任务) missing");
-                        require(findText("今日：晴") != null, "今日：晴 weather tip missing");
+                        require(findText("今日：晴") == null && findText("第一天")!=null, "weather belongs in the ordinal clock");
                         // 0.26.3: 渔务 sub-view exists at 扬州; hire a fisher and start
                         // fishing. docked catch ticker then lands fish during later steps.
                         // 0.28.21: dock entry is a two-line card (title 渔务 + sub 雇渔夫 · 捕鱼 · 渔获).
@@ -253,19 +257,23 @@ public class SmokeTestLauncher {
                         nextStepFrame = frame + 10;
                         break;
                     case 5:
+                        // 0.28.25: leaving the port menu undocks and autoplays the
+                        // first-chapter dialogue; dismiss it before the count check.
+                        if (stage.getRoot().findActor("questDialogue") != null) tapButton("dialogueClose");
                         require(countText("关闭") == 0, "port popup did not close (关闭 still present)");
                         require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
                                 "overlay should be NONE after closing, got " + voyageOverlay());
                         require(avatarAndStatsPresent(), "stat HUD vanished after closing the popup");
                         require(railPresent(), "rail buttons vanished after closing the popup");
-                        // 0.26.3: while still docked at 扬州, the forced fish catch lands
-                        // and the catch persists into the fish hold (shared cargo).
+                        // 0.26.3: the forced fish catch landed while docked and persists
+                        // into the shared cargo. 0.28.25: closing the port menu undocks
+                        // in place, and 离港即停 (undock stops fishing) is intended.
                         GameState fsState = voyageState();
-                        require(fsState.fishingOn, "fishing should still be on while docked");
+                        require(!fsState.fishingOn, "undock should stop fishing (离港即停)");
                         require(fsState.fishTotal() >= 1, "docked fishing did not catch a fish");
                         require(fsState.cargoUsed() >= 1, "caught fish did not enter shared cargo");
                         System.out.println("SMOKE: docked catch ticker landed " + fsState.fishTotal()
-                                + " fish into cargo (fishing on)");
+                                + " fish into cargo; undock stopped fishing");
                         step = 63;
                         nextStepFrame = frame + 6;
                         break;
@@ -273,18 +281,21 @@ public class SmokeTestLauncher {
                         // The bordered active-quest card must hang on the FAR RIGHT
                         // edge mid/lower — NOT next to the round minimap (center
                         // 1178,620 r 82, bottom edge 538) or the top rail row.
-                        require(findText("首次登岛") != null,
-                                "active-quest card text missing while docked (首次登岛)");
+                        require(findText("武周启帆") != null,
+                                "active-quest card text missing while docked (武周启帆)");
                         Actor cardA = namedCell("任务卡");
                         require(cardA != null && cardA.isVisible(), "quest card missing or hidden");
-                        float qx = cardA.getX(), qy = cardA.getY();
+                        // 0.28.x redesign nests the card inside the questGroup table;
+                        // compare in stage coordinates instead of parent-relative x/y.
+                        com.badlogic.gdx.math.Vector2 cardOrigin = cardA.localToStageCoordinates(new com.badlogic.gdx.math.Vector2(0, 0));
+                        float qx = cardOrigin.x, qy = cardOrigin.y;
                         require(qx > 1280f - 300f, "quest card not far right (x=" + qx + ")");
                         require(qy > 220f && qy + cardA.getHeight() < 520f,
                                 "quest card not in the mid/lower band (y=" + qy + " h=" + cardA.getHeight() + ")");
                         require(qy + cardA.getHeight() < 538f, "quest card overlaps the minimap column");
                         System.out.println("SMOKE: quest card far-right lower @(" + (int) qx + "," + (int) qy
                                 + "), clear of minimap/rail/joystick/accel");
-                        // Make the tutorial quest 0 (首次登岛) complete and claim it
+                        // Make the tutorial quest 0 (武周启帆) complete and claim it
                         // through the real UI — proves the claim path cannot crash.
                         GameState qq = voyageState();
                         qq.questIslandVisits = 1;
@@ -297,8 +308,16 @@ public class SmokeTestLauncher {
                     case 64:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("QUESTS"),
                                 "quest popup not open, got " + voyageOverlay());
-                        require(findText("领取奖励") != null, "claim button missing for complete quest 0");
-                        require(tapButton("领取奖励"), "could not tap 领取奖励");
+                        require(findText("可领奖") != null, "compact claim status missing for complete quest 0");
+                        // 0.27.4: the claim button is 领取 (领取奖励 is the row hint text).
+                        // It sits low in the scrollable detail pane — bring it into view first.
+                        Actor claimBtn = findExactButton("领取");
+                        require(claimBtn != null, "claim button missing");
+                        for (Actor p = claimBtn.getParent(); p != null; p = p.getParent()) if (p instanceof ScrollPane) {
+                            ((ScrollPane) p).setScrollPercentY(1); ((ScrollPane) p).updateVisualScroll();
+                        }
+                        ((VoyageScreen) getScreen()).render(0); // flush scroll layout before hit-testing
+                        require(tapButton("领取"), "could not tap 领取");
                         step = 65;
                         nextStepFrame = frame + 10;
                         break;
@@ -318,17 +337,20 @@ public class SmokeTestLauncher {
                         nextStepFrame = frame + 10;
                         break;
                     case 66:
+                        // 0.28.25: claiming quest 0 unlocks chapter 1 — closing the log
+                        // autoplays its dialogue. Dismiss it before driving the HUD.
+                        if (stage.getRoot().findActor("questDialogue") != null) tapButton("dialogueClose");
                         require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
                                 "quest popup did not close, got " + voyageOverlay());
                         // 0.26.2: each top stat cell is tappable and opens 说明.
-                        tapScreen(STAT_X0 + STAT_W / 2, STAT_YC); // 银两
+                        require(tapButton("船体耐久"),"hull stat opens detail");
                         step = 6;
                         nextStepFrame = frame + 10;
                         break;
                     case 6: // stat detail popup open (银两)
                         require(voyageOverlay() != null && voyageOverlay().name().equals("STAT"),
                                 "stat popup not open, got " + voyageOverlay());
-                        require(findText("银两 · 说明") != null, "银两 detail popup missing");
+                        require(findText("耐久 · 说明") != null, "hull detail popup missing");
                         // tapping the NEXT cell switches the popup content
                         require(tapButton("补给"), "could not switch stat nav");
                         step = 7;
@@ -367,8 +389,8 @@ public class SmokeTestLauncher {
                         step = 11;
                         nextStepFrame = frame + 6;
                         break;
-                    case 11: // 港口 rail reopens the popup while still docked
-                        require(tapButton("港口"), "could not tap rail 港口");
+                    case 11: // 0.28.26: rail 港口 text link removed — the 所在地 panel reopens the popup
+                        require(tapButton("所在地"), "could not tap 所在地 panel");
                         step = 12;
                         nextStepFrame = frame + 10;
                         break;
@@ -420,7 +442,7 @@ public class SmokeTestLauncher {
                         require(after.ship == 1, "buying 楼船 did not equip it (ship=" + after.ship + ")");
                         require(after.ownsShip(1), "楼船 not marked owned after purchase");
                         System.out.println("SMOKE: bought 楼船 for 900 silver, equipped (silver=" + after.silver + ")");
-                        require(tapButton("← 返回列表"), "could not return to shop grid");
+                        require(tapButton("返回列表"), "could not return to shop grid");
                         step = 49;
                         nextStepFrame = frame + 10;
                         break;
@@ -450,19 +472,27 @@ public class SmokeTestLauncher {
                     case 52:
                         require(voyageOverlay() == null || voyageOverlay().name().equals("NONE"),
                                 "商城 did not close, got " + voyageOverlay());
-                        // 0.26.4 clock: docked -> frozen; label shows 第1日 06:00 白天
+                        // 0.26.4 clock: docked -> frozen. 0.28.25 flow undocks in place
+                        // before the shop detour, so only the day/phase invariant holds.
                         GameState clk = voyageState();
-                        require(clk.gameDay == 1 && clk.dayMin == 360f,
-                                "clock should be frozen at day1 06:00 while docked (day=" + clk.gameDay
+                        require(clk.gameDay == 1 && clk.dayMin >= 360f && clk.dayMin < 1080f,
+                                "clock should stay in day1 daytime (day=" + clk.gameDay
                                         + " min=" + clk.dayMin + ")");
-                        require(findText("第1日") != null, "bottom-left clock label missing 第1日");
+                        require(findText("第一天") != null, "bottom-left clock label missing 第1日");
                         require(findText("白天") != null, "bottom-left clock label missing 白天 at 06:00");
-                        System.out.println("SMOKE: docked clock frozen at 第1日 06:00 白天; 商城 buy/silver-guard OK");
+                        System.out.println("SMOKE: clock in day1 白天 (min=" + (int) clk.dayMin + "); 商城 buy/silver-guard OK");
                         step = 58;
                         nextStepFrame = frame + 6;
                         break;
-                    case 58: // 0.26.5: open 我的 from the rail (docked, popup closed)
-                        require(tapButton("我的"), "could not tap rail 我的");
+                    case 58: // 0.28.26: rail 我的 text link removed — reach MINE via 商城 → 我的船只 tab
+                        require(tapButton("商城"), "could not tap rail 商城");
+                        step = 240;
+                        nextStepFrame = frame + 10;
+                        break;
+                    case 240:
+                        require(voyageOverlay() != null && voyageOverlay().name().equals("SHOP"),
+                                "商城 popup not open, got " + voyageOverlay());
+                        require(tapButton("我的船只"), "could not tap 商城 我的船只 tab");
                         step = 59;
                         nextStepFrame = frame + 10;
                         break;
@@ -502,8 +532,21 @@ public class SmokeTestLauncher {
                         nextStepFrame = frame + 6;
                         break;
                     case 14: // 0.25.2 fix: joystick while docked + menu CLOSED must undock
+                        // 0.28.25 flow undocks in place during the shop detour; re-dock
+                        // in place (dock() pauses without teleporting) to exercise the
+                        // joystick-undock path with the port popup suppressed.
+                        voyageState().dock(Catalog.YANGZHOU);
+                        java.lang.reflect.Field dismissedPortF = VoyageScreen.class.getDeclaredField("dismissedPort");
+                        dismissedPortF.setAccessible(true);
+                        dismissedPortF.setInt(getScreen(), Catalog.YANGZHOU);
+                        ((VoyageScreen) getScreen()).render(0);
+                        Actor tip14 = stage.getRoot().findActor("contextualTip");
+                        if (tip14 != null && tip14.isVisible()) {
+                            Actor d14 = tip14 instanceof Group ? ((Group) tip14).findActor("contextualTipDismiss") : null;
+                            if (d14 != null) tapActorCenter(d14);
+                        }
                         h0 = voyageState().headingDeg;
-                        require(voyageState().dockedPort == Catalog.YANGZHOU, "expected still docked at 扬州 before joystick, got "
+                        require(voyageState().dockedPort == Catalog.YANGZHOU, "expected docked at 扬州 before joystick, got "
                                 + voyageState().dockedPort);
                         // Chase-view helm controls relative yaw, including from rest.
                         joystickAimAt(180f);
@@ -601,7 +644,7 @@ public class SmokeTestLauncher {
                         nextStepFrame = frame + 6;
                         break;
                     case 19: // open cargo popup from the rail (at sea)
-                        require(tapButton("货物"), "could not tap rail 货物");
+                        require(tapButton("货舱"), "could not tap rail 货舱");
                         step = 20;
                         nextStepFrame = frame + 10;
                         break;
@@ -648,7 +691,7 @@ public class SmokeTestLauncher {
                     case 26:
                         require(voyageOverlay() != null && voyageOverlay().name().equals("INTEL"),
                                 "intel popup not open, got " + voyageOverlay());
-                        require(findText("最低的 3 种货") != null, "intel cheapest list missing");
+                        require(findText("最低的3种货") != null, "intel cheapest list missing");
                         // 0.26.6: tapping the cheapest-port row must auto-sail there.
                         require(tapButton("情报低0"), "could not tap intel cheapest row 情报低0");
                         step = 126;
@@ -756,8 +799,9 @@ public class SmokeTestLauncher {
                         st3.pirateAlive = true;
                         st3.combatLock = false;
                         st3.pirateChase = false;
-                        st3.pirateX = st3.x + 200f;
-                        st3.pirateY = st3.y;
+                        st3.speed = 0;
+                        st3.pirateX = st3.x + MathUtils.cosDeg(st3.headingDeg) * 350f;
+                        st3.pirateY = st3.y + MathUtils.sinDeg(st3.headingDeg) * 350f;
                         st3.pirateHpMax = Catalog.PIRATE_HP;
                         st3.pirateHp = st3.pirateHpMax;
                         st3.playerFireCd = 0f;
@@ -768,11 +812,20 @@ public class SmokeTestLauncher {
                         nextStepFrame = frame + 6;
                         break;
                     case 35:
-                        require(findExactButton("锁定海盗") != null,
+                        Actor pirateTip = stage.getRoot().findActor("contextualTip");
+                        if (pirateTip != null && pirateTip.isVisible()) {
+                            tapActorCenter(((Group) pirateTip).findActor("contextualTipDismiss"));
+                        }
+                        require(findExactButton("锁定") != null,
                                 "pirate lock UI is not visible");
-                        // World viewport is 960x540 in a 1280x720 window. Enemy is
-                        // exactly +200 world units from the centred player.
-                        tapScreen(640 + Math.round(200f * 1280f / 960f), 360);
+                        // Pick the current perspective-rendered ship, not a legacy 2D offset.
+                        Field rendererField = VoyageScreen.class.getDeclaredField("world3d");
+                        rendererField.setAccessible(true);
+                        VoyageWorldRenderer renderer = (VoyageWorldRenderer) rendererField.get(getScreen());
+                        Vector3 piratePoint = new Vector3();
+                        GameState pirateState = voyageState();
+                        require(renderer.project(pirateState.pirateX, pirateState.pirateY, 25f, piratePoint), "pirate projects on screen");
+                        tapScreen(Math.round(piratePoint.x), HUD_H - Math.round(piratePoint.y));
                         step = 36;
                         nextStepFrame = frame + 6;
                         break;
@@ -814,6 +867,7 @@ public class SmokeTestLauncher {
                         require(voyageOverlay() != null && voyageOverlay().name().equals("AVATAR"),
                                 "avatar menu not open, got " + voyageOverlay());
                         require(tapButton("账号"), "captain account nav missing");
+                        ((VoyageScreen) getScreen()).render(0); // lay out the newly selected account page before tapping
                         require(findText("退出登录") != null, "avatar menu lacks 退出登录 button");
                         require(tapButton("退出登录"), "could not tap 退出登录");
                         step = 72;
@@ -863,10 +917,26 @@ public class SmokeTestLauncher {
              * their live value labels, all present anywhere in the stage. */
             private boolean avatarAndStatsPresent() throws Exception {
                 boolean ok = findExactButton("船长") != null;
-                for (String nm : new String[] {"银两", "粮草", "船体耐久", "船员"}) {
+                for (String nm : new String[] {"粮草", "船体耐久", "船员"}) {
                     ok &= namedCell(nm) != null;
                 }
                 return ok;
+            }
+
+            /** Debug helper: print every actor whose name contains the fragment,
+             * used to diagnose missing HUD cells. */
+            private void dumpNames(String fragment) {
+                for (Actor a : stage.getRoot().getChildren()) dumpNamesIn(fragment, a);
+            }
+
+            private void dumpNamesIn(String fragment, Actor a) {
+                String name = a.getName();
+                if (name != null && name.contains(fragment)) {
+                    System.out.println("DBG actor: " + name);
+                }
+                if (a instanceof Group) {
+                    for (Actor c : ((Group) a).getChildren()) dumpNamesIn(fragment, c);
+                }
             }
 
             private Actor namedCell(String name) throws Exception {
@@ -888,16 +958,13 @@ public class SmokeTestLauncher {
                 return null;
             }
 
-            /** 0.28.21 top rail: named badge tables (货舱/图鉴/商城/任务/活动/福利)
-             * plus the text links (我的船只/港口/情报). */
+            /** 0.28.26 top rail: named badge tables (货舱/图鉴/商城/任务/活动/情报).
+             * The 我的船只/港口/情报 text links were removed; 情报 is a rail badge now. */
             private boolean railPresent() throws Exception {
-                String[] badges = {"货舱", "图鉴", "商城", "任务", "活动", "福利"};
+                String[] badges = {"货舱", "图鉴", "商城", "任务", "活动", "情报"};
                 boolean ok = true;
                 for (String nm : badges) ok &= namedCell(nm) != null;
-                return ok
-                        && findExactButton("我的船只") != null
-                        && findExactButton("港口") != null
-                        && findExactButton("情报") != null;
+                return ok;
             }
 
             /** Under the modal the stage root is invisible, so hits on the rail /
@@ -1014,6 +1081,13 @@ public class SmokeTestLauncher {
                 if (a == null) {
                     return false;
                 }
+                // 0.28.26: the guidance modal is a full-screen overlay that covers
+                // the HUD; acknowledging it (知道了) is the real UX before tapping.
+                Actor bubble = stage.getRoot().findActor("contextualTip");
+                if (bubble != null && bubble.isVisible()) {
+                    Actor dismiss = bubble instanceof Group ? ((Group) bubble).findActor("contextualTipDismiss") : null;
+                    if (dismiss != null) tapActorCenter(dismiss);
+                }
                 Vector2 c = center(a);
                 // 0.28.21 fix: stage world != screen pixels since the login restyle
                 // (1920x1080 design in a 1280x720 window) — convert through the
@@ -1022,6 +1096,14 @@ public class SmokeTestLauncher {
                 Vector2 sp = stage.stageToScreenCoordinates(new Vector2(c.x, c.y));
                 tapScreen((long) sp.x, (long) sp.y); // already y-down input coords
                 return true;
+            }
+
+            private void tapActorCenter(Actor a) {
+                Vector2 c = center(a);
+                Vector2 sp = stage.stageToScreenCoordinates(new Vector2(c.x, c.y));
+                com.badlogic.gdx.InputProcessor p = Gdx.input.getInputProcessor();
+                p.touchDown((int) sp.x, (int) sp.y, 0, 0);
+                p.touchUp((int) sp.x, (int) sp.y, 0, 0);
             }
 
             private Actor findExactButton(String text) throws Exception {

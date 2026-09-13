@@ -62,6 +62,7 @@ public final class VoyageWorldRenderer implements Disposable {
     private static final Color NIGHT_SEA = new Color(.13f, .21f, .29f, 1);
     private final Color skyNow = new Color(DAY_SKY);
     private final Color seaTintNow = new Color(DAY_SEA);
+    private final DirectionalLight sunLight=new DirectionalLight();
     private final Color lightColorNow = new Color(1f, .88f, .66f, 1);
     private float nightAmount; // 0=白天 1=深夜
     private final Color ambientDay = new Color(.66f, .70f, .74f, 1);
@@ -82,7 +83,7 @@ public final class VoyageWorldRenderer implements Disposable {
         camera.far = 6500f;
         light.set(new ColorAttribute(ColorAttribute.AmbientLight, .66f, .70f, .74f, 1));
         light.set(new ColorAttribute(ColorAttribute.Fog, SKY));
-        light.add(new DirectionalLight().set(1f, .88f, .66f, -.5f, -.85f, -.3f));
+        light.add(sunLight.set(1f, .88f, .66f, -.5f, -.85f, -.3f));
         for (int i=0;i<ships.length;i++) ships[i] = new ModelInstance(shipModel(i, false));
         for(int i=0;i<ships.length;i++) merchantShips[i]=new ModelInstance(ships[i].model);
         java.util.Arrays.fill(wreckTypes,-1);
@@ -398,6 +399,8 @@ public final class VoyageWorldRenderer implements Disposable {
         seaTintNow.set(DAY_SEA).lerp(NIGHT_SEA, 1f - dayness);
         lightColorNow.set(1f, .88f, .66f, 1).lerp(new Color(.55f, .62f, .82f, 1), 1f - dayness);
         nightAmount = 1f - dayness;
+        sunLight.color.set(lightColorNow);
+        ocean.materials.first().set(ColorAttribute.createDiffuse(seaTintNow));
         // 0.28.26 夜里调暗环境光与月光色方向光，让模型船也跟着天色变暗。
         light.set(new ColorAttribute(ColorAttribute.AmbientLight,
                 ambientDay.r + (ambientNight.r - ambientDay.r) * nightAmount,
@@ -414,8 +417,8 @@ public final class VoyageWorldRenderer implements Disposable {
         float shipFloat=water.available()?water.surfaceHeight(g.x,-g.y,time,g.windStr,highWaterQuality):MathUtils.sin(time*1.6f)*.45f;
         ship.transform.setToTranslation(g.x,shipFloat,-g.y).rotate(Vector3.Y,g.headingDeg);
         pirate.transform.setToTranslation(g.pirateX,water.surfaceHeight(g.pirateX,-g.pirateY,time,g.windStr,highWaterQuality),-g.pirateY).rotate(Vector3.Y,g.pirateHeading);
+        water.setNightDim(nightAmount);
         boolean customWater = water.render(camera,g,time,highWaterQuality,skyNow);
-        water.setNightDim(nightAmount); // applied to the next frame's water/sky uniforms
         light.set(new ColorAttribute(ColorAttribute.Fog, skyNow));
         batch.begin(camera);
         if (!customWater) {

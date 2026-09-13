@@ -861,6 +861,7 @@ public class VoyageScreen extends ScreenAdapter {
         }
         // 0.28.29 战利品：登录公告式居中弹窗（金边深蓝 + 暗遮罩），不再走顶部小盒。
         if (overlay == Overlay.LOOT) {
+            menuRoot.pad(0);
             Table holder = new Table();
             holder.setTouchable(Touchable.enabled);
             holder.setBackground(game.skin.newDrawable("white", new Color(0.01f, 0.02f, 0.04f, .72f)));
@@ -1879,14 +1880,16 @@ public class VoyageScreen extends ScreenAdapter {
             row.setBackground(selected ? questUi.selected : questUi.parchment);
             Color ink = selected ? QuestUi.PAPER : QuestUi.INK;
             Table copy = new Table();
-            copy.add(questUi.label((q.id < MAIN_QUEST_COUNT ? "主线 · " : "支线 · ") + q.title, 24, ink)).left().growX().row();
+            Label rowTitle = questUi.label((q.id < MAIN_QUEST_COUNT ? "主线 · " : "支线 · ") + q.title, 24, ink);
+            rowTitle.setEllipsis(true);
+            copy.add(rowTitle).left().growX();
             if (!sub.isEmpty()) {
                 Label status = questUi.label(sub, 18, done ? QuestUi.JADE : ink);
-                copy.add(status).left().growX();
+                copy.add(status).right().padLeft(8);
             }
-            row.add(copy).expandX().fillX().padLeft(24);
+            row.add(copy).expandX().fillX();
             TextureRegionDrawable icon = IconLib.hud("quest");
-            if (icon != null) row.add(new Image(icon)).size(32).padRight(16);
+            if (icon != null) row.add(new Image(icon)).size(24).padLeft(8);
             row.setName("questRow" + q.id);
             row.addListener(click(() -> {
                 selectedQuest = qi;
@@ -2769,6 +2772,12 @@ public class VoyageScreen extends ScreenAdapter {
                     && world3d.hit(screenX,screenY,g.merchant.x,g.merchant.y,27,36)) {
                 if(g.merchantLock) g.cancelLock(); else g.lockMerchant();
                 return true;
+            }
+            if(overlay==Overlay.NONE && world3d!=null) for(int i=0;i<g.warships.length;i++) {
+                com.shipgame.nanhai.data.WarshipData w=g.warships[i];
+                if(w!=null && w.alive && world3d.hit(screenX,screenY,w.x,w.y,27,36)) {
+                    g.lockWarship(i);return true;
+                }
             }
             // 0.27.2: world-space tap on a port/island icon opens its menu ONLY
             // when the ship is within the existing dock/search range. Proximity

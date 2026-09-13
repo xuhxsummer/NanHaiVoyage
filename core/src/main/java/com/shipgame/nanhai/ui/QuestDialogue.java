@@ -148,7 +148,7 @@ public final class QuestDialogue extends Table {
         boolean ending = line >= lines.length;
         String speakerName = ending ? "此程所托" : lines[line][0];
         speaker.setText("你".equals(speakerName) ? "我" : speakerName);
-        body.setText(ending ? objective : lines[line][1]);
+        bodyTicker.setText(ending ? objective : lines[line][1]);
         hint.setText(""); // Advance on tap without a visible instruction caption.
         primary.setText(actionText.apply(speakerName));
         boolean playerSpeaking = !ending && ("你".equals(speakerName) || "我".equals(speakerName));

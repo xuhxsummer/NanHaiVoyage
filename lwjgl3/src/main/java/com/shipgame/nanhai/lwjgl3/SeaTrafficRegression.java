@@ -19,9 +19,9 @@ public final class SeaTrafficRegression {
             g.startAutoSail(0); spawn.invoke(g);
             require(g.pirateAlive && g.autoSail && !g.combatLock,"spawn keeps route, no forced focus");
             float d=Catalog.dist(g.x,g.y,g.pirateX,g.pirateY);
-            require(d>=799.99f && d<=1000.01f && d>Catalog.PIRATE_RANGE,"spawn band even at edges");
+            require(d>=419.99f && d<=620.01f && d<Catalog.PIRATE_RANGE,"closer visible spawn band even at edges");
             require(g.pirateDamage>=1 && g.pirateDamage<=10,"integer cannon roll");damageSeen[g.pirateDamage]=true;
-            combat.invoke(g,.1f);require(g.ballCount==0,"spawn outside fire range");
+            combat.invoke(g,.1f);require(g.ballCount==0,"spawn initial cannon cooldown");
             int damage=g.pirateDamage;
             float px=g.pirateX,py=g.pirateY;
             g.x=px-650;g.y=py;g.pirateFireCd=0;g.hull=10000;

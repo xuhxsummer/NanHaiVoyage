@@ -98,6 +98,8 @@ public class GameState {
     public boolean merchantLock;
     /** 0.28.29 战船锁定：自动开火 + 敌意追击。不存档（运行时交通状态）。 */
     public boolean warshipLock;
+    private WarshipData lockedWarship;
+    private final WarshipData[] ballWarships=new WarshipData[GameState.MAX_BALLS];
     public int pirateDamage = 1;
     private int pirateGeneration, merchantGeneration;
     private static final int PLAYER = 0, PIRATE = 1, MERCHANT = 2, WARSHIP = 3;
@@ -1135,11 +1137,6 @@ public class GameState {
         return w.provoked || pirateAlive || (merchant != null && merchant.hostile);
     }
 
-    /** 0.28.29 战船代际：解锁后重开则旧炮弹不再命中。 */
-    private int warshipGeneration(int slot) {
-        return slot < warships.length && warships[slot] != null ? 71 + slot : 0;
-    }
-
     /** 每帧检测玩家与所有 NPC、NPC 互相之间的船体接触；接触即结算一次撞击伤害。 */
     private void updateShipImpacts(float dt) {
         ramRamCd = Math.max(0f, ramRamCd - dt);
@@ -2133,7 +2130,7 @@ public class GameState {
             return;
         }
         combatLock = true;
-        merchantLock = false;
+        merchantLock = false;warshipLock=false;lockedWarship=null;
         playerFireCd = Math.min(playerFireCd, 0.08f);
         toast("已锁定海盗，对方将追击，自动连续开火。");
     }
@@ -2141,18 +2138,23 @@ public class GameState {
     public void cancelLock() {
         combatLock = false;
         merchantLock = false;
-        warshipLock = false;
+        warshipLock = false;lockedWarship=null;
         toast("取消锁定。");
     }
 
     /** 0.28.29 战船锁定：触发敌意追击并自动还火；其他锁定互斥。 */
     public void lockWarship() {
-        int i = nearestWarship();
-        if (i < 0 || worldPaused() || failed) return;
+        lockWarship(nearestWarship());
+    }
+
+    public void lockWarship(int i) {
+        if(i<0 || i>=warships.length || warships[i]==null || !warships[i].alive
+                || Catalog.dist(x,y,warships[i].x,warships[i].y)>Catalog.NPC_HORIZON || worldPaused() || failed) return;
+        lockedWarship=warships[i];
         warshipLock = true;
         combatLock = false;
         merchantLock = false;
-        warships[i].provoked = true; // 等效敌意：追击并还击
+        warships[i].hostile=true;warships[i].provoked = true; // 等效敌意：追击并还击
         playerFireCd = Math.min(playerFireCd, 0.08f);
         toast("已锁定战船，对方会追击还击。注意规避。");
     }
@@ -2185,10 +2187,22 @@ public class GameState {
 
     /** 0.28.29 统一锁定目标种类：1=海盗 2=商船 3=战船，无目标 0。 */
     public int lockTargetKind() {
-        if (pirateAlive) return 1;
-        if (merchant != null && merchantVisible()) return 2;
-        if (warshipLockable()) return 3;
-        return 0;
+        if(worldPaused() || failed) return 0;
+        float closest=Catalog.NPC_HORIZON;int kind=0;
+        float d=pirateAlive?Catalog.dist(x,y,pirateX,pirateY):Float.MAX_VALUE;
+        if(d<=closest) { closest=d;kind=1; }
+        d=merchant!=null?Catalog.dist(x,y,merchant.x,merchant.y):Float.MAX_VALUE;
+        if(d<closest) { closest=d;kind=2; }
+        int i=nearestWarship();
+        if(i>=0 && Catalog.dist(x,y,warships[i].x,warships[i].y)<closest)kind=3;
+        return kind;
+    }
+
+    private int lockedWarshipIndex() {
+        if(warshipLock && lockedWarship!=null && lockedWarship.alive)
+            for(int i=0;i<warships.length;i++) if(warships[i]==lockedWarship
+                    && Catalog.dist(x,y,lockedWarship.x,lockedWarship.y)<=Catalog.NPC_HORIZON) return i;
+        warshipLock=false;lockedWarship=null;return -1;
     }
 
     private void spawnPirate() {
@@ -2366,7 +2380,7 @@ public class GameState {
 
     public void lockMerchant() {
         if(!merchantVisible() || worldPaused() || failed) return;
-        merchantLock=true; combatLock=false; merchant.hostile=true;
+        merchantLock=true; combatLock=false; warshipLock=false;lockedWarship=null;merchant.hostile=true;
         playerFireCd=Math.min(playerFireCd,.08f);
         toast("已锁定商船掠夺，对方会还击。亲手击沉才可获得财货。");
     }
@@ -2469,7 +2483,7 @@ public class GameState {
         for (int i = 0; i < warships.length; i++) {
             WarshipData w = warships[i];
             if (w == null || !w.alive) continue;
-            if (Catalog.dist(x, y, w.x, w.y) > Catalog.NPC_HORIZON * 1.4f) { warships[i] = null; continue; }
+            if (Catalog.dist(x, y, w.x, w.y) > Catalog.NPC_HORIZON * 1.4f) { despawnWarship(i,false); continue; }
             updateWarship(w, dt);
         }
     }
@@ -2548,6 +2562,7 @@ public class GameState {
         WarshipData w = slot < warships.length ? warships[slot] : null;
         if (w == null) return;
         if (withWreck) addWreck(w.x, w.y, w.heading, w.ship);
+        if(lockedWarship==w) { warshipLock=false;lockedWarship=null; }
         warships[slot] = null;
     }
 
@@ -2637,7 +2652,7 @@ public class GameState {
         if(target==PIRATE) { tx=pirateX; ty=pirateY; }
         else if(target==MERCHANT) { tx=merchant.x; ty=merchant.y; }
         else {
-            int wi=nearestWarship();
+            int wi=lockedWarshipIndex();
             if(wi<0) { warshipLock=false; return; }
             tx=warships[wi].x; ty=warships[wi].y;
         }
@@ -2655,16 +2670,8 @@ public class GameState {
         spawnBall(player,sx,sy,tx,ty);
         if(ballCount==i) return;
         ballTarget[i]=target; ballDamage[i]=damage;
-        ballGeneration[i]=target==PIRATE?pirateGeneration:target==MERCHANT?merchantGeneration:target==WARSHIP?warshipGeneration(warshipsIndexOf(tx,ty)):0;
-    }
-
-    /** 0.28.29 依据炮弹落点反查战船槽位（仅用于命中代际校验）。 */
-    private int warshipsIndexOf(float tx,float ty) {
-        for(int i=0;i<warships.length;i++) {
-            WarshipData w=warships[i];
-            if(w!=null && w.alive && Catalog.dist(tx,ty,w.x,w.y)<1f) return i;
-        }
-        return 0;
+        ballGeneration[i]=target==PIRATE?pirateGeneration:target==MERCHANT?merchantGeneration:0;
+        ballWarships[i]=target==WARSHIP?lockedWarship:null;
     }
 
     /** Fires one cannonball along a straight line toward the target. Travel time
@@ -2712,6 +2719,7 @@ public class GameState {
             }
             int target=ballTarget[i], damage=ballDamage[i], generation=ballGeneration[i];
             boolean player=ballFromPlayer[i];
+            WarshipData shotWarship=ballWarships[i];
             float bx=ballX[i], by=ballY[i];
             removeBall(i); // Removing a target never changes attribution of other in-flight shots.
             if(target==PIRATE && pirateAlive && generation==pirateGeneration && Catalog.dist(bx,by,pirateX,pirateY)<=100) {
@@ -2726,11 +2734,14 @@ public class GameState {
                 for(int wi=0;wi<warships.length;wi++) {
                     WarshipData w=warships[wi];
                     if(w==null || !w.alive) continue;
-                    if(warshipGeneration(wi)!=generation || Catalog.dist(bx,by,w.x,w.y)>100) continue;
+                    if(w!=shotWarship || Catalog.dist(bx,by,w.x,w.y)>100) continue;
                     hurtTime[5+wi]=.3f;
                     w.provoked=true; // 开火即结仇：追击并还击
                     w.hp-=damage;
-                    if(w.hp<=0) { addWreck(w.x,w.y,w.heading,w.ship); if(player) pushLootPopup("击沉战船", 40, "", 0, ""); despawnWarship(wi,true); }
+                    if(w.hp<=0) {
+                        if(player) { silver+=40;questSilverPeak=Math.max(questSilverPeak,silver);pushLootPopup("击沉战船",40,"",0,""); }
+                        despawnWarship(wi,true);
+                    }
                     break;
                 }
             } else if(target==PLAYER && Catalog.dist(bx,by,x,y)<=90) {
@@ -2754,9 +2765,9 @@ public class GameState {
             ballT[i] = ballT[last];
             ballDur[i] = ballDur[last];
             ballFromPlayer[i] = ballFromPlayer[last];
-            ballTarget[i] = ballTarget[last]; ballGeneration[i] = ballGeneration[last]; ballDamage[i] = ballDamage[last];
+            ballTarget[i] = ballTarget[last]; ballGeneration[i] = ballGeneration[last]; ballDamage[i] = ballDamage[last];ballWarships[i]=ballWarships[last];
         }
-        ballCount--;
+        ballWarships[last]=null;ballCount--;
     }
 
     private void winCombat() {
@@ -2816,7 +2827,7 @@ public class GameState {
         }
         failed = true;
         failReason = reason;
-        merchantLock = false; warshipLock = false; ballCount = 0;
+        merchantLock = false; warshipLock = false;lockedWarship=null;java.util.Arrays.fill(ballWarships,null);ballCount = 0;
         stopAutoSail();
         clearPirate();
         speed = 0f;

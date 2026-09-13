@@ -48,8 +48,13 @@ public final class QuestDialogueSmokeLauncher {
                     } else {
                         voyage.resize(1600, 720); voyage.render(0);
                         Actor panel = actor("dialoguePanel");
-                        require(panel.getWidth() > 1400 && panel.getHeight() >= 300 && panel.getHeight() <= 420,
-                                "wide-screen bottom panel fills width and preserves readable height (with busts)");
+                        // 0.28.27 item 5: the dialogue stays a centered, readable
+                        // column at 1600 width instead of filling the screen.
+                        // 0.28.29 item 2: the paper row tightened (84px), so the panel
+                        // keeps the 940px column but a naturally shorter height band.
+                        require(panel.getWidth() <= 940 && panel.getWidth() > 700 && Math.abs(panel.getWidth() - 940) < 1
+                                        && panel.getHeight() >= 160 && panel.getHeight() <= 320,
+                                "wide resize keeps the centered 940px dialogue column with tightened readable height (0.28.29 paper)");
                         capture("wide");
                         tap("dialogueClose"); voyage.render(0);
                         accounts.register("dialogue-b", "other-password"); currentUser = "dialogue-b";
@@ -78,8 +83,12 @@ public final class QuestDialogueSmokeLauncher {
                 require(state.autoSail, "dialogue preserves autopilot target");
                 tapPoint(640, 520); voyage.render(0);
                 require(text("dialogueSpeaker").equals("老掌柜"), "dimmer tap advances exactly one line");
+                ScrollPane ticker=(ScrollPane)actor("dialogueBodyTicker");
+                require(actor("dialoguePaper").getHeight()>=72 && actor("dialoguePaper").getHeight()<=96,"compact parchment with modest padding");
+                voyage.render(2.5f);require(ticker.getMaxX()>0 && ticker.getScrollX()>0,"long dialogue scrolls on one line");
                 tap("dialogueBody"); voyage.render(0);
-                require(text("dialogueSpeaker").equals("你"), "panel tap advances exactly one line");
+                require(text("dialogueSpeaker").equals("我"), "panel tap advances exactly one line");
+                require(ticker.getScrollX()==0,"new speaker starts at beginning of sentence");
                 tap("自动航行"); voyage.render(0); // Covered HUD control: should advance dialogue only.
                 require(state.autoSail && !state.holdAccel && state.steerInput == 0, "covered controls cannot steer or accelerate");
                 require(((TextButton) actor("dialogueAction")).getText().toString().equals("前往"), "navigation on final page");
@@ -138,7 +147,17 @@ public final class QuestDialogueSmokeLauncher {
                 Actor a = stage.getRoot().findActor(name); require(a != null, "actor exists: " + name); return a;
             }
             private String text(String name) { return ((Label)actor(name)).getText().toString(); }
-            private void tap(String name) { tapActor(actor(name)); }
+            private void tap(String name) {
+                // 0.28.26: the guidance modal is a full-screen overlay that covers the
+                // HUD; acknowledging it (知道了) is the real UX before tapping HUD cards.
+                Actor bubble = stage.getRoot().findActor("contextualTip");
+                if (bubble != null && bubble.isVisible() && !name.startsWith("contextualTip")) {
+                    Actor dismiss = bubble instanceof Group ? ((Group) bubble).findActor("contextualTipDismiss") : null;
+                    if (dismiss != null) tapActor(dismiss);
+                    voyage.render(0);
+                }
+                tapActor(actor(name));
+            }
             private void tapActor(Actor a) {
                 require(a != null, "tap target exists");
                 Vector2 v = a.localToStageCoordinates(new Vector2(a.getWidth()/2, a.getHeight()/2));
