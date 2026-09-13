@@ -132,7 +132,7 @@ public final class AiTipsFeedbackSmokeLauncher {
                 require(state.silver==silver+Catalog.DAILY_LOGIN_SILVER+666,"duplicate redeem cannot pay twice"); capture("activities-redeem");
                 invoke("closePopup");voyage.render(0);
                 tap("情报");voyage.render(0);require(field("overlay").get(voyage).toString().equals("INTEL"),"intel badge opens market intelligence");invoke("closePopup");
-                pirate(500,0);voyage.render(0);tap("锁定海盗");voyage.render(.1f);
+                pirate(500,0);voyage.render(0);tap("锁定");voyage.render(.1f);
                 require(state.combatLock,"lock button still reachable");capture("stacked-cancel-lock");
                 tap("取消锁定");voyage.render(0);require(!state.combatLock,"stacked cancel lock works");state.clearPirate();
                 for(int avatar=0;avatar<4;avatar++) {

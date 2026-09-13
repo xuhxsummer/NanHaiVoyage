@@ -18,7 +18,7 @@ public final class CombatAiRegression {
             for(int i=0;i<600;i++) {
                 tick(g,w,.05f);float ex=ex(g,w),ey=ey(g,w),d=Catalog.dist(g.x,g.y,ex,ey);
                 require(d>100,"no bow glue/ram seek");
-                if(i<20)side=Math.max(side,Math.abs((ex-g.x)*cy-(ey-g.y)*cx));
+                if(i<30)side=Math.max(side,Math.abs((ex-g.x)*cy-(ey-g.y)*cx)); // 0.28.29 NPC 提速后 1s 窗口偏短，量 1.5s
                 if(i>=400) { require(d>Catalog.PIRATE_RANGE*.35f && d<Catalog.PIRATE_RANGE*.70f,"held cannon band: "+war+" "+d); mean+=d/200; }
                 shots+=g.ballCount;g.ballCount=0;
             }
@@ -31,7 +31,7 @@ public final class CombatAiRegression {
             if(war){w.hp=w.hpMax*.5f;w.heading=180;}else{g.pirateHp=g.pirateHpMax*.5f;g.pirateHeading=180;}
             float start=Catalog.dist(g.x,g.y,ex(g,w),ey(g,w));
             for(int i=0;i<20;i++)tick(g,w,.05f);
-            require(Catalog.dist(g.x,g.y,ex(g,w),ey(g,w))>start+90,"exactly half HP withdraws");
+            require(Catalog.dist(g.x,g.y,ex(g,w),ey(g,w))>start+70,"exactly half HP withdraws"); // 0.28.29 撤退 105→90，阈值同步
             float heading=war?w.heading:g.pirateHeading;
             require(MathUtils.cosDeg(heading)>.9f,"fleeing hull faces away while firing");require(g.ballCount>0,"returns fire while withdrawing");
             if(war)w.hp=w.hpMax;else g.pirateHp=g.pirateHpMax;
@@ -52,7 +52,7 @@ public final class CombatAiRegression {
             require(Catalog.dist(moving.x,moving.y,ex(moving,w),ey(moving,w))<700,"moving target closes into firing range");
         }
         GameState g=sea();enemy(g,false,g.x+550,g.y);tick(g,null,.1f);g.cancelLock();
-        float px=g.pirateX,py=g.pirateY;tick(g,null,.5f);require(Catalog.dist(px,py,g.pirateX,g.pirateY)>30,"unlock grace continues maneuver");
+        float px=g.pirateX,py=g.pirateY;tick(g,null,.5f);require(Catalog.dist(px,py,g.pirateX,g.pirateY)>20,"unlock grace continues maneuver"); // 0.28.29 追速 90→75
         tick(g,null,3f);px=g.pirateX;py=g.pirateY;tick(g,null,.2f);require(px==g.pirateX && py==g.pirateY,"grace ends in idle");
         for(boolean war:new boolean[]{false,true}) {
             g=sea();int type=war?4:VoyageGeometry.PIRATE_SHIP;

@@ -23,6 +23,8 @@ public final class QuestDialogue extends Table {
     private final Runnable dismiss;
     private final java.util.function.UnaryOperator<String> actionText;
     private final Label speaker, body, hint;
+    /** 0.28.29 长句滚动跑马灯：单行高度展示完整句子，替代多行撑高。 */
+    private MarqueeNotice bodyTicker;
     private final TextButton primary;
     private final Image leftBust, rightBust;
     private final Table leftSlot, rightSlot;
@@ -75,8 +77,14 @@ public final class QuestDialogue extends Table {
         rightBust = bustImage(ui, null); rightSlot = bustSlot(rightBust, "dialogueBustPlayer");
         body = ui.dialogueLine(""); body.setName("dialogueBody");
         body.setFontScale(1f); body.setWrap(true); body.setAlignment(Align.left);
-        paper.add(body).grow();
-        panel.add(paper).growX().height(210).padBottom(10).row();
+        // 0.28.29 羊皮纸收紧：短句贴纸居中（高 ~84），长句用单行横向滚动跑马灯展示全句，
+        // 不再把整张纸撑高（旧版固定 210 高留下大片空白）。
+        bodyTicker = new MarqueeNotice(body);
+        bodyTicker.setName("dialogueBodyTicker");
+        bodyTicker.setTouchable(Touchable.disabled);
+        body.setName("dialogueBody"); // 跑马灯构造会改名，恢复测试与样式依赖的名字。
+        paper.add(bodyTicker).growX().height(40).center();
+        panel.add(paper).growX().height(84).padBottom(10).row();
         Table footer = new Table();
         hint = ui.label("", 21, QuestUi.PAPER); hint.setName("dialogueHint");
         footer.add(hint).growX().left();
@@ -92,7 +100,8 @@ public final class QuestDialogue extends Table {
             @Override public float get(Actor context) { return Math.min(940,QuestDialogue.this.getWidth()-80); }
         };
         add(portraits).width(columnWidth).height(240).row();
-        add(panel).width(columnWidth).height(352);
+        // 0.28.29 纸面收紧后弹窗自然高度（~226），不再保留大片下方空白。
+        add(panel).width(columnWidth);
         addListener(new ClickListener() {
             @Override public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
                 // Buttons have their own touch focus. Their release must never also advance a line.

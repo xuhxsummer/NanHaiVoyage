@@ -96,9 +96,11 @@ public class GameState {
     public float warshipSpawnTimer = 90f;
     public float merchantSpawnTimer = 45f;
     public boolean merchantLock;
+    /** 0.28.29 战船锁定：自动开火 + 敌意追击。不存档（运行时交通状态）。 */
+    public boolean warshipLock;
     public int pirateDamage = 1;
     private int pirateGeneration, merchantGeneration;
-    private static final int PLAYER = 0, PIRATE = 1, MERCHANT = 2;
+    private static final int PLAYER = 0, PIRATE = 1, MERCHANT = 2, WARSHIP = 3;
     public boolean pirateAlive;
     public float pirateX, pirateY, pirateHeading, pirateHp, pirateHpMax;
     public boolean pirateChase;
@@ -1133,6 +1135,11 @@ public class GameState {
         return w.provoked || pirateAlive || (merchant != null && merchant.hostile);
     }
 
+    /** 0.28.29 战船代际：解锁后重开则旧炮弹不再命中。 */
+    private int warshipGeneration(int slot) {
+        return slot < warships.length && warships[slot] != null ? 71 + slot : 0;
+    }
+
     /** 每帧检测玩家与所有 NPC、NPC 互相之间的船体接触；接触即结算一次撞击伤害。 */
     private void updateShipImpacts(float dt) {
         ramRamCd = Math.max(0f, ramRamCd - dt);
@@ -2134,7 +2141,54 @@ public class GameState {
     public void cancelLock() {
         combatLock = false;
         merchantLock = false;
+        warshipLock = false;
         toast("取消锁定。");
+    }
+
+    /** 0.28.29 战船锁定：触发敌意追击并自动还火；其他锁定互斥。 */
+    public void lockWarship() {
+        int i = nearestWarship();
+        if (i < 0 || worldPaused() || failed) return;
+        warshipLock = true;
+        combatLock = false;
+        merchantLock = false;
+        warships[i].provoked = true; // 等效敌意：追击并还击
+        playerFireCd = Math.min(playerFireCd, 0.08f);
+        toast("已锁定战船，对方会追击还击。注意规避。");
+    }
+
+    /** 0.28.29 统一锁定：按海盗→商船→战船优先级锁定首个可锁定目标。 */
+    public void lockNearest() {
+        int kind = lockTargetKind();
+        if (kind == 1) lockPirate();
+        else if (kind == 2) lockMerchant();
+        else if (kind == 3) lockWarship();
+    }
+
+    /** 0.28.29 距离最近的活战船，无可锁定目标返回 -1。 */
+    private int nearestWarship() {
+        int best = -1;
+        float bestD = Catalog.NPC_HORIZON;
+        for (int i = 0; i < warships.length; i++) {
+            WarshipData w = warships[i];
+            if (w == null || !w.alive) continue;
+            float d = Catalog.dist(x, y, w.x, w.y);
+            if (d <= bestD) { bestD = d; best = i; }
+        }
+        return best;
+    }
+
+    /** 0.28.29 是否存在射程内可锁定的战船。 */
+    public boolean warshipLockable() {
+        return nearestWarship() >= 0;
+    }
+
+    /** 0.28.29 统一锁定目标种类：1=海盗 2=商船 3=战船，无目标 0。 */
+    public int lockTargetKind() {
+        if (pirateAlive) return 1;
+        if (merchant != null && merchantVisible()) return 2;
+        if (warshipLockable()) return 3;
+        return 0;
     }
 
     private void spawnPirate() {
@@ -2185,10 +2239,12 @@ public class GameState {
     }
 
     // Pirate pressure is faster/closer; warships hold a wider broadside orbit.
-    private static final float PIRATE_SAIL_SPEED = 100f;
+    // 0.28.29 NPC 提速 Tuning：玩家满速 150，海盗/战船基础压到 75（≈0.5×满速）。
+    private static final float PIRATE_SAIL_SPEED = 75f;
 
-    /** Closing pressure follows actual player speed; heading never changes engagement. */
-    private float chaseSpeed(float cruise) { return Math.max(cruise, Math.abs(speed)+35f); }
+    /** Closing pressure follows actual player speed with a small lead (+12, was +35);
+     * heading never changes engagement. Mid-stick players can keep pace or escape. */
+    private float chaseSpeed(float cruise) { return Math.max(cruise, Math.abs(speed)+12f); }
 
     /** Seek a moving flank point, never the player's center. Escape headings are held
      * for 1.2s and scored against open-water probes, avoiding mirrored-point jitter. */
@@ -2387,7 +2443,7 @@ public class GameState {
                 return;
             }
         }
-        moveNpc(t, t.ship, tx, ty, 58f * (1f + Catalog.SHIP_SPEED[t.ship] / 100f) * (t.hostile ? 1.6f : 1f), dt);
+        moveNpc(t, t.ship, tx, ty, Math.min(105f, 58f * (1f + Catalog.SHIP_SPEED[t.ship] / 100f)) * (t.hostile ? 1.2f : 1f), dt);
         // 0.28.24: 警觉货船边逃边还击（此前 fireCd 从未使用，货船只会逃不会打）。
         if (t.hostile && Catalog.dist(x, y, t.x, t.y) <= Catalog.PIRATE_RANGE) {
             t.fireCd -= dt;
@@ -2440,7 +2496,7 @@ public class GameState {
         boolean engaged=w.hostile || w.helm.grace>0;
         if(engaged || lowHp) {
             maneuver(w.helm,w.ship,w.x,w.y,w.heading,Catalog.PIRATE_RANGE*.56f,
-                    (lowHp?105.3f:chaseSpeed(90f)),dt,lowHp);
+                    (lowHp?90f:chaseSpeed(75f)),dt,lowHp);
             w.x=w.helm.x; w.y=w.helm.y; w.heading=w.helm.heading;
         } else {
             w.patrolAngle+=14f*dt;
@@ -2547,8 +2603,8 @@ public class GameState {
             m.rest=port?9:15;
             chooseMerchantRoute(m); return;
         }
-        // 0.28.22 被掠夺时逃逸提速（平时原速）。
-        float speed=58*(1+Catalog.SHIP_SPEED[m.ship]/100f)*(m.hostile?1.55f:1f);
+        // 0.28.22 被掠夺时逃逸提速；0.28.29 限速：巡航 ≈0.55×玩家满速，逃逸倍率 1.55→1.2。
+        float speed=Math.min(105f, 58*(1+Catalog.SHIP_SPEED[m.ship]/100f))*(m.hostile?1.2f:1f);
         int steps=Math.max(1,(int)Math.ceil(dt*speed/10));
         for(int step=0;step<steps;step++) {
             float angle=MathUtils.atan2(ty-m.y,tx-m.x)*MathUtils.radiansToDegrees;
@@ -2575,9 +2631,16 @@ public class GameState {
     }
 
     private void updatePlayerFire(float dt) {
-        int target=combatLock && pirateAlive?PIRATE:merchantLock && merchant!=null?MERCHANT:-1;
+        int target=combatLock && pirateAlive?PIRATE:merchantLock && merchant!=null?MERCHANT:warshipLock?WARSHIP:-1;
         if(target<0) return;
-        float tx=target==PIRATE?pirateX:merchant.x, ty=target==PIRATE?pirateY:merchant.y;
+        float tx, ty;
+        if(target==PIRATE) { tx=pirateX; ty=pirateY; }
+        else if(target==MERCHANT) { tx=merchant.x; ty=merchant.y; }
+        else {
+            int wi=nearestWarship();
+            if(wi<0) { warshipLock=false; return; }
+            tx=warships[wi].x; ty=warships[wi].y;
+        }
         if(Catalog.dist(x,y,tx,ty)>Catalog.PIRATE_RANGE) return;
         playerFireCd-=dt;
         if(playerFireCd<=0) {
@@ -2592,7 +2655,16 @@ public class GameState {
         spawnBall(player,sx,sy,tx,ty);
         if(ballCount==i) return;
         ballTarget[i]=target; ballDamage[i]=damage;
-        ballGeneration[i]=target==PIRATE?pirateGeneration:target==MERCHANT?merchantGeneration:0;
+        ballGeneration[i]=target==PIRATE?pirateGeneration:target==MERCHANT?merchantGeneration:target==WARSHIP?warshipGeneration(warshipsIndexOf(tx,ty)):0;
+    }
+
+    /** 0.28.29 依据炮弹落点反查战船槽位（仅用于命中代际校验）。 */
+    private int warshipsIndexOf(float tx,float ty) {
+        for(int i=0;i<warships.length;i++) {
+            WarshipData w=warships[i];
+            if(w!=null && w.alive && Catalog.dist(tx,ty,w.x,w.y)<1f) return i;
+        }
+        return 0;
     }
 
     /** Fires one cannonball along a straight line toward the target. Travel time
@@ -2650,6 +2722,17 @@ public class GameState {
                 hurtTime[2]=.3f;
                 merchant.hp-=damage;
                 if(merchant.hp<=0) sinkMerchant(player);
+            } else if(target==WARSHIP) {
+                for(int wi=0;wi<warships.length;wi++) {
+                    WarshipData w=warships[wi];
+                    if(w==null || !w.alive) continue;
+                    if(warshipGeneration(wi)!=generation || Catalog.dist(bx,by,w.x,w.y)>100) continue;
+                    hurtTime[5+wi]=.3f;
+                    w.provoked=true; // 开火即结仇：追击并还击
+                    w.hp-=damage;
+                    if(w.hp<=0) { addWreck(w.x,w.y,w.heading,w.ship); if(player) pushLootPopup("击沉战船", 40, "", 0, ""); despawnWarship(wi,true); }
+                    break;
+                }
             } else if(target==PLAYER && Catalog.dist(bx,by,x,y)<=90) {
                 hurtTime[0]=.3f;
                 hull=Math.max(0,hull-damage);
@@ -2733,7 +2816,7 @@ public class GameState {
         }
         failed = true;
         failReason = reason;
-        merchantLock = false; ballCount = 0;
+        merchantLock = false; warshipLock = false; ballCount = 0;
         stopAutoSail();
         clearPirate();
         speed = 0f;

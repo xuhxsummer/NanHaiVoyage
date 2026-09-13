@@ -17,6 +17,8 @@ public final class VoyageHud extends Group implements Disposable {
     private final Label windSpeed;
     private final Table time;
     public final TextButton auto,cancelAuto,lock,cancelLock,anchor;
+    /** 0.28.29 统一「锁定」按钮：海盗/商船/战船任一可锁定目标时显示。 */
+    public final TextButton lockAny;
     private final Label coords,place,placeSub;
     private final MarqueeNotice toast;
     public final Table location,toastBar,questGroup;
@@ -30,7 +32,7 @@ public final class VoyageHud extends Group implements Disposable {
     private int shownAvatar = -1;
     private final Array<float[]> anchors = new Array<>();
     public VoyageHud(Skin skin,Runnable captain,IntConsumer stat,Runnable[] shortcuts,Runnable world,
-                     Runnable mine,Runnable intel,Runnable port,Runnable autoAction,Runnable cancel,Runnable lockAction,Runnable unlock,Runnable anchorAction,IntConsumer quest){
+                     Runnable mine,Runnable intel,Runnable port,Runnable autoAction,Runnable cancel,Runnable lockAction,Runnable lockAnyAction,Runnable unlock,Runnable anchorAction,IntConsumer quest){
         setSize(1920,1080);setScale(2f/3f);setTouchable(Touchable.childrenOnly);
         ui=new VoyageHudChrome(skin);
         Table resources=panel(ui.panel,136,968,506,88);
@@ -91,6 +93,9 @@ public final class VoyageHud extends Group implements Disposable {
         // 取消锁定紧贴自动航行上方，共用左下按钮列。
         cancelAuto=utility("取消自动",cancel,648); cancelAuto.setBounds(648,96,168,64);
         lock=utility("锁定海盗",lockAction,472); lock.setBounds(472,168,168,64);
+        // 0.28.29 统一锁定按钮（同位覆盖：海盗/商船/战船均可锁定）。
+        lockAny=ui.button("锁定",ui.panel,22);lockAny.setName("锁定");
+        lockAny.setBounds(472,168,168,64);lockAny.addListener(click(lockAnyAction));addActor(lockAny);
         cancelLock=ui.button("取消锁定",ui.panel,22);cancelLock.setName("取消锁定");
         cancelLock.setBounds(472,168,168,64);cancelLock.addListener(click(unlock));addActor(cancelLock);
         // 0.28.21 抛锚/起锚：贴船按钮 —— 位置每帧由 VoyageScreen 投影同步

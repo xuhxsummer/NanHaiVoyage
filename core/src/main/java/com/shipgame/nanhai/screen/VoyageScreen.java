@@ -359,7 +359,7 @@ public class VoyageScreen extends ScreenAdapter {
         voyageHud = new VoyageHud(game.skin, this::toggleAvatar, this::statClicked, shortcuts,
                 world, this::toggleMine, this::openIntel, this::contextReopen,
                 () -> { if (g.autoSail) { g.cancelAutoSail(); rebuildMenu(); } else world.run(); },
-                () -> { g.cancelAutoSail(); rebuildMenu(); }, () -> g.lockPirate(), () -> g.cancelLock(),
+                () -> { g.cancelAutoSail(); rebuildMenu(); }, () -> g.lockPirate(), () -> g.lockNearest(), () -> g.cancelLock(),
                 this::toggleAnchor, card -> {
                     if(overlay==Overlay.NONE) contextualTips.complete(Tip.QUEST_CARD);
                     openQuestDialogue(card);
@@ -756,7 +756,7 @@ public class VoyageScreen extends ScreenAdapter {
         menuRoot.clear();
         stage.setKeyboardFocus(null); stage.setScrollFocus(null);
         boolean fullscreen = isFullscreenOverlay();
-        menuRoot.pad(fullscreen || overlay == Overlay.DIALOGUE ? 0 : 78,0,0,0);
+        menuRoot.pad(fullscreen || overlay == Overlay.DIALOGUE || overlay == Overlay.LOOT ? 0 : 78,0,0,0);
         menuRoot.setTouchable(overlay == Overlay.NONE || overlay == Overlay.MAP ? Touchable.childrenOnly : Touchable.enabled);
         voyageHud.setVisible(!fullscreen);
         if (overlay == Overlay.NONE || overlay == Overlay.MAP) {
@@ -859,13 +859,21 @@ public class VoyageScreen extends ScreenAdapter {
             showFullscreen(page,1296,800);
             return;
         }
+        // 0.28.29 战利品：登录公告式居中弹窗（金边深蓝 + 暗遮罩），不再走顶部小盒。
+        if (overlay == Overlay.LOOT) {
+            Table holder = new Table();
+            holder.setTouchable(Touchable.enabled);
+            holder.setBackground(game.skin.newDrawable("white", new Color(0.01f, 0.02f, 0.04f, .72f)));
+            holder.add(lootPage()).width(720).center();
+            menuRoot.add(holder).grow();
+            return;
+        }
         Table box = new Table(game.skin);
         box.pad(8f); box.background(game.skin.getDrawable("panel"));
         if (overlay == Overlay.MARKET) marketTable(box);
         else if (overlay == Overlay.ISLAND) islandTable(box);
-        else if (overlay == Overlay.LOOT) { box.clear(); box.add(lootPage()).width(420).height(230); }
         ScrollPane sp = new ScrollPane(box,game.skin); sp.setFadeScrollBars(false);
-        menuRoot.add(sp).width(overlay == Overlay.MARKET ? PORT_MENU_W+24f : (overlay == Overlay.LOOT ? 440f : 520f)).maxHeight(overlay == Overlay.LOOT ? 250 : 560);
+        menuRoot.add(sp).width(overlay == Overlay.MARKET ? PORT_MENU_W+24f : 520f).maxHeight(560);
     }
 
     private boolean isFullscreenOverlay() {
@@ -1856,18 +1864,14 @@ public class VoyageScreen extends ScreenAdapter {
             int prog = getQuestProgress(g, q.progressType);
             boolean done = isQuestComplete(g, q);
             boolean claimed = isQuestClaimed(g, q);
+            // 0.28.29 左列只留标题 + 极小状态（可领奖/已领），绝不显示完整描述；详情仍在右栏。
             String sub;
             if (claimed) {
-                sub = "已完成 · 已领奖";
-            } else if (!done) {
-                sub = q.description;
+                sub = "已领";
             } else if (done) {
-                sub = "完成！点开领取奖励";
-            } else if (q.progressType == 4) { // 还债任务显示当前欠款
-                sub = "进行中 欠款 " + prog + " 两";
+                sub = "可领奖";
             } else {
-                int t = q.targetAmount > 0 ? q.targetAmount : 1;
-                sub = "进行中 " + prog + "/" + t;
+                sub = "";
             }
             Table row = new Table();
             row.pad(8, 16, 8, 16);
@@ -1876,8 +1880,10 @@ public class VoyageScreen extends ScreenAdapter {
             Color ink = selected ? QuestUi.PAPER : QuestUi.INK;
             Table copy = new Table();
             copy.add(questUi.label((q.id < MAIN_QUEST_COUNT ? "主线 · " : "支线 · ") + q.title, 24, ink)).left().growX().row();
-            Label status = questUi.label(sub, 20, selected && done ? QuestUi.JADE : ink);
-            copy.add(status).left().growX();
+            if (!sub.isEmpty()) {
+                Label status = questUi.label(sub, 18, done ? QuestUi.JADE : ink);
+                copy.add(status).left().growX();
+            }
             row.add(copy).expandX().fillX().padLeft(24);
             TextureRegionDrawable icon = IconLib.hud("quest");
             if (icon != null) row.add(new Image(icon)).size(32).padRight(16);
@@ -1886,7 +1892,7 @@ public class VoyageScreen extends ScreenAdapter {
                 selectedQuest = qi;
                 if (qi >= MAIN_QUEST_COUNT) openSideDialogue(qi); else rebuildMenu();
             }));
-            listTbl.add(row).width(400).height(80).row();
+            listTbl.add(row).width(400).height(56).row();
         }
         ScrollPane listSp = new ScrollPane(listTbl, game.skin);
         listSp.setScrollingDisabled(true, false);
@@ -2464,8 +2470,11 @@ public class VoyageScreen extends ScreenAdapter {
         }
 
         btnCancelAuto.setVisible(g.autoSail && overlay != Overlay.MAP);
-        btnLockPirate.setVisible(g.pirateAlive && !g.combatLock && overlay == Overlay.NONE);
-        btnCancelLock.setVisible((g.combatLock || g.merchantLock) && overlay == Overlay.NONE);
+        // 0.28.29 统一「锁定」按钮：海盗/商船/战船任一可锁定目标时显示，取代旧「锁定海盗」。
+        boolean anyLock = g.combatLock || g.merchantLock || g.warshipLock;
+        voyageHud.lockAny.setVisible(overlay == Overlay.NONE && !anyLock && g.lockTargetKind() > 0);
+        btnLockPirate.setVisible(false);
+        btnCancelLock.setVisible(anyLock && overlay == Overlay.NONE);
         // 0.28.21/0.28.22: 停靠提示（所在地）+ 抛锚/起锚按钮贴船 —— 0.28.22 改为
         // 船右侧水平排列：停靠提示在左、抛锚在右，等宽等高（180×64）。只在港/岛
         // 范围内（或已抛锚）显示；菜单开着（世界暂停）或投影失败（船在屏外）时隐藏。
@@ -2559,7 +2568,7 @@ public class VoyageScreen extends ScreenAdapter {
             if(overlay==Overlay.NONE) {
                 if(!stickActive && g.steerInput==0 && g.thrustInput==0) eligible|=Tip.STICK.bit();
                 if(btnAnchor.isVisible() || voyageHud.location.isVisible()) eligible|=Tip.DOCK.bit();
-                if(g.pirateAlive && btnLockPirate.isVisible()) eligible|=Tip.PIRATE_LOCK.bit();
+                if(g.lockTargetKind()>0 && voyageHud.lockAny.isVisible()) eligible|=Tip.PIRATE_LOCK.bit();
                 if(voyageHud.questGroup.isVisible()) eligible|=Tip.QUEST_CARD.bit();
             } else if(overlay==Overlay.PORT && g.dockedPort>=0) eligible|=Tip.PORT_TRADE.bit();
         }
@@ -2587,13 +2596,15 @@ public class VoyageScreen extends ScreenAdapter {
         }
     }
 
+    /** 0.28.29 战利品弹窗：登录公告描金 UI（金边深蓝底、金字、金边按钮），与 0.28.28 指引弹窗同语言。 */
     private Table lootPage() {
-        Table page = new Table(game.skin);
-        page.pad(16);
+        Table page = new Table();
+        page.setName("lootPage");
+        page.setBackground(voyageHud.ui.announceFrame);
+        page.pad(32);
         GameState.LootGain gain = lootGain;
-        Label title = new Label(gain == null ? "战利品" : gain.title, game.skin, "gold");
-        title.setFontScale(1.5f);
-        page.add(title).center().padBottom(18).row();
+        Label title = voyageHud.ui.label(gain == null ? "战利品" : gain.title, 36, VoyageHudChrome.ANNOUNCE_TITLE);
+        page.add(title).center().padBottom(16).growX().row();
         StringBuilder body = new StringBuilder();
         if (gain != null) {
             if (gain.silver > 0) body.append("银两 +").append(gain.silver).append("\n");
@@ -2603,16 +2614,15 @@ public class VoyageScreen extends ScreenAdapter {
             if (gain.extra != null && !gain.extra.isEmpty()) body.append(gain.extra);
         }
         if (body.length() == 0) body.append("战利品已收取。");
-        Label copy = new Label(body.toString(), game.skin);
-        copy.setFontScale(1.1f);
+        Label copy = voyageHud.ui.label(body.toString(), 26, VoyageHudChrome.ANNOUNCE_COPY);
         copy.setAlignment(Align.center);
-        page.add(copy).center().padBottom(24).row();
-        TextButton ok = new TextButton("收下", game.skin);
-        ok.getLabel().setFontScale(1.25f);
+        page.add(copy).center().padBottom(24).growX().row();
+        TextButton ok = voyageHud.ui.announceButton("收下", 28);
+        ok.setName("收下");
         ok.addListener(new ClickListener() {
             @Override public void clicked(InputEvent e, float x, float y) { closePopup(); }
         });
-        page.add(ok).size(300, 76).center();
+        page.add(ok).size(260, 64).center();
         return page;
     }
 

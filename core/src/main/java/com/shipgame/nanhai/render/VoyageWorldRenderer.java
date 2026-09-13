@@ -378,12 +378,16 @@ public final class VoyageWorldRenderer implements Disposable {
         Gdx.gl.glViewport(0,0,Gdx.graphics.getWidth(),Gdx.graphics.getHeight());
         // 0.28.26 昼夜天空 + 海面亮度（游戏时钟 06:00-18:00 白昼，平滑过渡，无硬切）。
         float clock = g.dayMin; // 0..1439
+        // 0.28.29 昼夜渐变：黎明/黄昏各加宽到 2 小时，smoothstep 曲线过渡（无硬切、无平台突降）。
+        // 天空、海色、环境光、方向光、船灯、星空/月亮全部沿用同一个连续 dayness 因子。
         float dayness;
-        if (clock >= 300f && clock <= 1020f) dayness = 1f;            // 05:00-17:00 白昼
-        else if (clock > 1020f && clock < 1140f) dayness = 1f - (clock - 1020f) / 120f; // 17:00-19:00 入夜（黄昏中段）
-        else if (clock >= 1260f || clock < 240f) dayness = 0f;        // 21:00-04:00 深夜
-        else if (clock >= 240f && clock < 300f) dayness = (clock - 240f) / 60f;         // 04:00-05:00 黎明
-        else dayness = 1f - (1140f - clock) / 120f;                    // 19:00-21:00 余晖
+        if (clock >= 420f && clock <= 1020f) dayness = 1f;            // 07:00-17:00 白昼平台
+        else if (clock > 1020f && clock < 1140f) {                    // 17:00-19:00 黄昏渐暗（2h）
+            float t = (clock - 1020f) / 120f; dayness = 1f - t * t * (3f - 2f * t);
+        } else if (clock >= 1140f || clock < 300f) dayness = 0f;      // 19:00-05:00 夜晚平台
+        else {                                                        // 05:00-07:00 黎明渐亮（2h）
+            float t = (clock - 300f) / 120f; dayness = t * t * (3f - 2f * t);
+        }
         dayness = MathUtils.clamp(dayness, 0f, 1f);
         // 黄昏暖色权重：日出日落前后各约 1 小时，呈三角峰。
         float duskMix = 0f;

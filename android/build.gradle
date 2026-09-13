@@ -21,8 +21,8 @@ android {
             // ui-refs are working-reference mockups, never shipped in the APK.
             ignoreAssetsPattern '!.svn:!.git:!.gitignore:!.ds_store:!*.scc:.*:!ai-draft:!ui-refs'
         }
-        versionCode 65
-        versionName '0.28.28'
+        versionCode 66
+        versionName '0.28.29'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
